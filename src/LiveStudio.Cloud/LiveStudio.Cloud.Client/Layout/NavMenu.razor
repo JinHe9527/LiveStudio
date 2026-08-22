@@ -1,0 +1,100 @@
+@implements IDisposable
+
+@inject NavigationManager NavigationManager
+
+<div class="mobile-bar">
+    <button class="menu-toggle" type="button" aria-label="切换导航" @onclick="ToggleMenu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+    </button>
+</div>
+
+<div class="brand">
+    <span class="brand-mark">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" /><path d="m8 15 3-3 2.3 2.3L17 10.5" /></svg>
+    </span>
+    <span><strong>LiveStudio</strong><small>画面配置中心</small></span>
+</div>
+
+<nav class="nav-stack @(menuOpen ? "open" : null)" aria-label="主导航">
+    <span class="nav-section">工作区</span>
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15.5V8.5A3.5 3.5 0 0 1 7.5 5h9A3.5 3.5 0 0 1 20 8.5v7a3.5 3.5 0 0 1-3.5 3.5h-9A3.5 3.5 0 0 1 4 15.5Z" /><path d="m8 14 2.5-3 2.3 2.4 3.2-4" /></svg>
+        <span>画面状态</span>
+    </NavLink>
+    <NavLink class="nav-link" href="rooms">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5v11A2.5 2.5 0 0 1 13.5 20h-7A2.5 2.5 0 0 1 4 17.5z" /><path d="m16 9 4-2v10l-4-2" /></svg>
+        <span>直播间与设备</span>
+    </NavLink>
+
+    <span class="nav-section">配置</span>
+    <NavLink class="nav-link" href="snapshots">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14v12H5z" /><path d="M8 4h8M8 11h8M8 15h5" /></svg>
+        <span>画面存档</span>
+    </NavLink>
+    <NavLink class="nav-link" href="mappings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2" /><circle cx="18" cy="18" r="2" /><path d="M8 6h3a3 3 0 0 1 3 3v6a3 3 0 0 0 3 3M6 8v10h10" /></svg>
+        <span>设备映射</span>
+    </NavLink>
+    <NavLink class="nav-link" href="jobs">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        <span>操作记录</span>
+    </NavLink>
+
+    <span class="nav-section">管理</span>
+    <NavLink class="nav-link" href="compatibility">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z" /><path d="m8.5 12 2 2 5-5" /></svg>
+        <span>兼容性</span>
+    </NavLink>
+    <NavLink class="nav-link" href="organization">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2M16 5a3 3 0 0 1 0 6M18 13a4 4 0 0 1 3 4v3" /></svg>
+        <span>团队与权限</span>
+    </NavLink>
+
+    <div class="account-area">
+        <AuthorizeView>
+            <Authorized>
+                <NavLink class="account-link" href="Account/Manage">
+                    <span class="avatar">@GetInitial(context.User.Identity?.Name)</span>
+                    <span class="account-copy"><strong>@(context.User.Identity?.Name ?? "账户")</strong><small>管理账户</small></span>
+                </NavLink>
+                <form action="Account/Logout" method="post">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                    <button type="submit" class="sign-out">退出登录</button>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <NavLink class="account-link signed-out" href="Account/Login">登录 LiveStudio</NavLink>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</nav>
+
+@code {
+    private string? currentUrl;
+    private bool menuOpen;
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void ToggleMenu() => menuOpen = !menuOpen;
+
+    private static string GetInitial(string? name) => string.IsNullOrWhiteSpace(name)
+        ? "L"
+        : name.Trim()[0].ToString().ToUpperInvariant();
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs eventArgs)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(eventArgs.Location);
+        menuOpen = false;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

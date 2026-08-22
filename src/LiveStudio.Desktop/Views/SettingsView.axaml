@@ -1,0 +1,221 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveStudio.Desktop.ViewModels"
+             xmlns:contracts="using:LiveStudio.Contracts"
+             x:Class="LiveStudio.Desktop.Views.SettingsView"
+             x:DataType="vm:MainViewModel">
+    <Grid RowDefinitions="72,*">
+        <Grid Margin="28,0" Classes="toolbar">
+            <StackPanel VerticalAlignment="Center" Spacing="3">
+                <TextBlock Classes="page-title" Text="连接与设置" />
+                <TextBlock Classes="page-subtitle" Text="连接服务并管理这台设备" />
+            </StackPanel>
+            <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Width="720" Margin="28,26" HorizontalAlignment="Left">
+                <TextBlock Margin="0,0,0,10" Classes="settings-section" Text="软件更新" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="当前版本" />
+                        <TextBlock Classes="settings-copy" Text="从 GitHub 私有 Release 检查经过 SHA-256 校验的安装包" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="12">
+                        <TextBlock Classes="settings-value" Text="{Binding CurrentVersionText}" />
+                        <TextBlock Classes="settings-copy" Text="→" />
+                        <TextBlock Classes="settings-value" Text="{Binding LatestVersionText}" />
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="GitHub 更新凭据" />
+                        <TextBlock Classes="settings-copy" Text="只需要该私有仓库的 Contents 只读权限，凭据不会写入配置或存档" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <TextBox Width="250" Classes="settings-input" PasswordChar="●"
+                                 PlaceholderText="Fine-grained Token"
+                                 IsVisible="{Binding !HasGitHubUpdateToken}"
+                                 Text="{Binding GitHubUpdateToken}" />
+                        <Button Classes="standard" IsVisible="{Binding !HasGitHubUpdateToken}"
+                                Command="{Binding SaveGitHubUpdateTokenCommand}">安全保存</Button>
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center"
+                                   IsVisible="{Binding HasGitHubUpdateToken}" Text="已保存到系统凭据库" />
+                        <Button Classes="toolbar-action" IsVisible="{Binding HasGitHubUpdateToken}"
+                                Command="{Binding DeleteGitHubUpdateTokenCommand}">移除</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
+                               Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <Button Classes="standard" Command="{Binding CheckForUpdatesCommand}">检查更新</Button>
+                        <Button Classes="standard accent" Command="{Binding InstallUpdateCommand}">下载、安装并重启</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+
+                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="连接" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="云端服务" />
+                        <TextBlock Classes="settings-copy" Text="设备注册和存档同步状态" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding CloudStatus}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="服务地址" />
+                        <TextBlock Classes="settings-copy" Text="使用浏览器确认授权，不向客户端提供账号密码或 Cookie" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <TextBox Width="250" Classes="settings-input" IsEnabled="{Binding !IsCloudConnected}"
+                                 Text="{Binding CloudServiceUrl}" />
+                        <Button Classes="standard accent" IsVisible="{Binding !IsCloudConnected}"
+                                Command="{Binding ConnectCloudCommand}">连接…</Button>
+                        <Button Classes="toolbar-action" IsVisible="{Binding IsCloudConnected}"
+                                Command="{Binding DisconnectCloudCommand}">断开</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" IsVisible="{Binding IsCloudConnected}">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="Organization" />
+                        <TextBlock Classes="settings-copy" Text="选择要管理的直播间与设备空间" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="1" Width="250" Classes="mapping-picker"
+                              VerticalAlignment="Center"
+                              ItemsSource="{Binding Organizations}"
+                              SelectedItem="{Binding SelectedOrganization}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:OrganizationSummary">
+                                <TextBlock Classes="settings-title" Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" IsVisible="{Binding IsCloudConnected}" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" IsVisible="{Binding SupportsLocalAgent}">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="Windows 执行端" />
+                        <TextBlock Classes="settings-copy" Text="把本机 Agent 注册到当前选择的空闲直播间" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center" Text="{Binding CloudStatus}" />
+                        <Button Classes="standard accent" IsVisible="{Binding !IsAgentCloudEnrolled}"
+                                Command="{Binding EnrollAgentCommand}">注册到所选直播间</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" IsVisible="{Binding SupportsLocalAgent}" />
+                <Grid MinHeight="58" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
+                               Text="{Binding CloudConnectionMessage}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="1" Classes="authorization-code-inline"
+                               IsVisible="{Binding HasCloudAuthorizationCode}"
+                               VerticalAlignment="Center" Text="{Binding CloudAuthorizationCode}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="设备名称" />
+                        <TextBlock Classes="settings-copy" Text="云端用这个名称识别当前设备" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding DeviceName}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+
+                <StackPanel IsVisible="{Binding SupportsLocalAgent}">
+                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="局域网存档" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <StackPanel Margin="0,12" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="共享目录" />
+                        <TextBlock MaxWidth="470" Classes="settings-copy" Text="{Binding LanSharedDirectory}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <Button Classes="link" Command="{Binding DisableLanDirectoryCommand}">停用</Button>
+                        <Button Classes="standard" IsEnabled="{Binding SupportsLocalAgent}"
+                                Click="ChooseLanDirectoryClicked">选择…</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="58" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
+                               Text="{Binding LanSettingsMessage}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center"
+                               Text="{Binding LanSyncStatus}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                </StackPanel>
+
+                <StackPanel IsVisible="{Binding SupportsLocalAgent}">
+                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="OBS WEBSOCKET" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="本机地址" />
+                        <TextBlock Classes="settings-copy" Text="只允许连接当前电脑的 ws:// 或 wss:// 地址" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Width="250" Classes="settings-input"
+                             VerticalAlignment="Center" Text="{Binding ObsEndpoint}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="连接密码" />
+                        <TextBlock Classes="settings-copy" Text="密码只写入 Windows Credential Manager" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Width="250" Classes="settings-input"
+                             VerticalAlignment="Center" PasswordChar="●" Text="{Binding ObsPassword}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="58" ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="{Binding SettingsMessage}" />
+                    <Button Grid.Column="1" Classes="standard accent" VerticalAlignment="Center"
+                            Command="{Binding ConfigureObsCommand}">保存并重新检测</Button>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                </StackPanel>
+
+                <StackPanel IsVisible="{Binding SupportsLocalAgent}">
+                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="后台运行" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="登录后自动启动 Agent" />
+                        <TextBlock Classes="settings-copy" Text="在当前 Windows 用户登录后启动执行端和系统托盘" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center"
+                                   Text="已启用" IsVisible="{Binding IsAgentAutoStartEnabled}" />
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center"
+                                   Text="已停用" IsVisible="{Binding !IsAgentAutoStartEnabled}" />
+                        <Button Classes="toolbar-action" IsVisible="{Binding IsAgentAutoStartEnabled}"
+                                Command="{Binding DisableAgentAutoStartCommand}">停用</Button>
+                        <Button Classes="standard" IsVisible="{Binding !IsAgentAutoStartEnabled}"
+                                Command="{Binding EnableAgentAutoStartCommand}">启用</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+                </StackPanel>
+
+                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="运行模式" />
+                <Border Height="1" Background="#18FFFFFF" />
+                <Grid Height="66" ColumnDefinitions="*,Auto">
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="当前平台" />
+                        <TextBlock Classes="settings-copy" Text="Windows 可执行本机任务，macOS 用于管理直播电脑" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding PlatformMode}" />
+                </Grid>
+                <Border Height="1" Background="#18FFFFFF" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

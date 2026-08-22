@@ -1,0 +1,246 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveStudio.Desktop.ViewModels"
+             x:Class="LiveStudio.Desktop.Views.SnapshotsView"
+             x:DataType="vm:MainViewModel">
+    <Grid RowDefinitions="72,Auto,*">
+        <Grid Margin="28,0" ColumnDefinitions="*,Auto" Classes="toolbar">
+            <StackPanel VerticalAlignment="Center" Spacing="3">
+                <TextBlock Classes="page-title" Text="画面存档" />
+                <TextBlock Classes="page-subtitle" Text="{Binding SnapshotsSubtitle}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                <Button Classes="toolbar-action" Click="ImportSnapshotClicked">打开存档…</Button>
+                <Button Classes="toolbar-action" IsVisible="{Binding SupportsLocalAgent}"
+                        IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked">导出…</Button>
+                <Button Classes="toolbar-action" Command="{Binding RefreshStateCommand}">刷新</Button>
+                <Button Classes="toolbar-action" IsVisible="{Binding CanShowRestoreAction}"
+                        Command="{Binding RestoreSnapshotCommand}">恢复</Button>
+                <Button Classes="standard accent" IsVisible="{Binding SupportsLocalAgent}"
+                        Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
+            </StackPanel>
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+        </Grid>
+
+        <Border Grid.Row="1"
+                IsVisible="{Binding HasTransferMessage}"
+                Padding="28,10"
+                Background="#242426"
+                BorderBrush="#16FFFFFF"
+                BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <Ellipse Width="6" Height="6" Fill="#FF9F0A" IsVisible="{Binding HasPendingImport}"
+                         VerticalAlignment="Center" />
+                <Ellipse Width="6" Height="6" Fill="#0A84FF" IsVisible="{Binding !HasPendingImport}"
+                         VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Classes="transfer-message" VerticalAlignment="Center"
+                           Text="{Binding PendingImportMessage}" TextWrapping="Wrap" />
+                <StackPanel Grid.Column="2" IsVisible="{Binding HasPendingImport}"
+                            Orientation="Horizontal" Spacing="8">
+                    <Button Classes="link" Command="{Binding CancelPendingImportCommand}">取消</Button>
+                    <Button Classes="standard accent" Command="{Binding TrustAndImportCommand}">信任并导入</Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="360,*">
+            <Grid>
+                <Grid IsVisible="{Binding HasSnapshots}" RowDefinitions="38,*">
+                    <Grid Margin="22,0" ColumnDefinitions="*,106">
+                        <TextBlock Classes="column-heading" VerticalAlignment="Center" Text="存档" />
+                        <TextBlock Grid.Column="1" Classes="column-heading" VerticalAlignment="Center" Text="保存时间" />
+                    </Grid>
+                    <ListBox Grid.Row="1"
+                             Margin="10,0"
+                             ItemsSource="{Binding SnapshotItems}"
+                             SelectedItem="{Binding SelectedSnapshot}"
+                             Classes="snapshot-list">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LocalSnapshotItemViewModel">
+                                <Grid MinHeight="64" Margin="12,0" ColumnDefinitions="*,106">
+                                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Classes="snapshot-name" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Classes="snapshot-meta" Text="{Binding Detail}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Classes="snapshot-meta" VerticalAlignment="Center"
+                                               Text="{Binding CreatedAt}" TextWrapping="Wrap" />
+                                    <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#12FFFFFF" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+
+                <StackPanel Width="286" IsVisible="{Binding !HasSnapshots}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
+                    <Path Width="32" Height="32" Margin="0,0,0,5" HorizontalAlignment="Center"
+                          Data="M5,7 L19,7 L19,19 L5,19 Z M8,4 L16,4 M8,11 L16,11 M8,15 L13,15"
+                          Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
+                    <TextBlock Classes="empty-heading" Text="还没有本机存档" TextAlignment="Center" />
+                    <TextBlock Classes="empty-body" Text="{Binding SnapshotEmptyDescription}"
+                               TextAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Column="1" Classes="inspector">
+                <Grid RowDefinitions="70,*">
+                    <Grid Margin="26,0">
+                        <StackPanel VerticalAlignment="Center" Spacing="3">
+                            <TextBlock Classes="inspector-title" Text="存档内容" />
+                            <TextBlock Classes="row-value" Text="保存了什么，恢复时就逐项验证什么" />
+                        </StackPanel>
+                        <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+                    </Grid>
+                    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                        <Grid Margin="26,20,26,36">
+                            <TextBlock IsVisible="{Binding !HasSnapshotInspector}"
+                                       Classes="inspector-note"
+                                       Text="{Binding SnapshotInspectorMessage}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel IsVisible="{Binding HasSnapshotInspector}" Spacing="28">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="detail-title" Text="{Binding SnapshotInspector.Name}" />
+                                        <TextBlock Classes="detail-meta" Text="{Binding SnapshotInspector.Summary}" />
+                                        <TextBlock Classes="detail-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" IsVisible="{Binding SnapshotInspector.HasVerification}"
+                                                HorizontalAlignment="Right" Spacing="3">
+                                        <TextBlock Classes="verification" HorizontalAlignment="Right"
+                                                   Text="{Binding SnapshotInspector.Verification}" />
+                                        <TextBlock Classes="technical-value" HorizontalAlignment="Right"
+                                                   Text="{Binding SnapshotInspector.VerificationDetail}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <ItemsControl ItemsSource="{Binding SnapshotInspector.Applications}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
+                                            <StackPanel Margin="0,0,0,34" Spacing="18">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <StackPanel Spacing="3">
+                                                        <TextBlock Classes="application-title" Text="{Binding Name}" />
+                                                        <TextBlock Classes="detail-meta" Text="{Binding Summary}" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Classes="detail-meta" VerticalAlignment="Center"
+                                                               Text="{Binding Version}" />
+                                                </Grid>
+                                                <Border Height="1" Background="#20FFFFFF" />
+
+                                                <ItemsControl ItemsSource="{Binding Sources}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:SnapshotSourceViewModel">
+                                                            <StackPanel Margin="0,0,0,30" Spacing="16">
+                                                                <StackPanel Spacing="3">
+                                                                    <TextBlock Classes="source-title" Text="{Binding Name}" />
+                                                                    <TextBlock Classes="detail-meta" Text="{Binding SourceKind}" />
+                                                                </StackPanel>
+
+                                                                <StackPanel Spacing="4">
+                                                                    <TextBlock Classes="section-kicker" Text="采集设备" />
+                                                                    <TextBlock Classes="parameter-value-strong" Text="{Binding DeviceName}" TextWrapping="Wrap" />
+                                                                    <TextBlock Classes="technical-value" Text="{Binding DeviceIdentity}" TextWrapping="Wrap" />
+                                                                </StackPanel>
+
+                                                                <Grid ColumnDefinitions="100,*,100,*" RowDefinitions="Auto,Auto,Auto"
+                                                                      ColumnSpacing="12" RowSpacing="11">
+                                                                    <TextBlock Classes="parameter-label" Text="分辨率" />
+                                                                    <TextBlock Grid.Column="1" Classes="parameter-value" Text="{Binding Resolution}" />
+                                                                    <TextBlock Grid.Column="2" Classes="parameter-label" Text="帧率" />
+                                                                    <TextBlock Grid.Column="3" Classes="parameter-value" Text="{Binding FrameRate}" />
+                                                                    <TextBlock Grid.Row="1" Classes="parameter-label" Text="像素格式" />
+                                                                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="parameter-value" Text="{Binding PixelFormat}" />
+                                                                    <TextBlock Grid.Row="1" Grid.Column="2" Classes="parameter-label" Text="色彩空间" />
+                                                                    <TextBlock Grid.Row="1" Grid.Column="3" Classes="parameter-value" Text="{Binding ColorSpace}" />
+                                                                    <TextBlock Grid.Row="2" Classes="parameter-label" Text="色彩范围" />
+                                                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="parameter-value" Text="{Binding ColorRange}" />
+                                                                </Grid>
+
+                                                                <StackPanel IsVisible="{Binding HasSettings}" Spacing="9">
+                                                                    <TextBlock Classes="section-kicker" Text="{Binding SettingsTitle}" />
+                                                                    <ItemsControl ItemsSource="{Binding Settings}">
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate x:DataType="vm:SnapshotSettingViewModel">
+                                                                                <Grid MinHeight="28" ColumnDefinitions="150,*" ColumnSpacing="12">
+                                                                                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                                                        <TextBlock Classes="parameter-label" Text="{Binding Name}" />
+                                                                                        <TextBlock Classes="technical-key" Text="{Binding TechnicalName}" />
+                                                                                    </StackPanel>
+                                                                                    <TextBlock Grid.Column="1" Classes="parameter-value" VerticalAlignment="Center"
+                                                                                               Text="{Binding Value}" TextWrapping="Wrap" />
+                                                                                </Grid>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+                                                                </StackPanel>
+
+                                                                <StackPanel Spacing="3">
+                                                                    <TextBlock Classes="section-kicker" Text="视频滤镜链" />
+                                                                    <TextBlock Classes="detail-meta" Text="{Binding FilterSummary}" />
+                                                                </StackPanel>
+
+                                                                <ItemsControl ItemsSource="{Binding Filters}">
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate x:DataType="vm:SnapshotFilterViewModel">
+                                                                            <StackPanel Margin="0,0,0,20" Spacing="10">
+                                                                                <Border Height="1" Background="#16FFFFFF" />
+                                                                                <Grid Margin="0,5,0,0" ColumnDefinitions="*,Auto">
+                                                                                    <StackPanel Spacing="3">
+                                                                                        <TextBlock Classes="filter-title" Text="{Binding Name}" />
+                                                                                        <TextBlock Classes="detail-meta" Text="{Binding Kind}" />
+                                                                                    </StackPanel>
+                                                                                    <TextBlock Grid.Column="1" Classes="filter-order" VerticalAlignment="Center"
+                                                                                               Text="{Binding Summary}" />
+                                                                                </Grid>
+                                                                                <TextBlock Classes="technical-key" Text="{Binding TechnicalKind}" />
+
+                                                                                <ItemsControl IsVisible="{Binding HasSettings}" ItemsSource="{Binding Settings}">
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate x:DataType="vm:SnapshotSettingViewModel">
+                                                                                            <Grid MinHeight="30" ColumnDefinitions="150,*" ColumnSpacing="12">
+                                                                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                                                                    <TextBlock Classes="parameter-label" Text="{Binding Name}" />
+                                                                                                    <TextBlock Classes="technical-key" Text="{Binding TechnicalName}" />
+                                                                                                </StackPanel>
+                                                                                                <TextBlock Grid.Column="1" Classes="parameter-value" VerticalAlignment="Center"
+                                                                                                           Text="{Binding Value}" TextWrapping="Wrap" />
+                                                                                            </Grid>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
+
+                                                                                <ItemsControl IsVisible="{Binding HasAssets}" ItemsSource="{Binding Assets}">
+                                                                                    <ItemsControl.ItemTemplate>
+                                                                                        <DataTemplate x:DataType="vm:SnapshotAssetViewModel">
+                                                                                            <Grid MinHeight="34" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                                                                                <Path Width="15" Height="15" VerticalAlignment="Center"
+                                                                                                      Data="M5,3 L14,3 L18,7 L18,19 L5,19 Z M14,3 L14,7 L18,7"
+                                                                                                      Stretch="Uniform" Stroke="#64A7FF" StrokeThickness="1.4" />
+                                                                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                                                                                    <TextBlock Classes="parameter-value" Text="{Binding Name}" />
+                                                                                                    <TextBlock Classes="technical-value" Text="{Binding Detail}" />
+                                                                                                </StackPanel>
+                                                                                            </Grid>
+                                                                                        </DataTemplate>
+                                                                                    </ItemsControl.ItemTemplate>
+                                                                                </ItemsControl>
+                                                                            </StackPanel>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

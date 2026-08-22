@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/LiveStudio.Cloud.IntegrationTests/LiveStudio.Cloud.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

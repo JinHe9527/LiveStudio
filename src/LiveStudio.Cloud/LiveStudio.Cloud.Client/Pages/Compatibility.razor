@@ -1,0 +1,33 @@
+@page "/compatibility"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject OrganizationSession Session
+
+<PageTitle>兼容性 · LiveStudio</PageTitle>
+
+<div class="page-header"><div><h1>兼容性</h1><p>只有结构指纹和签名都通过的适配器才会下发到 Agent。</p></div></div>
+<section class="card section-card table-wrap">
+    @if (adapters.Count == 0)
+    {
+        <div class="empty-state"><div><strong>尚无已发布的直播伴侣适配器</strong><br /><span class="muted">需先完成 Windows 实机单变量探测和 20 次往返验证。OBS 通过 obs-websocket 5.x 直接适配。</span></div></div>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>应用</th><th>版本范围</th><th>结构指纹</th><th>状态</th><th>发布时间</th></tr></thead>
+            <tbody>@foreach (var adapter in adapters) { <tr><td><strong>@adapter.Application</strong></td><td>@adapter.MinimumVersion – @adapter.MaximumVersion</td><td><code>@adapter.StructureFingerprint[..Math.Min(12, adapter.StructureFingerprint.Length)]</code></td><td><span class="status-badge @(adapter.Verified ? "success" : "warning")">@(adapter.Verified ? "已验证" : "实验")</span></td><td>@adapter.PublishedAt.ToLocalTime().ToString("yyyy-MM-dd")</td></tr> }</tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<AdapterCatalogSummary> adapters = [];
+    protected override async Task OnInitializedAsync()
+    {
+        await Session.LoadAsync();
+        if (Session.SelectedOrganizationId is { } organizationId)
+        {
+            adapters = await Http.GetFromJsonAsync<IReadOnlyList<AdapterCatalogSummary>>($"/api/v1/organizations/{organizationId}/adapters") ?? [];
+        }
+    }
+}

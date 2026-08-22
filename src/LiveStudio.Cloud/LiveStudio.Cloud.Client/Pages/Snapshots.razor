@@ -1,0 +1,386 @@
+@page "/snapshots"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject OrganizationSession Session
+
+<PageTitle>存档库 · LiveStudio</PageTitle>
+
+<div class="page-header">
+    <div><h1>存档库</h1><p>所有存档都已经 SHA-256 校验和设备签名验证。</p></div>
+    <div class="page-actions">
+        <button class="button quiet" disabled="@(comparisonSelection.Count == 0)" @onclick="ClearComparison">清除对比</button>
+        <button class="button primary" disabled="@(comparisonSelection.Count != 2 || busy)" @onclick="CompareAsync">对比所选</button>
+    </div>
+</div>
+@if (message is not null) { <p class="status-badge info">@message</p> }
+<section class="card section-card table-wrap">
+    @if (loading) { <div class="loading-state">正在加载存档…</div> }
+    else if (snapshots.Count == 0) { <div class="empty-state">尚无可用存档。</div> }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th class="selection-column">对比</th><th>名称</th><th>创建时间</th><th>大小</th><th>SHA-256</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var snapshot in snapshots)
+                {
+                    var room = rooms.FirstOrDefault(value => value.Id == snapshot.RoomId);
+                    <tr>
+                        <td class="selection-column">
+                            <input type="checkbox"
+                                   aria-label="将 @snapshot.Name 加入参数对比"
+                                   checked="@comparisonSelection.Contains(snapshot.Id)"
+                                   disabled="@(comparisonSelection.Count == 2 && !comparisonSelection.Contains(snapshot.Id))"
+                                   @onchange="eventArgs => ToggleComparison(snapshot.Id, eventArgs.Value is true)" />
+                        </td>
+                        <td><strong>@snapshot.Name</strong><br /><span class="muted">@(room?.Name ?? snapshot.RoomId.ToString())</span></td>
+                        <td>@snapshot.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@FormatBytes(snapshot.PackageLength)</td>
+                        <td><code>@snapshot.PackageSha256[..12]</code></td>
+                        <td>
+                            <div class="page-actions">
+                                <button class="button quiet" @onclick="() => ShowDetailAsync(snapshot)">查看</button>
+                                <button class="button quiet" @onclick="() => DownloadAsync(snapshot)">下载</button>
+                                <button class="button primary" disabled="@(rooms.All(value => !value.Online || value.DeviceId is null) || busy)" @onclick="() => PrepareRestore(snapshot)">应用…</button>
+                                @if (pendingDelete == snapshot.Id)
+                                {
+                                    <button class="button danger" @onclick="() => DeleteAsync(snapshot)">确认删除</button>
+                                    <button class="button quiet" @onclick="() => pendingDelete = null">取消</button>
+                                }
+                                else
+                                {
+                                    <button class="button quiet danger" @onclick="() => pendingDelete = snapshot.Id">删除</button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@if (comparisonSelection.Count > 0 && comparisonSelection.Count < 2)
+{
+    <p class="comparison-hint">再选择一份存档，即可逐项对比设备、画面模式、色彩与滤镜参数。</p>
+}
+
+@if (comparisonLeft is not null && comparisonRight is not null)
+{
+    <section class="snapshot-comparison">
+        <div class="section-heading">
+            <div>
+                <span class="section-kicker">参数对比</span>
+                <h2>@comparisonLeft.Summary.Name ↔ @comparisonRight.Summary.Name</h2>
+            </div>
+            <span class="status-label">@comparisonDifferences.Count 项不同</span>
+        </div>
+        @if (comparisonDifferences.Count == 0)
+        {
+            <div class="empty-state compact">范围内参数完全一致。</div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data-table comparison-table">
+                    <thead><tr><th>参数</th><th>@comparisonLeft.Summary.Name</th><th>@comparisonRight.Summary.Name</th></tr></thead>
+                    <tbody>
+                        @foreach (var difference in comparisonDifferences)
+                        {
+                            <tr>
+                                <td><strong>@difference.Label</strong></td>
+                                <td class="comparison-value">@difference.LeftValue</td>
+                                <td class="comparison-value">@difference.RightValue</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@if (pendingRestoreSnapshot is not null)
+{
+    <section class="restore-target-picker">
+        <div>
+            <span class="section-kicker">恢复目标</span>
+            <h2>将“@pendingRestoreSnapshot.Name”应用到</h2>
+            <p class="muted">可以选择同一 Organization 下的另一台 Windows 直播电脑；执行端会使用设备映射并逐项回读验证。</p>
+        </div>
+        <select class="form-select" @bind="restoreTargetRoomId">
+            <option value="">选择在线直播间</option>
+            @foreach (var targetRoom in rooms.Where(value => value.Online && value.DeviceId is not null))
+            {
+                <option value="@targetRoom.Id">@targetRoom.Name</option>
+            }
+        </select>
+        <div class="page-actions">
+            <button class="button quiet" @onclick="CancelRestore">取消</button>
+            <button class="button primary" disabled="@(!Guid.TryParse(restoreTargetRoomId, out _) || busy)" @onclick="RestoreAsync">确认应用</button>
+        </div>
+    </section>
+}
+
+@if (selectedDetail is not null)
+{
+    <section class="snapshot-detail">
+        <div class="section-heading">
+            <div><span class="section-kicker">存档参数</span><h2>@selectedDetail.Summary.Name</h2></div>
+            <button class="button quiet" @onclick="() => selectedDetail = null">关闭详情</button>
+        </div>
+
+        @if (selectedDetail.PreviewUrls.Count > 0)
+        {
+            <div class="preview-strip">
+                @foreach (var preview in selectedDetail.PreviewUrls)
+                {
+                    <figure>
+                        <img src="@preview.Value" alt="@ApplicationName(preview.Key) 画面预览" />
+                        <figcaption>@ApplicationName(preview.Key)</figcaption>
+                    </figure>
+                }
+            </div>
+        }
+
+        @foreach (var application in selectedDetail.Applications)
+        {
+            <div class="parameter-application">
+                <div class="parameter-application-heading">
+                    <strong>@ApplicationName(application.Kind)</strong>
+                    <span>v@application.Version · @application.Sources.Count 个来源</span>
+                </div>
+                @foreach (var source in application.Sources)
+                {
+                    <div class="parameter-source">
+                        <div class="parameter-source-heading">
+                            <span><strong>@source.Name</strong><small>@(source.Device?.FriendlyName ?? "未识别设备")</small></span>
+                            <span class="status-label">@FormatMode(source.Mode)</span>
+                        </div>
+                        <dl class="parameter-grid">
+                            @foreach (var setting in SnapshotParameterPresentation.PresentSourceSettings(source.Settings))
+                            {
+                                <div><dt>@setting.Name <small>@setting.TechnicalName</small></dt><dd>@setting.Value</dd></div>
+                            }
+                        </dl>
+                        @if (source.Filters.Count > 0)
+                        {
+                            <div class="filter-list">
+                                @foreach (var filter in source.Filters.OrderBy(filter => filter.Order))
+                                {
+                                    <div class="filter-row">
+                                        <div class="filter-heading">
+                                            <span><strong>@filter.Name</strong><small>@SnapshotParameterPresentation.FilterKindName(filter.Kind) · @filter.Kind</small></span>
+                                            <span class="status-label">#@(filter.Order + 1) · @(filter.Enabled ? "启用" : "停用")</span>
+                                        </div>
+                                        <dl class="parameter-grid filter-settings">
+                                            @foreach (var setting in SnapshotParameterPresentation.PresentFilterSettings(filter.Settings))
+                                            {
+                                                <div><dt>@setting.Name <small>@setting.TechnicalName</small></dt><dd>@setting.Value</dd></div>
+                                            }
+                                        </dl>
+                                        @if (filter.Assets.Count > 0)
+                                        {
+                                            <div class="filter-assets">
+                                                @foreach (var asset in filter.Assets)
+                                                {
+                                                    <span><strong>@asset.OriginalFileName</strong><small>SHA-256 @asset.Sha256[..12]…</small></span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private IReadOnlyList<SnapshotSummary> snapshots = [];
+    private IReadOnlyList<LiveRoomSummary> rooms = [];
+    private Guid? pendingDelete;
+    private bool loading = true;
+    private bool busy;
+    private string? message;
+    private SnapshotDetail? selectedDetail;
+    private SnapshotDetail? comparisonLeft;
+    private SnapshotDetail? comparisonRight;
+    private IReadOnlyList<SnapshotParameterDifference> comparisonDifferences = [];
+    private readonly List<Guid> comparisonSelection = [];
+    private SnapshotSummary? pendingRestoreSnapshot;
+    private string restoreTargetRoomId = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        await Session.LoadAsync();
+        if (Session.SelectedOrganizationId is { } organizationId)
+        {
+            var snapshotsTask = Http.GetFromJsonAsync<IReadOnlyList<SnapshotSummary>>($"/api/v1/organizations/{organizationId}/snapshots");
+            var roomsTask = Http.GetFromJsonAsync<IReadOnlyList<LiveRoomSummary>>($"/api/v1/organizations/{organizationId}/rooms");
+            await Task.WhenAll(snapshotsTask, roomsTask);
+            snapshots = await snapshotsTask ?? [];
+            rooms = await roomsTask ?? [];
+        }
+        loading = false;
+    }
+
+    private async Task DownloadAsync(SnapshotSummary snapshot)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId) return;
+        var result = await Http.GetFromJsonAsync<SnapshotDownloadResponse>($"/api/v1/organizations/{organizationId}/snapshots/{snapshot.Id}/download");
+        if (result is not null) Navigation.NavigateTo(result.DownloadUri.ToString(), true);
+    }
+
+    private async Task ShowDetailAsync(SnapshotSummary snapshot)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId)
+        {
+            return;
+        }
+
+        selectedDetail = await Http.GetFromJsonAsync<SnapshotDetail>(
+            $"/api/v1/organizations/{organizationId}/snapshots/{snapshot.Id}");
+    }
+
+    private void ToggleComparison(Guid snapshotId, bool selected)
+    {
+        if (selected)
+        {
+            if (comparisonSelection.Count < 2 && !comparisonSelection.Contains(snapshotId))
+            {
+                comparisonSelection.Add(snapshotId);
+            }
+        }
+        else
+        {
+            comparisonSelection.Remove(snapshotId);
+        }
+
+        comparisonLeft = null;
+        comparisonRight = null;
+        comparisonDifferences = [];
+    }
+
+    private void ClearComparison()
+    {
+        comparisonSelection.Clear();
+        comparisonLeft = null;
+        comparisonRight = null;
+        comparisonDifferences = [];
+    }
+
+    private async Task CompareAsync()
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId || comparisonSelection.Count != 2)
+        {
+            return;
+        }
+
+        busy = true;
+        message = "正在逐项读取两份存档…";
+        try
+        {
+            var leftTask = Http.GetFromJsonAsync<SnapshotDetail>(
+                $"/api/v1/organizations/{organizationId}/snapshots/{comparisonSelection[0]}");
+            var rightTask = Http.GetFromJsonAsync<SnapshotDetail>(
+                $"/api/v1/organizations/{organizationId}/snapshots/{comparisonSelection[1]}");
+            await Task.WhenAll(leftTask, rightTask);
+            comparisonLeft = await leftTask;
+            comparisonRight = await rightTask;
+            if (comparisonLeft is null || comparisonRight is null)
+            {
+                message = "云端没有返回完整的存档参数。";
+                return;
+            }
+
+            comparisonDifferences = SnapshotParameterComparer.Compare(comparisonLeft, comparisonRight);
+            message = comparisonDifferences.Count == 0
+                ? "两份存档的范围内参数完全一致。"
+                : $"发现 {comparisonDifferences.Count} 项参数不同。";
+        }
+        catch (HttpRequestException exception)
+        {
+            message = exception.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void PrepareRestore(SnapshotSummary snapshot)
+    {
+        pendingRestoreSnapshot = snapshot;
+        restoreTargetRoomId = rooms.FirstOrDefault(value => value.Online && value.DeviceId is not null)?.Id.ToString()
+            ?? string.Empty;
+    }
+
+    private void CancelRestore()
+    {
+        pendingRestoreSnapshot = null;
+        restoreTargetRoomId = string.Empty;
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId
+            || pendingRestoreSnapshot is null
+            || !Guid.TryParse(restoreTargetRoomId, out var roomId))
+        {
+            return;
+        }
+
+        var room = rooms.FirstOrDefault(value => value.Id == roomId);
+        if (room?.DeviceId is not { } deviceId)
+        {
+            return;
+        }
+
+        busy = true;
+        var response = await Http.PostAsJsonAsync(
+            $"/api/v1/organizations/{organizationId}/restore-jobs",
+            new CreateRestoreJobRequest(room.Id, deviceId, pendingRestoreSnapshot.Id));
+        message = response.IsSuccessStatusCode ? "恢复任务已下发。" : "恢复任务未创建，请检查设备在线状态。";
+        if (response.IsSuccessStatusCode)
+        {
+            CancelRestore();
+        }
+        busy = false;
+    }
+
+    private async Task DeleteAsync(SnapshotSummary snapshot)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId) return;
+        var response = await Http.DeleteAsync($"/api/v1/organizations/{organizationId}/snapshots/{snapshot.Id}");
+        message = response.IsSuccessStatusCode ? "存档已删除。" : "无法删除存档。";
+        pendingDelete = null;
+        if (selectedDetail?.Summary.Id == snapshot.Id) selectedDetail = null;
+        if (response.IsSuccessStatusCode)
+        {
+            comparisonSelection.Remove(snapshot.Id);
+            comparisonLeft = null;
+            comparisonRight = null;
+            comparisonDifferences = [];
+            await ReloadAsync();
+        }
+    }
+
+    private static string FormatBytes(long length) => length >= 1024 * 1024
+        ? $"{length / 1024d / 1024d:F1} MB"
+        : $"{length / 1024d:F1} KB";
+
+    private static string ApplicationName(ApplicationKind application) => application == ApplicationKind.Obs
+        ? "OBS"
+        : "直播伴侣";
+
+    private static string FormatMode(VideoMode? mode) => mode is null
+        ? "未记录画面格式"
+        : $"{mode.Width}×{mode.Height} · {mode.FramesPerSecondNumerator / (double)mode.FramesPerSecondDenominator:0.##} FPS · {mode.PixelFormat} · {SnapshotParameterPresentation.ColorSpace(mode.ColorSpace)} · {SnapshotParameterPresentation.ColorRange(mode.ColorRange)}";
+
+}

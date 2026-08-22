@@ -1,0 +1,63 @@
+@page "/jobs"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject OrganizationSession Session
+
+<PageTitle>任务中心 · LiveStudio</PageTitle>
+
+<div class="page-header"><div><h1>任务中心</h1><p>远程任务的预检、备份、应用、验证与回滚结果。</p></div></div>
+<section class="card section-card table-wrap">
+    @if (loading) { <div class="loading-state">正在加载任务…</div> }
+    else if (jobs.Count == 0) { <div class="empty-state">尚无任务记录。</div> }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>类型</th><th>状态</th><th>兼容性</th><th>创建时间</th><th>结果</th></tr></thead>
+            <tbody>
+                @foreach (var job in jobs)
+                {
+                    <tr>
+                        <td><strong>@(job.Kind == JobKind.Capture ? "联合保存" : "恢复存档")</strong></td>
+                        <td><span class="status-badge @Tone(job.Status)">@Label(job.Status)</span></td>
+                        <td>@job.Compatibility</td>
+                        <td>@job.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@(job.DetailCode ?? job.Message ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<JobSummary> jobs = [];
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Session.LoadAsync();
+        if (Session.SelectedOrganizationId is { } organizationId)
+        {
+            jobs = await Http.GetFromJsonAsync<IReadOnlyList<JobSummary>>($"/api/v1/organizations/{organizationId}/jobs") ?? [];
+        }
+        loading = false;
+    }
+
+    private static string Tone(JobStatus status) => status switch
+    {
+        JobStatus.Succeeded => "success",
+        JobStatus.FailedRolledBack or JobStatus.RollbackFailed => "error",
+        JobStatus.BlockedByLiveSession or JobStatus.MappingRequired or JobStatus.UnsupportedDeviceMode or JobStatus.MissingFilter or JobStatus.IncompatibleVersion => "warning",
+        _ => "info"
+    };
+
+    private static string Label(JobStatus status) => status switch
+    {
+        JobStatus.Queued => "等待领取", JobStatus.Claimed => "已领取", JobStatus.Preflight => "预检",
+        JobStatus.BackingUp => "事务备份", JobStatus.StoppingApplications => "停止应用", JobStatus.Applying => "正在应用",
+        JobStatus.StartingApplications => "启动应用", JobStatus.Verifying => "逐项验证", JobStatus.Succeeded => "成功",
+        JobStatus.DeviceOffline => "设备离线", JobStatus.BlockedByLiveSession => "直播中已阻止", JobStatus.MappingRequired => "需要映射",
+        JobStatus.UnsupportedDeviceMode => "格式不支持", JobStatus.MissingFilter => "缺少滤镜", JobStatus.IncompatibleVersion => "版本不兼容",
+        JobStatus.FailedRolledBack => "失败已回滚", JobStatus.RollbackFailed => "回滚失败", _ => status.ToString()
+    };
+}

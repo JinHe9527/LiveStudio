@@ -1,0 +1,127 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="-apple-system, BlinkMacSystemFont, SF Pro Text, Segoe UI" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="#F5F5F7" />
+    </Style>
+
+    <Style Selector="Border.sidebar">
+        <Setter Property="Background" Value="#F226272C" />
+        <Setter Property="BorderBrush" Value="#20FFFFFF" />
+        <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+    <Style Selector="TextBlock.brand-title">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="#FAFAFC" />
+    </Style>
+    <Style Selector="TextBlock.brand-caption">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="#8D8D93" />
+    </Style>
+    <Style Selector="Button.nav">
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="#CECED3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.nav:pointerover">
+        <Setter Property="Foreground" Value="#FFFFFF" />
+        <Setter Property="Background" Value="#11FFFFFF" />
+    </Style>
+    <Style Selector="Button.nav.active">
+        <Setter Property="Foreground" Value="#FFFFFF" />
+        <Setter Property="Background" Value="#3B5E8FD8" />
+    </Style>
+    <Style Selector="Path.nav-icon">
+        <Setter Property="Width" Value="17" />
+        <Setter Property="Height" Value="17" />
+        <Setter Property="Stretch" Value="Uniform" />
+        <Setter Property="Stroke" Value="#B6B6BC" />
+        <Setter Property="StrokeThickness" Value="1.5" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+        <Setter Property="StrokeJoin" Value="Round" />
+    </Style>
+    <Style Selector="Button.nav.active Path.nav-icon"><Setter Property="Stroke" Value="#FFFFFF" /></Style>
+    <Style Selector="TextBlock.device-name"><Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E9E9ED" /></Style>
+    <Style Selector="TextBlock.device-mode"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8C8C93" /></Style>
+
+    <Style Selector="Grid.toolbar"><Setter Property="Background" Value="#1C1C1E" /></Style>
+    <Style Selector="TextBlock.page-title"><Setter Property="FontSize" Value="22" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.35" /><Setter Property="Foreground" Value="#F5F5F7" /></Style>
+    <Style Selector="TextBlock.page-subtitle"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.toolbar-context"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+
+    <Style Selector="Button.standard">
+        <Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="13,5" />
+        <Setter Property="Background" Value="#12FFFFFF" /><Setter Property="BorderBrush" Value="#24FFFFFF" />
+        <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Foreground" Value="#F2F2F5" /><Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.standard:pointerover"><Setter Property="Background" Value="#1DFFFFFF" /></Style>
+    <Style Selector="Button.standard.accent"><Setter Property="Background" Value="#0A84FF" /><Setter Property="BorderBrush" Value="#0A84FF" /><Setter Property="Foreground" Value="White" /></Style>
+    <Style Selector="Button.standard:disabled"><Setter Property="Opacity" Value="0.45" /></Style>
+    <Style Selector="Button.toolbar-action">
+        <Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="9,5" /><Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="6" /><Setter Property="Foreground" Value="#B9B9BF" />
+        <Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.toolbar-action:pointerover"><Setter Property="Background" Value="#11FFFFFF" /><Setter Property="Foreground" Value="#FFFFFF" /></Style>
+    <Style Selector="Button.toolbar-action:disabled"><Setter Property="Opacity" Value="0.42" /></Style>
+    <Style Selector="Button.link"><Setter Property="Padding" Value="5" /><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="#64A7FF" /><Setter Property="FontSize" Value="12" /></Style>
+
+    <Style Selector="Grid.preview-pane"><Setter Property="Background" Value="#171719" /></Style>
+    <Style Selector="TextBlock.empty-heading"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#EFEFF2" /></Style>
+    <Style Selector="TextBlock.empty-body"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.quiet-label"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#98989E" /></Style>
+    <Style Selector="Border.status-bar"><Setter Property="Background" Value="#242426" /><Setter Property="BorderBrush" Value="#20FFFFFF" /><Setter Property="BorderThickness" Value="0,1,0,0" /></Style>
+    <Style Selector="TextBlock.meta-label"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.meta-value"><Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E5E5EA" /></Style>
+
+    <Style Selector="Border.inspector"><Setter Property="Background" Value="#242426" /><Setter Property="BorderBrush" Value="#20FFFFFF" /><Setter Property="BorderThickness" Value="1,0,0,0" /></Style>
+    <Style Selector="TextBlock.inspector-title"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E5E5EA" /></Style>
+    <Style Selector="TextBlock.group-label"><Setter Property="FontSize" Value="10" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.row-label"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#D1D1D6" /></Style>
+    <Style Selector="TextBlock.row-value"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#98989E" /></Style>
+    <Style Selector="TextBlock.inspector-note"><Setter Property="FontSize" Value="11" /><Setter Property="LineHeight" Value="17" /><Setter Property="Foreground" Value="#98989E" /></Style>
+    <Style Selector="TextBlock.verification"><Setter Property="FontSize" Value="10" /><Setter Property="LineHeight" Value="15" /><Setter Property="Foreground" Value="#30D158" /></Style>
+    <Style Selector="TextBlock.detail-title"><Setter Property="FontSize" Value="20" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.25" /><Setter Property="Foreground" Value="#F5F5F7" /></Style>
+    <Style Selector="TextBlock.detail-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.application-title"><Setter Property="FontSize" Value="16" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#F2F2F5" /></Style>
+    <Style Selector="TextBlock.source-title"><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#EDEDF0" /></Style>
+    <Style Selector="TextBlock.section-kicker"><Setter Property="FontSize" Value="10" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.parameter-label"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.parameter-value"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#D9D9DE" /></Style>
+    <Style Selector="TextBlock.parameter-value-strong"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#E9E9ED" /></Style>
+    <Style Selector="TextBlock.technical-value"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#73737A" /></Style>
+    <Style Selector="TextBlock.technical-key"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#64646B" /></Style>
+    <Style Selector="TextBlock.technical-heading"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#9A9AA1" /></Style>
+    <Style Selector="TextBlock.filter-title"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E9E9ED" /></Style>
+    <Style Selector="TextBlock.filter-order"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#A0A0A7" /></Style>
+    <Style Selector="Expander.technical-expander"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="TextBlock.section-heading"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E5E5EA" /></Style>
+    <Style Selector="TextBlock.inline-empty"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.column-heading"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+
+    <Style Selector="ListBox.snapshot-list, ListBox.mapping-list"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="ListBox.snapshot-list ListBoxItem, ListBox.mapping-list ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="CornerRadius" Value="6" /></Style>
+    <Style Selector="ListBox.snapshot-list ListBoxItem:selected, ListBox.mapping-list ListBoxItem:selected"><Setter Property="Background" Value="#345E8FD8" /></Style>
+    <Style Selector="TextBlock.snapshot-name"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#ECECF0" /></Style>
+    <Style Selector="TextBlock.snapshot-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.transfer-message"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#B7B7BD" /></Style>
+    <Style Selector="TextBlock.mapping-application"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.mapping-status"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#64A7FF" /></Style>
+    <Style Selector="ComboBox.mapping-picker"><Setter Property="MinHeight" Value="36" /><Setter Property="Padding" Value="10,5" /><Setter Property="Background" Value="#14FFFFFF" /><Setter Property="BorderBrush" Value="#28FFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" /></Style>
+
+    <Style Selector="TextBlock.settings-section"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.settings-title"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#F0F0F3" /></Style>
+    <Style Selector="TextBlock.settings-copy"><Setter Property="FontSize" Value="11" /><Setter Property="LineHeight" Value="16" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.settings-value"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#B8B8BE" /></Style>
+    <Style Selector="TextBlock.authorization-code-inline"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="1.2" /><Setter Property="Foreground" Value="#75B4FF" /></Style>
+    <Style Selector="TextBox.settings-input"><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="9,5" /><Setter Property="Background" Value="#14FFFFFF" /><Setter Property="BorderBrush" Value="#28FFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" /><Setter Property="Foreground" Value="#F1F1F4" /><Setter Property="FontSize" Value="12" /></Style>
+</Styles>

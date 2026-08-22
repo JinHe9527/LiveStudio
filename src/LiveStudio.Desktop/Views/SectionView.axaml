@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:LiveStudio.Desktop.Views"
+             x:Class="LiveStudio.Desktop.Views.SectionView"
+             x:DataType="views:SectionView"
+             x:Name="Root">
+    <Grid RowDefinitions="82,*">
+        <Grid Margin="34,0" Classes="toolbar">
+            <StackPanel VerticalAlignment="Center" Spacing="3">
+                <TextBlock Classes="page-title" Text="{Binding Title, ElementName=Root}" />
+                <TextBlock Classes="page-subtitle" Text="{Binding Description, ElementName=Root}" />
+            </StackPanel>
+            <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+        </Grid>
+        <Grid Grid.Row="1">
+            <StackPanel Width="470" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
+                <Path Width="32" Height="32" Margin="0,0,0,5" HorizontalAlignment="Center"
+                      Data="M5,7 L19,7 L19,19 L5,19 Z M8,4 L16,4 M8,11 L16,11 M8,15 L13,15"
+                      Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
+                <TextBlock Classes="empty-heading" Text="{Binding EmptyTitle, ElementName=Root}" TextAlignment="Center" />
+                <TextBlock Classes="empty-body" Text="{Binding EmptyDescription, ElementName=Root}"
+                           TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

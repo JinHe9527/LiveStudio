@@ -1,0 +1,181 @@
+@page "/rooms"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject OrganizationSession Session
+
+<PageTitle>直播间 · LiveStudio</PageTitle>
+
+<div class="page-header">
+    <div><h1>直播间</h1><p>查看 Agent 在线状态、最近存档和配置漂移。</p></div>
+</div>
+
+@if (message is not null) { <p class="status-badge info">@message</p> }
+<section class="card section-card table-wrap">
+    @if (loading)
+    {
+        <div class="loading-state">正在加载直播间…</div>
+    }
+    else if (rooms.Count == 0)
+    {
+        <div class="empty-state">尚未创建直播间。</div>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>直播间</th><th>Agent</th><th>最近存档</th><th>画面状态</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var room in rooms)
+                {
+                    <tr>
+                        <td><strong>@room.Name</strong></td>
+                        <td><span class="status-badge @(room.Online ? "success" : null)"><span class="status-dot @(room.Online ? "online" : null)"></span>@(room.Online ? "在线" : "离线")</span></td>
+                        <td>@(room.LastSnapshotAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "尚无")</td>
+                        <td>@if (room.HasConfigurationDrift) { <span class="status-badge warning">配置已漂移</span> } else { <span class="status-badge success">一致</span> }</td>
+                        <td>
+                            <div class="row-actions">
+                                <button class="button quiet" disabled="@(room.DeviceId is null || busy)" @onclick="() => ViewAsync(room)">查看</button>
+                                <button class="button quiet" disabled="@(!room.Online || room.DeviceId is null || busy)" @onclick="() => RefreshAsync(room)">刷新画面</button>
+                                <button class="button primary" disabled="@(!room.Online || room.DeviceId is null || busy)" @onclick="() => CaptureAsync(room)">联合保存</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@if (selectedRoom is not null)
+{
+    <section class="live-room-detail">
+        <div class="section-heading">
+            <div><span class="section-kicker">当前画面</span><h2>@selectedRoom.Name</h2></div>
+            <button class="button quiet" @onclick="CloseDetail">关闭</button>
+        </div>
+
+        @if (managementState is null)
+        {
+            <div class="loading-state compact">正在读取当前参数与画面…</div>
+        }
+        else
+        {
+            <div class="current-preview-grid">
+                @foreach (var application in managementState.CurrentParameters?.Applications ?? [])
+                {
+                    <figure class="current-preview">
+                        @if (managementState.CurrentPreviewUrls.TryGetValue(application.Kind, out var previewUrl))
+                        {
+                            <img src="@previewUrl" alt="@ApplicationName(application.Kind) 当前画面" />
+                        }
+                        else
+                        {
+                            <div class="preview-missing">尚无手动刷新或恢复后的画面预览</div>
+                        }
+                        <figcaption>
+                            <strong>@ApplicationName(application.Kind)</strong>
+                            <span>@application.Version · @application.Sources.Count 个视频来源</span>
+                        </figcaption>
+                    </figure>
+                }
+            </div>
+
+            <div class="current-parameter-list">
+                @foreach (var application in managementState.CurrentParameters?.Applications ?? [])
+                {
+                    @foreach (var source in application.Sources)
+                    {
+                        <div class="current-parameter-row">
+                            <div>
+                                <strong>@source.Name</strong>
+                                <span>@ApplicationName(application.Kind) · @source.Device?.FriendlyName</span>
+                            </div>
+                            <span>@FormatMode(source.Mode)</span>
+                            <span>@source.Filters.Count 个滤镜</span>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private IReadOnlyList<LiveRoomSummary> rooms = [];
+    private bool loading = true;
+    private bool busy;
+    private string? message;
+    private LiveRoomSummary? selectedRoom;
+    private DeviceManagementState? managementState;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Session.LoadAsync();
+        if (Session.SelectedOrganizationId is { } organizationId)
+        {
+            rooms = await Http.GetFromJsonAsync<IReadOnlyList<LiveRoomSummary>>($"/api/v1/organizations/{organizationId}/rooms") ?? [];
+        }
+        loading = false;
+    }
+
+    private async Task CaptureAsync(LiveRoomSummary room)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId || room.DeviceId is not { } deviceId) return;
+        busy = true;
+        var response = await Http.PostAsJsonAsync(
+            $"/api/v1/organizations/{organizationId}/capture-jobs",
+            new CreateCaptureJobRequest(room.Id, deviceId, $"{room.Name} {DateTimeOffset.Now:yyyy-MM-dd HH:mm}"));
+        message = response.IsSuccessStatusCode ? "保存任务已下发。" : "任务未创建：目标设备离线或权限不足。";
+        busy = false;
+    }
+
+    private async Task RefreshAsync(LiveRoomSummary room)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId || room.DeviceId is not { } deviceId)
+        {
+            return;
+        }
+
+        busy = true;
+        var response = await Http.PostAsJsonAsync(
+            $"/api/v1/organizations/{organizationId}/refresh-jobs",
+            new CreateRefreshPreviewJobRequest(room.Id, deviceId));
+        message = response.IsSuccessStatusCode
+            ? "刷新任务已下发。"
+            : "刷新任务未创建：目标设备离线或权限不足。";
+        busy = false;
+    }
+
+    private async Task ViewAsync(LiveRoomSummary room)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId || room.DeviceId is not { } deviceId)
+        {
+            return;
+        }
+
+        selectedRoom = room;
+        managementState = null;
+        try
+        {
+            managementState = await Http.GetFromJsonAsync<DeviceManagementState>(
+                $"/api/v1/organizations/{organizationId}/devices/{deviceId}/management-state");
+        }
+        catch (HttpRequestException)
+        {
+            message = "无法读取当前参数，请检查 Agent 与云端连接。";
+        }
+    }
+
+    private void CloseDetail()
+    {
+        selectedRoom = null;
+        managementState = null;
+    }
+
+    private static string ApplicationName(ApplicationKind application) => application == ApplicationKind.Obs
+        ? "OBS"
+        : "直播伴侣";
+
+    private static string FormatMode(VideoMode? mode) => mode is null
+        ? "未识别视频格式"
+        : $"{mode.Width}×{mode.Height} · {mode.FramesPerSecondNumerator / (double)mode.FramesPerSecondDenominator:0.##} FPS · {mode.ColorSpace}";
+}

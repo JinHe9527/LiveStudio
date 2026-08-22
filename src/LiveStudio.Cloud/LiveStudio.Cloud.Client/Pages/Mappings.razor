@@ -1,0 +1,223 @@
+@page "/mappings"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject OrganizationSession Session
+
+<PageTitle>设备映射 · LiveStudio</PageTitle>
+
+<div class="page-header">
+    <div><h1>设备映射</h1><p>把存档的逻辑来源对应到 Agent 实际回读的采集来源。</p></div>
+</div>
+
+<div class="content-grid mapping-workspace">
+    <section class="section-card">
+        <div class="section-heading"><h2>已保存的映射</h2></div>
+        @if (mappings.Count == 0)
+        {
+            <div class="empty-state compact">尚未配置设备映射。</div>
+        }
+        else
+        {
+            <ul class="list">
+                @foreach (var mapping in mappings)
+                {
+                    <li class="list-row">
+                        <div class="list-main">
+                            <strong>@ApplicationName(mapping.Application) · @mapping.TargetSourceName</strong>
+                            <small>@ShortDeviceId(mapping.TargetDeviceId)@(string.IsNullOrWhiteSpace(mapping.TargetSceneName) ? null : $" · {mapping.TargetSceneName}")</small>
+                        </div>
+                        <span class="status-label">@mapping.SourceLogicalId.ToString()[..8]</span>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="section-card mapping-editor">
+        <div class="section-heading"><h2>新建或更新映射</h2></div>
+        <div class="settings-form">
+            <label class="settings-row">
+                <span><strong>目标 Agent</strong><small>只能选择已上报设备能力的 Windows 电脑</small></span>
+                <select class="form-select" value="@selectedDeviceId" @onchange="SelectDeviceAsync">
+                    <option value="">选择 Agent</option>
+                    @foreach (var device in devices)
+                    {
+                        <option value="@device.Id">@device.Name · @device.MachineName</option>
+                    }
+                </select>
+            </label>
+
+            <label class="settings-row">
+                <span><strong>逻辑来源</strong><small>来自 Agent 最近上报的结构化参数</small></span>
+                <select class="form-select" value="@selectedSourceKey" @onchange="SelectSource">
+                    <option value="">选择来源</option>
+                    @foreach (var source in sourceChoices)
+                    {
+                        <option value="@source.Key">@source.ApplicationName · @source.Name</option>
+                    }
+                </select>
+            </label>
+
+            <label class="settings-row">
+                <span><strong>目标采集来源</strong><small>选项由 Agent 回读，不接受手填设备路径</small></span>
+                <select class="form-select" @bind="selectedTargetKey">
+                    <option value="">选择采集来源</option>
+                    @foreach (var target in targetChoices)
+                    {
+                        <option value="@target.Key">@target.SourceName · @target.Device.FriendlyName · @FormatMode(target.CurrentMode)</option>
+                    }
+                </select>
+            </label>
+
+            <div class="settings-submit">
+                <span class="muted">@message</span>
+                <button class="button primary" disabled="@(!CanSave)" @onclick="SaveAsync">保存映射</button>
+            </div>
+        </div>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<DeviceMapping> mappings = [];
+    private IReadOnlyList<DeviceSummary> devices = [];
+    private IReadOnlyList<SourceChoice> sourceChoices = [];
+    private IReadOnlyList<TargetChoice> allTargetChoices = [];
+    private IReadOnlyList<TargetChoice> targetChoices = [];
+    private string selectedDeviceId = string.Empty;
+    private string selectedSourceKey = string.Empty;
+    private string selectedTargetKey = string.Empty;
+    private string? message;
+
+    private bool CanSave => Guid.TryParse(selectedDeviceId, out _)
+        && sourceChoices.Any(source => source.Key == selectedSourceKey)
+        && targetChoices.Any(target => target.Key == selectedTargetKey);
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        await Session.LoadAsync();
+        if (Session.SelectedOrganizationId is not { } organizationId)
+        {
+            return;
+        }
+
+        var mappingsTask = Http.GetFromJsonAsync<IReadOnlyList<DeviceMapping>>($"/api/v1/organizations/{organizationId}/device-mappings");
+        var devicesTask = Http.GetFromJsonAsync<IReadOnlyList<DeviceSummary>>($"/api/v1/organizations/{organizationId}/devices");
+        await Task.WhenAll(mappingsTask, devicesTask);
+        mappings = await mappingsTask ?? [];
+        devices = await devicesTask ?? [];
+    }
+
+    private async Task SelectDeviceAsync(ChangeEventArgs eventArgs)
+    {
+        selectedDeviceId = eventArgs.Value?.ToString() ?? string.Empty;
+        selectedSourceKey = string.Empty;
+        selectedTargetKey = string.Empty;
+        sourceChoices = [];
+        allTargetChoices = [];
+        targetChoices = [];
+        if (Session.SelectedOrganizationId is not { } organizationId
+            || !Guid.TryParse(selectedDeviceId, out var deviceId))
+        {
+            return;
+        }
+
+        var state = await Http.GetFromJsonAsync<DeviceManagementState>(
+            $"/api/v1/organizations/{organizationId}/devices/{deviceId}/management-state");
+        if (state is null)
+        {
+            message = "无法读取 Agent 设备能力。";
+            return;
+        }
+
+        sourceChoices = state.CurrentParameters?.Applications
+            .SelectMany(application => application.Sources.Select(source => new SourceChoice(
+                $"{application.Kind}|{source.LogicalId:N}",
+                application.Kind,
+                ApplicationName(application.Kind),
+                source.LogicalId,
+                source.Name)))
+            .OrderBy(source => source.Application)
+            .ThenBy(source => source.Name, StringComparer.Ordinal)
+            .ToArray() ?? [];
+        allTargetChoices = state.Capabilities?.VideoSources
+            .Where(source => !string.IsNullOrWhiteSpace(source.Device.InterfaceHint))
+            .Select(source => new TargetChoice(
+                $"{source.Application}|{source.SourceName}|{source.Device.InterfaceHint}",
+                source.Application,
+                source.SourceName,
+                source.Device,
+                source.CurrentMode))
+            .OrderBy(target => target.Application)
+            .ThenBy(target => target.SourceName, StringComparer.Ordinal)
+            .ToArray() ?? [];
+        message = sourceChoices.Count == 0 || allTargetChoices.Count == 0
+            ? "Agent 尚未上报可用的视频来源。"
+            : "选择逻辑来源后会只显示同一应用的目标来源。";
+    }
+
+    private void SelectSource(ChangeEventArgs eventArgs)
+    {
+        selectedSourceKey = eventArgs.Value?.ToString() ?? string.Empty;
+        selectedTargetKey = string.Empty;
+        var source = sourceChoices.FirstOrDefault(candidate => candidate.Key == selectedSourceKey);
+        targetChoices = source is null
+            ? []
+            : allTargetChoices.Where(target => target.Application == source.Application).ToArray();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId
+            || !Guid.TryParse(selectedDeviceId, out var deviceId))
+        {
+            return;
+        }
+
+        var source = sourceChoices.Single(candidate => candidate.Key == selectedSourceKey);
+        var target = targetChoices.Single(candidate => candidate.Key == selectedTargetKey);
+        var response = await Http.PutAsJsonAsync(
+            $"/api/v1/organizations/{organizationId}/devices/{deviceId}/mappings",
+            new SaveDeviceMappingRequest(
+                source.LogicalId,
+                source.Application,
+                target.Device.InterfaceHint!,
+                target.SourceName,
+                string.Empty,
+                false));
+        message = response.IsSuccessStatusCode
+            ? "映射已保存。"
+            : "映射保存失败：目标来源可能已下线或能力已变化。";
+        if (response.IsSuccessStatusCode)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private static string ApplicationName(ApplicationKind application) => application == ApplicationKind.Obs
+        ? "OBS"
+        : "直播伴侣";
+
+    private static string ShortDeviceId(string value) => value.Length <= 28
+        ? value
+        : $"{value[..12]}…{value[^8..]}";
+
+    private static string FormatMode(VideoMode? mode) => mode is null
+        ? "未识别格式"
+        : $"{mode.Width}×{mode.Height} {mode.FramesPerSecondNumerator / (double)mode.FramesPerSecondDenominator:0.##} FPS";
+
+    private sealed record SourceChoice(
+        string Key,
+        ApplicationKind Application,
+        string ApplicationName,
+        Guid LogicalId,
+        string Name);
+
+    private sealed record TargetChoice(
+        string Key,
+        ApplicationKind Application,
+        string SourceName,
+        CaptureDeviceDescriptor Device,
+        VideoMode? CurrentMode);
+}

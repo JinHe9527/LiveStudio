@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveStudio.Desktop.ViewModels"
+             x:Class="LiveStudio.Desktop.Views.ActivityView"
+             x:DataType="vm:MainViewModel">
+    <Grid RowDefinitions="72,*">
+        <Grid Margin="28,0" ColumnDefinitions="*,Auto" Classes="toolbar">
+            <StackPanel VerticalAlignment="Center" Spacing="3">
+                <TextBlock Classes="page-title" Text="操作记录" />
+                <TextBlock Classes="page-subtitle" Text="保存、恢复、验证与回滚的本机与云端执行轨迹" />
+            </StackPanel>
+            <Button Grid.Column="1" Classes="toolbar-action" VerticalAlignment="Center"
+                    Command="{Binding RefreshStateCommand}">刷新</Button>
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid IsVisible="{Binding HasActivityItems}" RowDefinitions="38,*">
+                <Grid Margin="28,0" ColumnDefinitions="150,90,140,*,160">
+                    <TextBlock Classes="column-heading" VerticalAlignment="Center" Text="任务" />
+                    <TextBlock Grid.Column="1" Classes="column-heading" VerticalAlignment="Center" Text="来源" />
+                    <TextBlock Grid.Column="2" Classes="column-heading" VerticalAlignment="Center" Text="状态" />
+                    <TextBlock Grid.Column="3" Classes="column-heading" VerticalAlignment="Center" Text="结果" />
+                    <TextBlock Grid.Column="4" Classes="column-heading" VerticalAlignment="Center" Text="创建时间" />
+                </Grid>
+                <ListBox Grid.Row="1" Margin="12,0" ItemsSource="{Binding ActivityItems}" Classes="snapshot-list">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ActivityItemViewModel">
+                            <Grid MinHeight="56" Margin="16,0" ColumnDefinitions="150,90,140,*,160">
+                                <TextBlock Classes="snapshot-name" VerticalAlignment="Center" Text="{Binding Kind}" />
+                                <TextBlock Grid.Column="1" Classes="snapshot-meta" VerticalAlignment="Center" Text="{Binding Source}" />
+                                <TextBlock Grid.Column="2" Classes="mapping-status" VerticalAlignment="Center" Text="{Binding Status}" />
+                                <TextBlock Grid.Column="3" Classes="snapshot-meta" VerticalAlignment="Center"
+                                           Text="{Binding Message}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="4" Classes="snapshot-meta" VerticalAlignment="Center" Text="{Binding CreatedAt}" />
+                                <Border Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Background="#12FFFFFF" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+
+            <StackPanel Width="470" IsVisible="{Binding !HasActivityItems}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
+                <Path Width="32" Height="32" Margin="0,0,0,5" HorizontalAlignment="Center"
+                      Data="M12,21 A9,9 0 1 0 12,3 A9,9 0 0 0 12,21 M12,7 L12,12 L15,14"
+                      Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
+                <TextBlock Classes="empty-heading" Text="还没有执行任务" TextAlignment="Center" />
+                <TextBlock Classes="empty-body" Text="本机保存、恢复，以及云端下发的任务会显示在这里。"
+                           TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

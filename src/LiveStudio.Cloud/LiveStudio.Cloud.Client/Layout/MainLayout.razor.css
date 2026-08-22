@@ -1,0 +1,172 @@
+.page {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    background: var(--canvas);
+}
+
+.sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: rgba(44, 44, 46, .92);
+    border-right: 1px solid rgba(255, 255, 255, .09);
+    backdrop-filter: saturate(130%) blur(24px);
+    -webkit-backdrop-filter: saturate(130%) blur(24px);
+}
+
+.workspace {
+    min-width: 0;
+}
+
+.account-shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: var(--canvas);
+}
+
+.account-brand {
+    height: 54px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--separator);
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.account-brand svg {
+    width: 20px;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.55;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    height: 52px;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(28, 28, 30, .82);
+    border-bottom: 1px solid rgba(255, 255, 255, .09);
+    backdrop-filter: saturate(130%) blur(20px);
+    -webkit-backdrop-filter: saturate(130%) blur(20px);
+}
+
+.topbar-title {
+    display: grid;
+    gap: 2px;
+}
+
+.eyebrow {
+    color: var(--text-tertiary);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .15em;
+}
+
+.workspace-name {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 590;
+}
+
+.cloud-health {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    color: var(--text-primary);
+}
+
+.cloud-health strong,
+.cloud-health small {
+    display: block;
+}
+
+.cloud-health strong {
+    font-size: 11px;
+    font-weight: 580;
+}
+
+.cloud-health small {
+    margin-top: 1px;
+    color: var(--text-tertiary);
+    font-size: 9px;
+}
+
+.signal-pulse {
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: none;
+}
+
+.content {
+    width: min(1240px, 100%);
+    margin: 0 auto;
+    padding: 30px clamp(28px, 3vw, 42px) 48px;
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 1000;
+    padding: 12px 44px 12px 16px;
+    color: #fff;
+    background: rgba(38, 39, 44, .94);
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 13px;
+    box-shadow: var(--shadow-elevated);
+}
+
+#blazor-error-ui .reload {
+    margin-left: 8px;
+    color: #8ec5ff;
+}
+
+#blazor-error-ui .dismiss {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    color: #fff;
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+}
+
+@media (max-width: 820px) {
+    .page {
+        display: block;
+    }
+
+    .sidebar {
+        position: relative;
+        width: 100%;
+        height: auto;
+    }
+
+    .topbar {
+        padding: 0 20px;
+    }
+
+    .cloud-health small {
+        display: none;
+    }
+
+    .content {
+        padding: 22px 18px;
+    }
+}

@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\LiveStudio.Contracts\LiveStudio.Contracts.csproj" />
+    <ProjectReference Include="..\LiveStudio.Core\LiveStudio.Core.csproj" />
+    <ProjectReference Include="..\LiveStudio.Packaging\LiveStudio.Packaging.csproj" />
+    <ProjectReference Include="..\LiveStudio.Adapters.Obs\LiveStudio.Adapters.Obs.csproj" />
+    <ProjectReference Include="..\LiveStudio.Adapters.LiveCompanion\LiveStudio.Adapters.LiveCompanion.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationIcon>..\LiveStudio.Desktop\Assets\LiveStudio.ico</ApplicationIcon>
+  </PropertyGroup>
+
+</Project>

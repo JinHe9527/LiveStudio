@@ -1,0 +1,176 @@
+@page "/"
+@attribute [Authorize]
+@inject HttpClient Http
+@inject OrganizationSession Session
+
+<PageTitle>总览 · LiveStudio</PageTitle>
+
+<div class="page-header">
+    <div>
+        <span class="section-kicker">控制中心</span>
+        <h1>画面状态</h1>
+        <p>保存、恢复并核对每一台直播电脑的画面配置。</p>
+    </div>
+    <div class="page-actions">
+        <a class="button quiet" href="snapshots">查看存档</a>
+        <a class="button primary" href="rooms">新建任务</a>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="loading-state">正在加载 Organization 数据…</div>
+}
+else if (errorMessage is not null)
+{
+    <div class="empty-state">@errorMessage</div>
+}
+else if (Session.SelectedOrganizationId is null)
+{
+    <div class="empty-state">
+        <div><strong>尚未创建 Organization</strong><br /><span class="muted">先在 Organization 页面创建管理空间。</span></div>
+    </div>
+}
+else
+{
+    <section class="status-overview" aria-label="配置概览">
+        <div class="overview-item">
+            <span class="overview-label"><span class="status-dot @(rooms.Any(room => room.Online) ? "online" : null)"></span>在线直播间</span>
+            <strong>@rooms.Count(room => room.Online)<small>/@rooms.Count</small></strong>
+            <span>需要 Agent 长连且存在登录用户会话</span>
+        </div>
+        <div class="overview-item">
+            <span class="overview-label">可用存档</span>
+            <strong>@snapshots.Count</strong>
+            <span>已签名的不可变 .lscfg 包</span>
+        </div>
+        <div class="overview-item">
+            <span class="overview-label"><span class="status-dot @(rooms.Any(room => room.HasConfigurationDrift) ? "warning" : "online")"></span>配置漂移</span>
+            <strong>@rooms.Count(room => room.HasConfigurationDrift)</strong>
+            <span>当前参数与最近存档的哈希差异</span>
+        </div>
+        <div class="overview-item">
+            <span class="overview-label"><span class="status-dot @(FailedJobs > 0 ? "error" : "online")"></span>失败任务</span>
+            <strong>@FailedJobs</strong>
+            <span>最近 200 条任务中的终止失败</span>
+        </div>
+    </section>
+
+    <div class="dashboard-sections">
+        <section class="flat-section">
+            <div class="section-heading">
+                <div><span class="section-kicker">设备</span><h2>直播间</h2></div>
+                <a href="rooms">显示全部</a>
+            </div>
+            @if (rooms.Count == 0)
+            {
+                <div class="empty-state compact">尚未创建直播间</div>
+            }
+            else
+            {
+                <ul class="list">
+                    @foreach (var room in rooms.Take(8))
+                    {
+                        <li class="list-row">
+                            <span class="status-dot @(room.Online ? "online" : null)"></span>
+                            <div class="list-main">
+                                <strong>@room.Name</strong>
+                                <small>@(room.LastSnapshotAt is null ? "尚未保存" : $"最近存档 {FormatRelative(room.LastSnapshotAt.Value)}")</small>
+                            </div>
+                            @if (room.HasConfigurationDrift)
+                            {
+                                <span class="status-badge warning">已漂移</span>
+                            }
+                            else
+                            {
+                                <span class="status-label @(room.Online ? "success" : null)">@(room.Online ? "在线" : "离线")</span>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="flat-section">
+            <div class="section-heading">
+                <div><span class="section-kicker">活动</span><h2>最近操作</h2></div>
+                <a href="jobs">任务中心</a>
+            </div>
+            @if (jobs.Count == 0)
+            {
+                <div class="empty-state compact">尚无任务记录</div>
+            }
+            else
+            {
+                <ul class="list">
+                    @foreach (var job in jobs.Take(8))
+                    {
+                        <li class="list-row">
+                            <span class="status-dot @StatusTone(job.Status)"></span>
+                            <div class="list-main">
+                                <strong>@(job.Kind == JobKind.Capture ? "联合保存" : "应用存档")</strong>
+                                <small>@FormatRelative(job.CreatedAt) · @(job.Message ?? job.Status.ToString())</small>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<LiveRoomSummary> rooms = [];
+    private IReadOnlyList<SnapshotSummary> snapshots = [];
+    private IReadOnlyList<JobSummary> jobs = [];
+    private bool loading = true;
+    private string? errorMessage;
+
+    private int FailedJobs => jobs.Count(job => job.Status is JobStatus.FailedRolledBack or JobStatus.RollbackFailed);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Session.LoadAsync();
+            if (Session.SelectedOrganizationId is not { } organizationId)
+            {
+                return;
+            }
+
+            var roomsTask = Http.GetFromJsonAsync<IReadOnlyList<LiveRoomSummary>>($"/api/v1/organizations/{organizationId}/rooms");
+            var snapshotsTask = Http.GetFromJsonAsync<IReadOnlyList<SnapshotSummary>>($"/api/v1/organizations/{organizationId}/snapshots");
+            var jobsTask = Http.GetFromJsonAsync<IReadOnlyList<JobSummary>>($"/api/v1/organizations/{organizationId}/jobs");
+            await Task.WhenAll(roomsTask, snapshotsTask, jobsTask);
+            rooms = await roomsTask ?? [];
+            snapshots = await snapshotsTask ?? [];
+            jobs = await jobsTask ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "无法读取云端状态，请检查网络或重新登录。";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static string StatusTone(JobStatus status) => status switch
+    {
+        JobStatus.Succeeded => "online",
+        JobStatus.FailedRolledBack or JobStatus.RollbackFailed => "error",
+        JobStatus.BlockedByLiveSession or JobStatus.MappingRequired or JobStatus.UnsupportedDeviceMode
+            or JobStatus.MissingFilter or JobStatus.IncompatibleVersion => "warning",
+        _ => string.Empty
+    };
+
+    private static string FormatRelative(DateTimeOffset value)
+    {
+        var elapsed = DateTimeOffset.UtcNow - value;
+        return elapsed.TotalMinutes < 1 ? "刚刚"
+            : elapsed.TotalHours < 1 ? $"{(int)elapsed.TotalMinutes} 分钟前"
+            : elapsed.TotalDays < 1 ? $"{(int)elapsed.TotalHours} 小时前"
+            : value.ToLocalTime().ToString("MM-dd HH:mm");
+    }
+}

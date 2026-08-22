@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+.idea/
+.DS_Store
+.env
+.playwright-cli/
+*.user
+*.suo
+*.lscfg
+*.pfx
+*.snk
+src/LiveStudio.Cloud/LiveStudio.Cloud/Data/app.db
+artifacts/
+data/
+output/

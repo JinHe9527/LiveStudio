@@ -1,0 +1,94 @@
+@page "/desktop-authorize"
+@attribute [Authorize]
+@inject HttpClient Http
+
+<PageTitle>连接桌面客户端 · LiveStudio</PageTitle>
+
+<main class="authorization-page">
+    <section class="authorization-sheet">
+        <div class="authorization-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 14.5zM8 20h8M12 17v3" /></svg>
+        </div>
+        @if (loading)
+        {
+            <h1>正在核对连接请求</h1>
+            <p>请稍候。</p>
+        }
+        else if (approval is null)
+        {
+            <h1>连接请求已失效</h1>
+            <p>@message</p>
+        }
+        else if (approved)
+        {
+            <h1>桌面客户端已连接</h1>
+            <p>可以关闭这个页面并返回 LiveStudio。</p>
+            <div class="authorization-code success">@approval.UserCode</div>
+        }
+        else
+        {
+            <span class="section-kicker">桌面端授权</span>
+            <h1>连接 LiveStudio</h1>
+            <p>允许“@approval.DeviceName”访问你有权限的 Organization、直播间、存档和任务。</p>
+            <div class="authorization-code">@approval.UserCode</div>
+            <p class="authorization-note">确认代码与桌面客户端完全一致。授权不会共享密码、Cookie 或推流凭据。</p>
+            <div class="authorization-actions">
+                <a class="button quiet" href="/">取消</a>
+                <button class="button primary" disabled="@submitting" @onclick="ApproveAsync">允许连接</button>
+            </div>
+        }
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromQuery(Name = "userCode")]
+    public string? UserCode { get; set; }
+
+    private DesktopAuthorizationApproval? approval;
+    private bool loading = true;
+    private bool submitting;
+    private bool approved;
+    private string message = "请从桌面客户端重新发起连接。";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(UserCode))
+        {
+            loading = false;
+            return;
+        }
+
+        try
+        {
+            approval = await Http.GetFromJsonAsync<DesktopAuthorizationApproval>(
+                $"/api/v1/desktop-auth/approvals/{Uri.EscapeDataString(UserCode)}");
+        }
+        catch (HttpRequestException)
+        {
+            approval = null;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task ApproveAsync()
+    {
+        if (approval is null)
+        {
+            return;
+        }
+
+        submitting = true;
+        var response = await Http.PostAsJsonAsync(
+            "/api/v1/desktop-auth/approvals",
+            new ApproveDesktopAuthorizationRequest(approval.UserCode));
+        approved = response.IsSuccessStatusCode;
+        if (!approved)
+        {
+            message = "连接请求无法确认，可能已经过期或被其他账号确认。";
+        }
+        submitting = false;
+    }
+}

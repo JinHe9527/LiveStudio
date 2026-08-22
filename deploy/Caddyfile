@@ -1,0 +1,4 @@
+{$LIVESTUDIO_DOMAIN:localhost} {
+    encode zstd gzip
+    reverse_proxy cloud:8080
+}

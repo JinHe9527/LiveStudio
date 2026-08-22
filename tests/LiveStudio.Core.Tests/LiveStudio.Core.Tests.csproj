@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LiveStudio.Adapters.LiveCompanion\LiveStudio.Adapters.LiveCompanion.csproj" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LiveStudio.Contracts\LiveStudio.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\LiveStudio.Core\LiveStudio.Core.csproj" />
+    <ProjectReference Include="..\..\src\LiveStudio.Packaging\LiveStudio.Packaging.csproj" />
+    <ProjectReference Include="..\..\src\LiveStudio.Adapters.Obs\LiveStudio.Adapters.Obs.csproj" />
+    <ProjectReference Include="..\..\src\LiveStudio.Desktop\LiveStudio.Desktop.csproj" />
+    <ProjectReference Include="..\..\src\LiveStudio.Cloud\LiveStudio.Cloud\LiveStudio.Cloud.csproj" />
+  </ItemGroup>
+
+</Project>

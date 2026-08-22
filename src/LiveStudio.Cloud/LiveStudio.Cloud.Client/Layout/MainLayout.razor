@@ -1,0 +1,42 @@
+﻿@inherits LayoutComponentBase
+
+<AuthorizeView>
+    <Authorized>
+        <div class="page">
+            <aside class="sidebar">
+                <NavMenu />
+            </aside>
+
+            <main class="workspace">
+                <header class="topbar">
+                    <div class="topbar-title">
+                        <span class="workspace-name">直播画面配置</span>
+                    </div>
+                    <div class="cloud-health">
+                        <span class="signal-pulse" aria-hidden="true"></span>
+                        <span><strong>云端已连接</strong><small>配置与任务保持同步</small></span>
+                    </div>
+                </header>
+
+                <article class="content">
+                    @Body
+                </article>
+            </main>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <main class="account-shell">
+            <div class="account-brand" aria-label="LiveStudio">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" /><path d="m8 15 3-3 2.3 2.3L17 10.5" /></svg>
+                <strong>LiveStudio</strong>
+            </div>
+            @Body
+        </main>
+    </NotAuthorized>
+</AuthorizeView>
+
+<div id="blazor-error-ui" data-nosnippet>
+    界面遇到错误。
+    <a href="." class="reload">重新加载</a>
+    <button type="button" class="dismiss" aria-label="关闭">×</button>
+</div>

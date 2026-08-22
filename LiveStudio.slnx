@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LiveStudio.Adapters.LiveCompanion/LiveStudio.Adapters.LiveCompanion.csproj" />
+    <Project Path="src/LiveStudio.Adapters.Obs/LiveStudio.Adapters.Obs.csproj" />
+    <Project Path="src/LiveStudio.Agent/LiveStudio.Agent.csproj" />
+    <Project Path="src/LiveStudio.Contracts/LiveStudio.Contracts.csproj" />
+    <Project Path="src/LiveStudio.Core/LiveStudio.Core.csproj" />
+    <Project Path="src/LiveStudio.Desktop/LiveStudio.Desktop.csproj" />
+    <Project Path="src/LiveStudio.Packaging/LiveStudio.Packaging.csproj" />
+  </Folder>
+  <Folder Name="/src/LiveStudio.Cloud/">
+    <Project Path="src/LiveStudio.Cloud/LiveStudio.Cloud.Client/LiveStudio.Cloud.Client.csproj" />
+    <Project Path="src/LiveStudio.Cloud/LiveStudio.Cloud/LiveStudio.Cloud.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/LiveStudio.Discovery.Windows/LiveStudio.Discovery.Windows.csproj" />
+  </Folder>
+</Solution>
