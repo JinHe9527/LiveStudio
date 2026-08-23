@@ -11,21 +11,6 @@ internal static partial class ObsSnapshotMapper
     private static readonly string AdapterDefinitionSha256 = Convert.ToHexStringLower(
         SHA256.HashData("obs-websocket-5|video-capture|source-filters|readback"u8));
 
-    private static readonly string[] AllowedSourceSettings =
-    [
-        "video_device_id",
-        "video_device_name",
-        "res_type",
-        "resolution",
-        "frame_interval",
-        "fps_num",
-        "fps_den",
-        "video_format",
-        "color_space",
-        "color_range",
-        "buffering"
-    ];
-
     public static async Task<ApplicationSnapshot> CaptureAsync(
         ObsWebSocketClient client,
         CancellationToken cancellationToken)
@@ -51,7 +36,7 @@ internal static partial class ObsSnapshotMapper
                 continue;
             }
 
-            var sanitizedSettings = SanitizeSourceSettings(settings);
+            var capturedSettings = CloneObject(settings, excludeAudioSettings: true);
             var filterResponse = await client.CallAsync(
                 "GetSourceFilterList",
                 new { sourceName = inputName },
@@ -67,7 +52,7 @@ internal static partial class ObsSnapshotMapper
 
                 var filterName = filter.GetProperty("filterName").GetString() ?? string.Empty;
                 var filterSettings = filter.TryGetProperty("filterSettings", out var rawFilterSettings)
-                    ? CloneObject(rawFilterSettings)
+                    ? CloneObject(rawFilterSettings, excludeAudioSettings: false)
                     : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
                 var assets = await ObsFilterAssetMapper.CaptureAsync(filterSettings, cancellationToken);
                 filters.Add(new VideoFilter(
@@ -85,9 +70,9 @@ internal static partial class ObsSnapshotMapper
                 CreateLogicalId($"obs|{inputName}"),
                 inputName,
                 inputKind,
-                ParseDevice(sanitizedSettings),
-                ParseMode(sanitizedSettings),
-                sanitizedSettings,
+                ParseDevice(capturedSettings),
+                ParseMode(capturedSettings),
+                capturedSettings,
                 filters));
         }
 
@@ -104,7 +89,7 @@ internal static partial class ObsSnapshotMapper
         });
         var fingerprintBytes = JsonSerializer.SerializeToUtf8Bytes(structure);
         var coverage = sources.SelectMany(source => source.Settings.Select(pair => new CapturedParameterField(
-                $"/sources/{source.LogicalId:N}/settings/{pair.Key}",
+                $"/sources/{source.LogicalId:N}/settings/{EscapePointerSegment(pair.Key)}",
                 "VideoSource",
                 pair.Value.ValueKind.ToString(),
                 true,
@@ -112,12 +97,36 @@ internal static partial class ObsSnapshotMapper
                 "ObsWebSocketReadback")))
             .Concat(sources.SelectMany(source => source.Filters.SelectMany(filter => filter.Settings.Select(pair =>
                 new CapturedParameterField(
-                    $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/settings/{pair.Key}",
+                    $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/settings/{EscapePointerSegment(pair.Key)}",
                     "VideoFilter",
                     pair.Value.ValueKind.ToString(),
                     true,
                     true,
                     "ObsWebSocketReadback"))))).ToArray();
+        coverage = coverage.Concat(sources.SelectMany(source => source.Filters.SelectMany(filter => new[]
+        {
+            new CapturedParameterField(
+                $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/kind",
+                "FilterType",
+                "String",
+                true,
+                true,
+                "ObsWebSocketReadback"),
+            new CapturedParameterField(
+                $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/enabled",
+                "FilterEnabled",
+                "Boolean",
+                true,
+                true,
+                "ObsWebSocketReadback"),
+            new CapturedParameterField(
+                $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/order",
+                "FilterOrder",
+                "Number",
+                true,
+                true,
+                "ObsWebSocketReadback")
+        }))).ToArray();
         return new ApplicationSnapshot(
             ApplicationKind.Obs,
             version,
@@ -143,23 +152,18 @@ internal static partial class ObsSnapshotMapper
         return settings;
     }
 
-    private static Dictionary<string, JsonElement> SanitizeSourceSettings(JsonElement settings)
-    {
-        var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var name in AllowedSourceSettings)
-        {
-            if (settings.TryGetProperty(name, out var value))
-            {
-                result.Add(name, value.Clone());
-            }
-        }
-
-        return result;
-    }
-
-    private static Dictionary<string, JsonElement> CloneObject(JsonElement element) => element
+    private static Dictionary<string, JsonElement> CloneObject(
+        JsonElement element,
+        bool excludeAudioSettings) => element
         .EnumerateObject()
+        .Where(property => !excludeAudioSettings || !IsAudioSetting(property.Name))
         .ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
+
+    private static bool IsAudioSetting(string name) => name.StartsWith("audio_", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, "use_custom_audio_device", StringComparison.OrdinalIgnoreCase);
+
+    private static string EscapePointerSegment(string value) => value.Replace("~", "~0", StringComparison.Ordinal)
+        .Replace("/", "~1", StringComparison.Ordinal);
 
     private static CaptureDeviceDescriptor? ParseDevice(IReadOnlyDictionary<string, JsonElement> settings)
     {

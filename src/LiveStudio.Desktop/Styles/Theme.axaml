@@ -114,6 +114,20 @@
     <Style Selector="TextBlock.snapshot-name"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#ECECF0" /></Style>
     <Style Selector="TextBlock.snapshot-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
     <Style Selector="TextBlock.transfer-message"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#B7B7BD" /></Style>
+    <Style Selector="Border.coverage-inspector"><Setter Property="Background" Value="#1F1F21" /><Setter Property="BorderBrush" Value="#20FFFFFF" /><Setter Property="BorderThickness" Value="1,0,0,0" /></Style>
+    <Style Selector="Border.coverage-notice"><Setter Property="Padding" Value="10,8" /><Setter Property="Background" Value="#0FFF9F0A" /><Setter Property="BorderBrush" Value="#7AFF9F0A" /><Setter Property="BorderThickness" Value="2,0,0,0" /></Style>
+    <Style Selector="TextBlock.coverage-notice-text"><Setter Property="FontSize" Value="10" /><Setter Property="LineHeight" Value="15" /><Setter Property="Foreground" Value="#B8B8BE" /></Style>
+    <Style Selector="TextBlock.coverage-status"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E4E4E8" /></Style>
+    <Style Selector="TextBlock.coverage-summary"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#85858C" /></Style>
+    <Style Selector="TextBlock.coverage-application"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#F0F0F3" /></Style>
+    <Style Selector="TextBlock.coverage-count"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.coverage-meta-label"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#67676E" /></Style>
+    <Style Selector="TextBlock.coverage-meta-value"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#929299" /></Style>
+    <Style Selector="TextBlock.coverage-field-name"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#DADADF" /></Style>
+    <Style Selector="TextBlock.coverage-field-state"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.coverage-field-value"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#F0F0F3" /></Style>
+    <Style Selector="TextBlock.coverage-field-path"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#6E6E75" /></Style>
+    <Style Selector="TextBlock.coverage-field-meta"><Setter Property="FontSize" Value="9" /><Setter Property="Foreground" Value="#85858C" /></Style>
     <Style Selector="TextBlock.mapping-application"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
     <Style Selector="TextBlock.mapping-status"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#64A7FF" /></Style>
     <Style Selector="ComboBox.mapping-picker"><Setter Property="MinHeight" Value="36" /><Setter Property="Padding" Value="10,5" /><Setter Property="Background" Value="#14FFFFFF" /><Setter Property="BorderBrush" Value="#28FFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" /></Style>

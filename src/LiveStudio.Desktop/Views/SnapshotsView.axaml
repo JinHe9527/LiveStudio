@@ -43,21 +43,21 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="0.36*,0.64*">
+        <Grid Grid.Row="2" ColumnDefinitions="0.25*,0.47*,0.28*">
             <Grid>
                 <Grid IsVisible="{Binding HasSnapshots}" RowDefinitions="38,*">
-                    <Grid Margin="22,0" ColumnDefinitions="*,106">
+                    <Grid Margin="18,0" ColumnDefinitions="*,78">
                         <TextBlock Classes="column-heading" VerticalAlignment="Center" Text="存档" />
                         <TextBlock Grid.Column="1" Classes="column-heading" VerticalAlignment="Center" Text="保存时间" />
                     </Grid>
                     <ListBox Grid.Row="1"
-                             Margin="10,0"
+                             Margin="8,0"
                              ItemsSource="{Binding SnapshotItems}"
                              SelectedItem="{Binding SelectedSnapshot}"
                              Classes="snapshot-list">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:LocalSnapshotItemViewModel">
-                                <Grid MinHeight="64" Margin="12,0" ColumnDefinitions="*,106">
+                                <Grid MinHeight="64" Margin="10,0" ColumnDefinitions="*,78">
                                     <StackPanel VerticalAlignment="Center" Spacing="3">
                                         <TextBlock Classes="snapshot-name" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Classes="snapshot-meta" Text="{Binding Detail}" />
@@ -86,13 +86,13 @@
                 <Grid RowDefinitions="70,*">
                     <Grid Margin="26,0">
                         <StackPanel VerticalAlignment="Center" Spacing="3">
-                            <TextBlock Classes="inspector-title" Text="存档内容" />
-                            <TextBlock Classes="row-value" Text="保存了什么，恢复时就逐项验证什么" />
+                            <TextBlock Classes="inspector-title" Text="全部画面参数" />
+                            <TextBlock Classes="row-value" Text="设备 → 视频模式 → 滤镜链 → 原始参数" />
                         </StackPanel>
                         <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
                     </Grid>
                     <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-                        <Grid Margin="26,20,26,36">
+                        <Grid Margin="22,20,22,36">
                             <TextBlock IsVisible="{Binding !HasSnapshotInspector}"
                                        Classes="inspector-note"
                                        Text="{Binding SnapshotInspectorMessage}"
@@ -143,18 +143,18 @@
                                                                     <TextBlock Classes="technical-value" Text="{Binding DeviceIdentity}" TextWrapping="Wrap" />
                                                                 </StackPanel>
 
-                                                                <Grid ColumnDefinitions="100,*,100,*" RowDefinitions="Auto,Auto,Auto"
-                                                                      ColumnSpacing="12" RowSpacing="11">
+                                                                <Grid ColumnDefinitions="94,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                                                      ColumnSpacing="12" RowSpacing="9">
                                                                     <TextBlock Classes="parameter-label" Text="分辨率" />
                                                                     <TextBlock Grid.Column="1" Classes="parameter-value" Text="{Binding Resolution}" />
-                                                                    <TextBlock Grid.Column="2" Classes="parameter-label" Text="帧率" />
-                                                                    <TextBlock Grid.Column="3" Classes="parameter-value" Text="{Binding FrameRate}" />
-                                                                    <TextBlock Grid.Row="1" Classes="parameter-label" Text="像素格式" />
-                                                                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="parameter-value" Text="{Binding PixelFormat}" />
-                                                                    <TextBlock Grid.Row="1" Grid.Column="2" Classes="parameter-label" Text="色彩空间" />
-                                                                    <TextBlock Grid.Row="1" Grid.Column="3" Classes="parameter-value" Text="{Binding ColorSpace}" />
-                                                                    <TextBlock Grid.Row="2" Classes="parameter-label" Text="色彩范围" />
-                                                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="parameter-value" Text="{Binding ColorRange}" />
+                                                                    <TextBlock Grid.Row="1" Classes="parameter-label" Text="帧率" />
+                                                                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="parameter-value" Text="{Binding FrameRate}" />
+                                                                    <TextBlock Grid.Row="2" Classes="parameter-label" Text="像素格式" />
+                                                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="parameter-value" Text="{Binding PixelFormat}" />
+                                                                    <TextBlock Grid.Row="3" Classes="parameter-label" Text="色彩空间" />
+                                                                    <TextBlock Grid.Row="3" Grid.Column="1" Classes="parameter-value" Text="{Binding ColorSpace}" />
+                                                                    <TextBlock Grid.Row="4" Classes="parameter-label" Text="色彩范围" />
+                                                                    <TextBlock Grid.Row="4" Grid.Column="1" Classes="parameter-value" Text="{Binding ColorRange}" />
                                                                 </Grid>
 
                                                                 <StackPanel IsVisible="{Binding HasSettings}" Spacing="9">
@@ -162,7 +162,7 @@
                                                                     <ItemsControl ItemsSource="{Binding Settings}">
                                                                         <ItemsControl.ItemTemplate>
                                                                             <DataTemplate x:DataType="vm:SnapshotSettingViewModel">
-                                                                                <Grid MinHeight="28" ColumnDefinitions="150,*" ColumnSpacing="12">
+                                                                                <Grid MinHeight="32" ColumnDefinitions="120,*" ColumnSpacing="12">
                                                                                     <StackPanel VerticalAlignment="Center" Spacing="1">
                                                                                         <TextBlock Classes="parameter-label" Text="{Binding Name}" />
                                                                                         <TextBlock Classes="technical-key" Text="{Binding TechnicalName}" />
@@ -198,7 +198,7 @@
                                                                                 <ItemsControl IsVisible="{Binding HasSettings}" ItemsSource="{Binding Settings}">
                                                                                     <ItemsControl.ItemTemplate>
                                                                                         <DataTemplate x:DataType="vm:SnapshotSettingViewModel">
-                                                                                            <Grid MinHeight="30" ColumnDefinitions="150,*" ColumnSpacing="12">
+                                                                                            <Grid MinHeight="32" ColumnDefinitions="120,*" ColumnSpacing="12">
                                                                                                 <StackPanel VerticalAlignment="Center" Spacing="1">
                                                                                                     <TextBlock Classes="parameter-label" Text="{Binding Name}" />
                                                                                                     <TextBlock Classes="technical-key" Text="{Binding TechnicalName}" />
@@ -229,6 +229,108 @@
                                                                         </DataTemplate>
                                                                     </ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Classes="coverage-inspector">
+                <Grid RowDefinitions="88,*">
+                    <Grid Margin="18,0">
+                        <StackPanel VerticalAlignment="Center" Spacing="3">
+                            <TextBlock Classes="inspector-title" Text="参数完整性" />
+                            <TextBlock Classes="coverage-status"
+                                       Text="{Binding SnapshotInspector.CoverageStatus}" />
+                            <TextBlock Classes="coverage-summary"
+                                       Text="{Binding SnapshotInspector.CoverageDetail}" />
+                        </StackPanel>
+                        <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                        <Grid Margin="18,16,18,36">
+                            <TextBlock IsVisible="{Binding !HasSnapshotInspector}"
+                                       Classes="inspector-note"
+                                       Text="选择存档后，这里会逐字段核对适配器覆盖清单和存档实际值。"
+                                       TextWrapping="Wrap" />
+
+                            <StackPanel IsVisible="{Binding HasSnapshotInspector}" Spacing="18">
+                                <Border Classes="coverage-notice">
+                                    <TextBlock Classes="coverage-notice-text"
+                                               Text="绿色表示该字段有实际值且有验证规则；红色表示字段缺失、未声明或无法证明能正确恢复。"
+                                               TextWrapping="Wrap" />
+                                </Border>
+
+                                <ItemsControl ItemsSource="{Binding SnapshotInspector.Applications}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
+                                            <StackPanel Margin="0,0,0,28" Spacing="12">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                    <Ellipse Width="7" Height="7" Fill="#30D158"
+                                                             IsVisible="{Binding !HasCoverageGaps}"
+                                                             VerticalAlignment="Center" />
+                                                    <Ellipse Width="7" Height="7" Fill="#FF453A"
+                                                             IsVisible="{Binding HasCoverageGaps}"
+                                                             VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Classes="coverage-application"
+                                                               Text="{Binding Name}" />
+                                                    <TextBlock Grid.Column="2" Classes="coverage-count"
+                                                               Text="{Binding CoverageCount}" />
+                                                </Grid>
+                                                <TextBlock Classes="coverage-status" Text="{Binding CoverageStatus}" />
+
+                                                <Grid ColumnDefinitions="76,*" RowDefinitions="Auto,Auto,Auto"
+                                                      ColumnSpacing="8" RowSpacing="4">
+                                                    <TextBlock Classes="coverage-meta-label" Text="Adapter" />
+                                                    <TextBlock Grid.Column="1" Classes="coverage-meta-value"
+                                                               Text="{Binding AdapterId}" TextWrapping="Wrap" />
+                                                    <TextBlock Grid.Row="1" Classes="coverage-meta-label" Text="定义哈希" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="coverage-meta-value"
+                                                               Text="{Binding AdapterDefinition}" TextWrapping="Wrap" />
+                                                    <TextBlock Grid.Row="2" Classes="coverage-meta-label" Text="结构指纹" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="coverage-meta-value"
+                                                               Text="{Binding StructureFingerprint}" TextWrapping="Wrap" />
+                                                </Grid>
+
+                                                <Border Height="1" Background="#20FFFFFF" />
+
+                                                <ItemsControl ItemsSource="{Binding CoverageFields}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:SnapshotCoverageFieldViewModel">
+                                                            <StackPanel Margin="0,0,0,14" Spacing="4">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                                                                    <Ellipse Width="6" Height="6" Fill="#30D158"
+                                                                             IsVisible="{Binding !IsGap}"
+                                                                             VerticalAlignment="Center" />
+                                                                    <Ellipse Width="6" Height="6" Fill="#FF453A"
+                                                                             IsVisible="{Binding IsGap}"
+                                                                             VerticalAlignment="Center" />
+                                                                    <TextBlock Grid.Column="1" Classes="coverage-field-name"
+                                                                               Text="{Binding Name}" TextWrapping="Wrap" />
+                                                                    <TextBlock Grid.Column="2" Classes="coverage-field-state"
+                                                                               Text="{Binding Status}" />
+                                                                </Grid>
+                                                                <TextBlock Margin="13,0,0,0" Classes="coverage-field-value"
+                                                                           Text="{Binding Value}" TextWrapping="Wrap" />
+                                                                <TextBlock Margin="13,0,0,0" Classes="coverage-field-path"
+                                                                           Text="{Binding TechnicalPath}" TextWrapping="Wrap" />
+                                                                <TextBlock Margin="13,0,0,0" Classes="coverage-field-meta"
+                                                                           Text="{Binding Type}" />
+                                                                <Grid Margin="13,0,0,0" ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="8">
+                                                                    <TextBlock Classes="coverage-field-meta" Text="{Binding Requirement}" />
+                                                                    <TextBlock Grid.Column="1" Classes="coverage-field-meta" Text="{Binding Access}" />
+                                                                    <TextBlock Grid.Column="2" Classes="coverage-field-meta" Text="{Binding Verification}" />
+                                                                </Grid>
+                                                                <Border Height="1" Margin="13,6,0,0" Background="#12FFFFFF" />
                                                             </StackPanel>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>

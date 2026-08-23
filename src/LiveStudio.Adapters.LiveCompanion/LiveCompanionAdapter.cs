@@ -69,14 +69,16 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         }
 
         var sources = await LiveCompanionSnapshotProjector.CreateSourcesAsync(documents, cancellationToken);
-        var coverage = documents.SelectMany(document => document.Values.Select(value =>
-            new CapturedParameterField(
-                $"{document.RelativePath}:{value.JsonPointer}",
-                value.Category,
-                value.Value.ValueKind.ToString(),
-                true,
-                true,
-                "NativeFieldReadback"))).ToArray();
+        var coverage = match.Adapter is null
+            ? documents.SelectMany(document => document.Values.Select(value =>
+                new CapturedParameterField(
+                    $"{document.RelativePath}:{value.JsonPointer}",
+                    value.Category,
+                    value.Value.ValueKind.ToString(),
+                    true,
+                    false,
+                    "DiscoveryReadOnly"))).ToArray()
+            : CreateDefinedCoverage(match.Adapter, documents);
         return new ApplicationSnapshot(
             ApplicationKind.LiveCompanion,
             version,
@@ -93,6 +95,29 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             coverage,
             sources,
             documents);
+    }
+
+    private static CapturedParameterField[] CreateDefinedCoverage(
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var documentsByStore = documents.ToDictionary(document => document.StoreId, StringComparer.Ordinal);
+        return adapter.Definition.Fields.OrderBy(field => field.StoreId, StringComparer.Ordinal)
+            .ThenBy(field => field.NativePath, StringComparer.Ordinal)
+            .Select(field =>
+            {
+                var prefix = documentsByStore.TryGetValue(field.StoreId, out var document)
+                    ? document.RelativePath
+                    : field.StoreId;
+                return new CapturedParameterField(
+                    $"{prefix}:{field.NativePath}",
+                    field.UnifiedKind.ToString(),
+                    field.ValueType,
+                    field.Required,
+                    field.Writable,
+                    "SignedAdapterReadback");
+            })
+            .ToArray();
     }
 
     public async Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken)

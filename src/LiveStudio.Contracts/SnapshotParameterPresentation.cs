@@ -6,7 +6,7 @@ public sealed record PresentedSnapshotSetting(string Name, string Value, string 
 
 public static class SnapshotParameterPresentation
 {
-    private static readonly IReadOnlyDictionary<string, string> SourceSettingNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> SourceSettingNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ["video_device_id"] = "设备接口标识",
         ["video_device_name"] = "设备名称",
@@ -29,7 +29,7 @@ public static class SnapshotParameterPresentation
         ["colorRange"] = "色彩范围"
     };
 
-    private static readonly IReadOnlyDictionary<string, string> FilterSettingNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> FilterSettingNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ["amount"] = "强度",
         ["brightness"] = "亮度",
@@ -58,7 +58,19 @@ public static class SnapshotParameterPresentation
         ["speed_y"] = "垂直速度",
         ["loop"] = "循环",
         ["limit_width"] = "限制宽度",
-        ["limit_height"] = "限制高度"
+        ["limit_height"] = "限制高度",
+        ["curve"] = "曲线",
+        ["curves"] = "曲线集",
+        ["points"] = "控制点",
+        ["controlPoints"] = "控制点",
+        ["x"] = "X 坐标",
+        ["y"] = "Y 坐标",
+        ["channel"] = "颜色通道",
+        ["interpolation"] = "插值方式",
+        ["red"] = "红色通道",
+        ["green"] = "绿色通道",
+        ["blue"] = "蓝色通道",
+        ["master"] = "主通道"
     };
 
     public static IReadOnlyList<PresentedSnapshotSetting> PresentSourceSettings(
@@ -66,6 +78,18 @@ public static class SnapshotParameterPresentation
 
     public static IReadOnlyList<PresentedSnapshotSetting> PresentFilterSettings(
         IReadOnlyDictionary<string, JsonElement> settings) => PresentSettings(settings, FilterSettingNames);
+
+    public static string PresentTechnicalName(string name)
+    {
+        if (SourceSettingNames.TryGetValue(name, out var sourceName))
+        {
+            return sourceName;
+        }
+
+        return FilterSettingNames.TryGetValue(name, out var filterName)
+            ? filterName
+            : name.Replace('_', ' ');
+    }
 
     public static string SourceKindName(string kind) => kind switch
     {
@@ -110,7 +134,7 @@ public static class SnapshotParameterPresentation
 
     private static PresentedSnapshotSetting[] PresentSettings(
         IReadOnlyDictionary<string, JsonElement> settings,
-        IReadOnlyDictionary<string, string> names) => settings
+        Dictionary<string, string> names) => settings
         .OrderBy(setting => setting.Key, StringComparer.Ordinal)
         .Select(setting =>
         {
