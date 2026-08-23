@@ -13,7 +13,7 @@ Windows 客户端从本项目的 GitHub Releases 检查更新。因为源代码�
 - `.lscfg`：不可变 ZIP 容器、逐文件 SHA-256、ECDSA P-256 签名、素材归档、敏感字段拒绝与路径安全检查。
 - 恢复引擎：统一 Preflight、事务快照、停止、应用、启动、逐项验证、Commit/Rollback；任一验证失败即回滚。
 - OBS：基于 obs-websocket 5.x 的来源、视频模式、滤镜、顺序、启用状态、素材和预览图读写适配器。
-- 直播伴侣：Windows Agent 自动识别 `StreamingTool` 和 `%APPDATA%\webcast_mate`，使用结构化原生 JSON 字段保存、设备映射、素材物化、回读验证和整文件事务回滚。
+- 直播伴侣：Windows Agent 可以探测 `StreamingTool` 和 `%APPDATA%\webcast_mate` 的候选结构，并审计原生导出 ZIP；正式恢复只接受匹配版本和结构指纹的签名适配定义。当前执行端已实现 `JsonFile` 的事务读写框架，真实生产版本适配仍需 Windows 真机证据。
 - Windows Agent：同用户会话运行、Windows Credential Manager 凭据、SQLite 本地索引、断网待上传、SignalR 通知、REST 任务租约和心跳。
 - 本机控制：Windows 桌面端通过仅限当前用户的 Named Pipe 读取 Agent、OBS、直播伴侣和存档状态，发起真实联合保存与事务恢复；OBS 密码只写入 Credential Manager。
 - 远程任务：Capture Job 实际执行读取、打包、签名与上传；Restore Job 下载后核对长度、SHA-256 和源设备签名，再使用目标设备映射执行验证与回滚。
@@ -25,7 +25,7 @@ Windows 客户端从本项目的 GitHub Releases 检查更新。因为源代码�
 
 ## 不能伪造的发布门槛
 
-直播伴侣没有公开稳定配置 API。当前 Agent 内置的结构化适配器会只归档设备、分辨率、FPS、像素格式、色彩与滤镜子树，从同一原生文件中排除账号、Cookie、Token 和推流密钥。未知结构在写入前会因缺少文件或 JSON 指针而失败；任一回读字段不一致都会按原始文件字节回滚。正式标记“已验证版本”仍需在两台不同采集卡电脑上完成 20 次循环。
+直播伴侣没有公开稳定配置 API。当前实验扫描可以把候选设备、分辨率、FPS、像素格式、色彩、滤镜、美颜和曲线子树展示为探测结果，但这种结果没有签名适配定义，只允许读取，不能用于写入。仓库目前没有经过真实生产版本完整验证的直播伴侣签名适配定义；`JsonFile` 执行框架会在缺少文件、JSON Pointer 或回读不一致时失败并恢复原文件字节，Registry、SQLite 和 LevelDB 仍需根据真机存储边界实现。正式标记“已验证版本”必须在两台不同采集卡电脑上完成至少 20 次循环。
 
 桌面端发布前必须分别在 Windows 和 macOS 构建、签名并验证真实顶层窗口。Windows 版本还必须验证 Agent、OBS 与直播伴侣的同用户会话通信；macOS 版本必须验证存档浏览、设备管理和远程任务链路。
 
@@ -100,4 +100,4 @@ dotnet test LiveStudio.Integration.slnx --configuration Release
 
 GitHub Actions 会启动 PostgreSQL 18 和固定版本 MinIO，验证 Identity、Organization 隔离、设备注册、心跳、Multipart 内容一致性，以及共享素材引用与对象删除队列。
 
-直播伴侣实机探测流程见 [docs/live-companion-discovery.md](docs/live-companion-discovery.md)。
+换到 Windows 电脑或新开 Codex 对话时，先阅读 [Windows 真机交接与操作手册](docs/windows-validation-handoff.md)，并使用仓库内 `$livestudio-windows-validation` skill。直播伴侣的详细探测流程见 [docs/live-companion-discovery.md](docs/live-companion-discovery.md)。

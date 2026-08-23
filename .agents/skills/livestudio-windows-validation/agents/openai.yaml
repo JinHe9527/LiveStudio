@@ -1,0 +1,4 @@
+interface:
+  display_name: "LiveStudio Windows 验收"
+  short_description: "指导直播伴侣与 OBS 的 Windows 真机探测和恢复验收"
+  default_prompt: "使用 $livestudio-windows-validation 继续 LiveStudio 的 Windows 真机探测、适配和恢复验收。"
