@@ -1,4 +1,4 @@
-namespace LiveStudio.Discovery.Windows;
+namespace LiveStudio.Packaging;
 
 public static class NativeExportReportComparer
 {

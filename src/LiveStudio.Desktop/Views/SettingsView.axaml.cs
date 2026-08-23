@@ -7,6 +7,12 @@ namespace LiveStudio.Desktop.Views;
 
 public partial class SettingsView : UserControl
 {
+    private static readonly FilePickerFileType NativeExportFileType = new("直播伴侣原生导出包")
+    {
+        Patterns = ["*.zip"],
+        MimeTypes = ["application/zip"]
+    };
+
     public SettingsView()
     {
         InitializeComponent();
@@ -30,5 +36,39 @@ public partial class SettingsView : UserControl
         {
             await viewModel.ConfigureLanDirectoryAsync(path);
         }
+    }
+
+    private async void ChooseNativeExportBaselineClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var path = await ChooseNativeExportAsync("选择只修改美颜参数之前的 ZIP");
+        if (path is not null && DataContext is MainViewModel viewModel)
+        {
+            await viewModel.SetNativeExportBaselineAsync(path);
+        }
+    }
+
+    private async void ChooseNativeExportAfterClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var path = await ChooseNativeExportAsync("选择只修改一个美颜参数之后的 ZIP");
+        if (path is not null && DataContext is MainViewModel viewModel)
+        {
+            await viewModel.CompareNativeExportAsync(path);
+        }
+    }
+
+    private async Task<string?> ChooseNativeExportAsync(string title)
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storageProvider)
+        {
+            return null;
+        }
+
+        var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            FileTypeFilter = [NativeExportFileType]
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LiveStudio.Packaging;
 
 namespace LiveStudio.Discovery.Windows;
 

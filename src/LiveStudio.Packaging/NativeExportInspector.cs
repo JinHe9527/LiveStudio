@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace LiveStudio.Discovery.Windows;
+namespace LiveStudio.Packaging;
 
 public static class NativeExportInspector
 {

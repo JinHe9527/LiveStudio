@@ -21,6 +21,7 @@ public partial class MainViewModel : ViewModelBase
     private IReadOnlyList<LocalSnapshotItemViewModel> desktopSnapshotItems = [];
     private IReadOnlyList<LocalSnapshotItemViewModel> cloudSnapshotItems = [];
     private DesktopCloudCredentials? cloudCredentials;
+    private NativeExportReport? nativeExportBaseline;
     private CancellationTokenSource? snapshotDetailCancellation;
     private bool isLoadingCloudWorkspace;
     private ApplicationUpdateRelease? availableUpdate;
@@ -185,6 +186,23 @@ public partial class MainViewModel : ViewModelBase
     public partial string SettingsMessage { get; set; } = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNativeExportAudit))]
+    public partial string NativeExportAuditDetail { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string NativeExportAuditStatus { get; set; } = "尚未检查原生导出包";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNativeExportChangedFields))]
+    public partial IReadOnlyList<NativeExportChangedFieldViewModel> NativeExportChangedFields { get; set; } = [];
+
+    [ObservableProperty]
+    public partial bool NativeExportHasSensitivePaths { get; set; }
+
+    [ObservableProperty]
+    public partial bool HasNativeExportBaseline { get; set; }
+
+    [ObservableProperty]
     public partial string GitHubUpdateToken { get; set; } = string.Empty;
 
     [ObservableProperty]
@@ -232,6 +250,10 @@ public partial class MainViewModel : ViewModelBase
     public string PlatformMode { get; } = OperatingSystem.IsWindows()
         ? "Windows · 本机控制"
         : "macOS · 存档检查";
+
+    public bool HasNativeExportAudit => !string.IsNullOrWhiteSpace(NativeExportAuditDetail);
+
+    public bool HasNativeExportChangedFields => NativeExportChangedFields.Count > 0;
 
     public string CurrentVersionText { get; }
 
@@ -1040,6 +1062,80 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    public async Task SetNativeExportBaselineAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        IsBusy = true;
+        NativeExportAuditStatus = "正在检查修改前的原生导出包…";
+        NativeExportAuditDetail = string.Empty;
+        NativeExportChangedFields = [];
+        try
+        {
+            nativeExportBaseline = await NativeExportInspector.InspectAsync(
+                "修改前",
+                path,
+                cancellationToken);
+            HasNativeExportBaseline = true;
+            var fieldCount = nativeExportBaseline.Entries.Sum(entry => entry.Fields.Count);
+            NativeExportHasSensitivePaths = nativeExportBaseline.SensitivePaths.Count > 0;
+            NativeExportAuditStatus = "已记录修改前的原生导出包";
+            NativeExportAuditDetail = $"{nativeExportBaseline.Entries.Count} 个条目 · {fieldCount} 个可核对字段 · "
+                + $"{nativeExportBaseline.SensitivePaths.Count} 个敏感路径。现在只修改一个美颜参数，再选择修改后 ZIP。";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            nativeExportBaseline = null;
+            HasNativeExportBaseline = false;
+            NativeExportHasSensitivePaths = false;
+            NativeExportAuditStatus = "无法读取修改前的原生导出包";
+            NativeExportAuditDetail = exception.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    public async Task CompareNativeExportAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        if (nativeExportBaseline is null)
+        {
+            NativeExportAuditStatus = "请先选择修改前 ZIP";
+            return;
+        }
+
+        IsBusy = true;
+        NativeExportAuditStatus = "正在逐字段对比原生导出包…";
+        try
+        {
+            var after = await NativeExportInspector.InspectAsync("修改后", path, cancellationToken);
+            var difference = NativeExportReportComparer.Compare(nativeExportBaseline, after);
+            NativeExportChangedFields = difference.ChangedFields
+                .Select(field => new NativeExportChangedFieldViewModel(field))
+                .ToArray();
+            NativeExportHasSensitivePaths = difference.SensitivePaths.Count > 0;
+            NativeExportAuditStatus = difference.ChangedFields.Count == 0
+                ? "原生导出包中没有发现该参数变化"
+                : $"发现 {difference.ChangedFields.Count} 个变化字段";
+            NativeExportAuditDetail = $"变化条目 {difference.ChangedEntries.Count} 个 · "
+                + $"新增字段 {difference.AddedFields.Count} 个 · 删除字段 {difference.RemovedFields.Count} 个 · "
+                + $"敏感路径 {difference.SensitivePaths.Count} 个";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            NativeExportAuditStatus = "无法对比原生导出包";
+            NativeExportAuditDetail = exception.Message;
+            NativeExportChangedFields = [];
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     public async Task ConfigureLanDirectoryAsync(
         string path,
         CancellationToken cancellationToken = default)
@@ -1678,3 +1774,5 @@ public partial class MainViewModel : ViewModelBase
             : $"{snapshot.Version} · {snapshot.Sources.Count} 个来源";
     }
 }
+
+public sealed record NativeExportChangedFieldViewModel(string Path);

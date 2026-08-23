@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
-using LiveStudio.Discovery.Windows;
+using LiveStudio.Desktop.ViewModels;
+using LiveStudio.Packaging;
 
 namespace LiveStudio.Core.Tests;
 
@@ -98,6 +99,34 @@ public sealed class NativeExportInspectorTests
 
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 NativeExportInspector.InspectAsync("corrupted", path, CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SettingsFlowShowsChangedBeautyFieldsAndSensitiveWarning()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var beforePath = Path.Combine(directory, "before.zip");
+            var afterPath = Path.Combine(directory, "after.zip");
+            CreateExport(beforePath, 0.41, "same-token");
+            CreateExport(afterPath, 0.58, "same-token");
+            var viewModel = new MainViewModel();
+
+            await viewModel.SetNativeExportBaselineAsync(beforePath);
+            await viewModel.CompareNativeExportAsync(afterPath);
+
+            Assert.True(viewModel.HasNativeExportBaseline);
+            Assert.True(viewModel.NativeExportHasSensitivePaths);
+            Assert.Contains(
+                viewModel.NativeExportChangedFields,
+                field => field.Path == "config.json:/beauty/smooth");
+            Assert.Equal("发现 1 个变化字段", viewModel.NativeExportAuditStatus);
         }
         finally
         {
