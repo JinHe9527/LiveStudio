@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\src\LiveStudio.Adapters.Obs\LiveStudio.Adapters.Obs.csproj" />
     <ProjectReference Include="..\..\src\LiveStudio.Desktop\LiveStudio.Desktop.csproj" />
     <ProjectReference Include="..\..\src\LiveStudio.Cloud\LiveStudio.Cloud\LiveStudio.Cloud.csproj" />
+    <ProjectReference Include="..\..\tools\LiveStudio.Discovery.Windows\LiveStudio.Discovery.Windows.csproj" />
   </ItemGroup>
 
 </Project>

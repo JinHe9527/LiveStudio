@@ -27,6 +27,8 @@ public static class DiscoveryCommand
             {
                 "capture" => await CaptureAsync(args[1..], output, cancellationToken),
                 "diff" => await DiffAsync(args[1..], output, cancellationToken),
+                "inspect-export" => await InspectExportAsync(args[1..], output, cancellationToken),
+                "diff-export" => await DiffExportAsync(args[1..], output, cancellationToken),
                 _ => throw new DiscoveryCommandException($"未知命令: {args[0]}")
             };
         }
@@ -87,6 +89,43 @@ public static class DiscoveryCommand
         return 0;
     }
 
+    private static async Task<int> InspectExportAsync(
+        string[] args,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        var options = ParseOptions(args);
+        var input = GetSingle(options, "--input");
+        var destination = GetSingle(options, "--output");
+        var name = GetOptional(options, "--name") ?? Path.GetFileNameWithoutExtension(input);
+        var report = await NativeExportInspector.InspectAsync(name, input, cancellationToken);
+        await WriteJsonAsync(destination, report, cancellationToken);
+        await output.WriteLineAsync($"已生成原生导出包结构报告: {Path.GetFullPath(destination)}");
+        if (report.SensitivePaths.Count > 0)
+        {
+            await output.WriteLineAsync($"发现 {report.SensitivePaths.Count} 个敏感路径，正式存档必须拒绝或裁剪这些内容。");
+        }
+
+        return 0;
+    }
+
+    private static async Task<int> DiffExportAsync(
+        string[] args,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        var options = ParseOptions(args);
+        var beforePath = GetSingle(options, "--before");
+        var afterPath = GetSingle(options, "--after");
+        var destination = GetSingle(options, "--output");
+        var before = await ReadJsonAsync<NativeExportReport>(beforePath, cancellationToken);
+        var after = await ReadJsonAsync<NativeExportReport>(afterPath, cancellationToken);
+        var difference = NativeExportReportComparer.Compare(before, after);
+        await WriteJsonAsync(destination, difference, cancellationToken);
+        await output.WriteLineAsync($"已生成原生导出包差异报告: {Path.GetFullPath(destination)}");
+        return 0;
+    }
+
     private static Dictionary<string, List<string>> ParseOptions(string[] args)
     {
         var options = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -114,6 +153,21 @@ public static class DiscoveryCommand
         if (!options.TryGetValue(name, out var values) || values.Count != 1)
         {
             throw new DiscoveryCommandException($"必须且只能提供一次 {name}");
+        }
+
+        return values[0];
+    }
+
+    private static string? GetOptional(Dictionary<string, List<string>> options, string name)
+    {
+        if (!options.TryGetValue(name, out var values))
+        {
+            return null;
+        }
+
+        if (values.Count != 1)
+        {
+            throw new DiscoveryCommandException($"最多只能提供一次 {name}");
         }
 
         return values[0];
@@ -158,7 +212,14 @@ public static class DiscoveryCommand
 
         diff --before <before.json> --after <after.json> --output <diff.json>
 
-        报告只保存文件哈希、Registry 值哈希和进程元数据，不保存配置内容或凭据。
+        inspect-export --input <直播伴侣原生导出.zip> --output <report.json>
+                       [--name <实验名>]
+
+        diff-export --before <before-report.json> --after <after-report.json>
+                    --output <diff.json>
+
+        报告只保存文件哈希、JSON 字段路径/类型/值哈希、Registry 值哈希和进程元数据，
+        不保存配置原值或凭据。
         """;
 
     private sealed class DiscoveryCommandException(string message) : Exception(message);
