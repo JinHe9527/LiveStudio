@@ -13,5 +13,5 @@
 *.snk
 src/LiveStudio.Cloud/LiveStudio.Cloud/Data/app.db
 artifacts/
-data/
+/data/
 output/
