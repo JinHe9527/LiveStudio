@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\LiveStudio.Contracts\LiveStudio.Contracts.csproj" />
     <ProjectReference Include="..\..\LiveStudio.Core\LiveStudio.Core.csproj" />
     <ProjectReference Include="..\..\LiveStudio.Packaging\LiveStudio.Packaging.csproj" />
+    <ProjectReference Include="..\..\LiveStudio.Adapters.LiveCompanion\LiveStudio.Adapters.LiveCompanion.csproj" />
   </ItemGroup>
 
 </Project>

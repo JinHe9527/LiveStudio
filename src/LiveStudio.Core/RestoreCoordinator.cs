@@ -68,6 +68,19 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
             contexts.Add((adapter, context));
         }
 
+        try
+        {
+            await prepareAssets(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await reportProgress(
+                JobStatus.FailedRolledBack,
+                "预检失败，未修改任何应用配置",
+                CancellationToken.None);
+            return new RestoreExecutionResult(JobStatus.FailedRolledBack, exception.Message, []);
+        }
+
         var sessions = new List<IApplicationRestoreSession>();
         IReadOnlyList<string> verificationDifferences = [];
         try
@@ -85,7 +98,6 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
             }
 
             await reportProgress(JobStatus.Applying, "正在应用设备、画面格式和视频滤镜", cancellationToken);
-            await prepareAssets(cancellationToken);
             foreach (var session in sessions)
             {
                 await session.ApplyAsync(cancellationToken);

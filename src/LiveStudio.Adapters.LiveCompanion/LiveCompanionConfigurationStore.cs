@@ -86,6 +86,9 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 var sourceId = CreateLogicalId($"live-companion|{relativePath}");
                 documents.Add(new NativeConfigurationDocument(
                     "webcast_mate",
+                    "JsonFile",
+                    "json-v1",
+                    relativePath,
                     relativePath,
                     Convert.ToHexStringLower(SHA256.HashData(content)),
                     sourceId,
@@ -103,6 +106,118 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         return documents;
+    }
+
+    public async Task<IReadOnlyList<NativeConfigurationDocument>> CaptureDefinedDocumentsAsync(
+        VerifiedAdapterDefinition adapter,
+        CancellationToken cancellationToken)
+    {
+        var documents = new List<NativeConfigurationDocument>();
+        foreach (var store in adapter.Definition.Stores.OrderBy(store => store.Id, StringComparer.Ordinal))
+        {
+            if (store.Kind != ConfigurationStorageKind.JsonFile)
+            {
+                throw new InvalidOperationException(
+                    $"适配器 {adapter.Definition.Id} 的存储 {store.Id} 尚未实现: {store.Kind}");
+            }
+
+            var path = ResolveDefinitionPath(store.Location);
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException($"直播伴侣适配器要求的配置文件不存在: {store.Location}", path);
+            }
+
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                131_072,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var values = new List<NativeConfigurationValue>();
+            foreach (var field in adapter.Definition.Fields
+                         .Where(field => string.Equals(field.StoreId, store.Id, StringComparison.Ordinal))
+                         .OrderBy(field => field.NativePath, StringComparer.Ordinal))
+            {
+                if (!TryGetPointer(json.RootElement, field.NativePath, out var value))
+                {
+                    if (field.Required)
+                    {
+                        throw new InvalidOperationException(
+                            $"直播伴侣配置缺少必需字段 {store.Id}:{field.NativePath}");
+                    }
+
+                    continue;
+                }
+
+                EnsureExpectedType(field, value);
+                values.Add(new NativeConfigurationValue(
+                    field.NativePath,
+                    Category(field.UnifiedKind),
+                    value.Clone()));
+            }
+
+            var relativePath = Path.GetRelativePath(RootPath, path);
+            var content = JsonSerializer.SerializeToUtf8Bytes(values, JsonOptions);
+            documents.Add(new NativeConfigurationDocument(
+                store.Id,
+                store.Kind.ToString(),
+                adapter.Definition.Id,
+                store.Location,
+                relativePath,
+                Convert.ToHexStringLower(SHA256.HashData(content)),
+                CreateLogicalId($"live-companion|{store.Id}|{relativePath}"),
+                values));
+        }
+
+        return documents;
+    }
+
+    public static void ValidateDefinedDocuments(
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var fields = adapter.Definition.Fields.ToDictionary(
+            field => $"{field.StoreId}\0{field.NativePath}",
+            StringComparer.Ordinal);
+        var stores = adapter.Definition.Stores.ToDictionary(store => store.Id, StringComparer.Ordinal);
+        var capturedKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var document in documents)
+        {
+            if (!stores.TryGetValue(document.StoreId, out var store)
+                || !string.Equals(document.StorageKind, store.Kind.ToString(), StringComparison.Ordinal)
+                || !string.Equals(document.StructureVersion, adapter.Definition.Id, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"存档包含未声明的配置存储: {document.StoreId}");
+            }
+
+            foreach (var value in document.Values)
+            {
+                var key = $"{document.StoreId}\0{value.JsonPointer}";
+                if (!fields.TryGetValue(key, out var field) || !field.Writable)
+                {
+                    throw new InvalidOperationException(
+                        $"存档包含适配器未声明为可写的字段: {document.StoreId}:{value.JsonPointer}");
+                }
+
+                EnsureExpectedType(field, value.Value);
+                if (!capturedKeys.Add(key))
+                {
+                    throw new InvalidOperationException($"存档包含重复字段: {document.StoreId}:{value.JsonPointer}");
+                }
+            }
+        }
+
+        var missing = adapter.Definition.Fields.FirstOrDefault(field =>
+            field.Required
+            && field.Writable
+            && !capturedKeys.Contains($"{field.StoreId}\0{field.NativePath}"));
+        if (missing is not null)
+        {
+            throw new InvalidOperationException(
+                $"存档缺少适配器必需字段: {missing.StoreId}:{missing.NativePath}");
+        }
     }
 
     public async Task<LiveCompanionLiveState> InspectLiveStateAsync(CancellationToken cancellationToken)
@@ -143,6 +258,52 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         return new LiveCompanionLiveState(false, false);
     }
 
+    public async Task<LiveCompanionLiveState> InspectDefinedLiveStateAsync(
+        VerifiedAdapterDefinition adapter,
+        CancellationToken cancellationToken)
+    {
+        var rule = adapter.Definition.LiveStateRule;
+        var store = adapter.Definition.Stores.SingleOrDefault(value =>
+            string.Equals(value.Id, rule.StoreId, StringComparison.Ordinal));
+        if (store is null || store.Kind != ConfigurationStorageKind.JsonFile)
+        {
+            return new LiveCompanionLiveState(false, false);
+        }
+
+        var path = ResolveDefinitionPath(store.Location);
+        if (!File.Exists(path))
+        {
+            return new LiveCompanionLiveState(false, false);
+        }
+
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                65_536,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            if (!TryGetPointer(json.RootElement, rule.NativePath, out var value))
+            {
+                return new LiveCompanionLiveState(false, false);
+            }
+
+            var actual = value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? string.Empty
+                : value.GetRawText();
+            return new LiveCompanionLiveState(
+                !string.Equals(actual, rule.ExpectedIdleValue, StringComparison.OrdinalIgnoreCase),
+                true);
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return new LiveCompanionLiveState(false, false);
+        }
+    }
+
     public async Task<IReadOnlyDictionary<string, byte[]>> BackupAsync(
         IEnumerable<NativeConfigurationDocument> documents,
         CancellationToken cancellationToken)
@@ -165,7 +326,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
     public async Task ApplyAsync(
         IReadOnlyList<NativeConfigurationDocument> documents,
         IReadOnlyDictionary<Guid, DeviceMapping> mappings,
-        IReadOnlyList<AssetReference> assets,
+        IReadOnlyList<AssetBinding> assets,
         string assetDirectory,
         CancellationToken cancellationToken)
     {
@@ -207,7 +368,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
     public static IReadOnlyList<NativeConfigurationDocument> CreateExpectedDocuments(
         IReadOnlyList<NativeConfigurationDocument> documents,
         IReadOnlyDictionary<Guid, DeviceMapping> mappings,
-        IReadOnlyList<AssetReference> assets,
+        IReadOnlyList<AssetBinding> assets,
         string assetDirectory) => documents.Select(document =>
     {
         mappings.TryGetValue(document.SourceLogicalId, out var mapping);
@@ -239,9 +400,9 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
 
     public string ResolveDocumentPath(NativeConfigurationDocument document)
     {
-        if (!string.Equals(document.StoreId, "webcast_mate", StringComparison.Ordinal))
+        if (!string.Equals(document.StorageKind, ConfigurationStorageKind.JsonFile.ToString(), StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"不支持的直播伴侣存储: {document.StoreId}");
+            throw new InvalidOperationException($"不支持的直播伴侣存储: {document.StorageKind}");
         }
 
         var path = Path.GetFullPath(Path.Combine(RootPath, document.RelativePath));
@@ -253,6 +414,79 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
 
         return path;
     }
+
+    private string ResolveDefinitionPath(string location)
+    {
+        if (string.IsNullOrWhiteSpace(location) || Path.IsPathRooted(location))
+        {
+            throw new InvalidOperationException("直播伴侣适配定义只能使用配置根目录内的相对路径");
+        }
+
+        var path = Path.GetFullPath(Path.Combine(RootPath, location));
+        var root = Path.GetFullPath(RootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"直播伴侣适配定义路径越界: {location}");
+        }
+
+        return path;
+    }
+
+    private static bool TryGetPointer(JsonElement root, string pointer, out JsonElement value)
+    {
+        value = root;
+        foreach (var segment in pointer.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(UnescapePointer))
+        {
+            if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty(segment, out var property))
+            {
+                value = property;
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Array
+                && int.TryParse(segment, out var index)
+                && index >= 0
+                && index < value.GetArrayLength())
+            {
+                value = value[index];
+                continue;
+            }
+
+            value = default;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void EnsureExpectedType(FieldMappingDefinition field, JsonElement value)
+    {
+        var expected = field.ValueType.Trim().ToLowerInvariant();
+        var matches = expected switch
+        {
+            "string" => value.ValueKind == JsonValueKind.String,
+            "int" or "integer" or "number" or "double" => value.ValueKind == JsonValueKind.Number,
+            "bool" or "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            "object" => value.ValueKind == JsonValueKind.Object,
+            "array" => value.ValueKind == JsonValueKind.Array,
+            "null" => value.ValueKind == JsonValueKind.Null,
+            _ => false
+        };
+        if (!matches)
+        {
+            throw new InvalidOperationException(
+                $"直播伴侣字段类型不匹配 {field.NativePath}: 期望 {field.ValueType}，实际 {value.ValueKind}");
+        }
+    }
+
+    private static string Category(UnifiedFieldKind field) => field switch
+    {
+        UnifiedFieldKind.DeviceSelection => NativeParameterCategories.DeviceSelection,
+        UnifiedFieldKind.Width or UnifiedFieldKind.Height or UnifiedFieldKind.FramesPerSecond
+            or UnifiedFieldKind.PixelFormat or UnifiedFieldKind.ColorSpace or UnifiedFieldKind.ColorRange =>
+            NativeParameterCategories.VideoMode,
+        _ => NativeParameterCategories.Filter
+    };
 
     private static void CollectValues(
         JsonElement element,
@@ -467,7 +701,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
 
     private static JsonNode? MaterializeAssetPaths(
         JsonNode? node,
-        IReadOnlyList<AssetReference> assets,
+        IReadOnlyList<AssetBinding> assets,
         string assetDirectory)
     {
         if (node is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var sourcePath))
@@ -479,7 +713,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 return node.DeepClone();
             }
 
-            var targetPath = Path.Combine(assetDirectory, asset.Sha256, asset.OriginalFileName);
+            var targetPath = Path.Combine(assetDirectory, asset.BlobSha256, asset.OriginalFileName);
             if (!File.Exists(targetPath))
             {
                 throw new FileNotFoundException($"滤镜素材尚未物化: {asset.OriginalFileName}", targetPath);

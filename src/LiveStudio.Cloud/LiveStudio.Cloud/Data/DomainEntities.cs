@@ -323,6 +323,10 @@ public sealed class RemoteJobEntity
 
     public DateTimeOffset? ClaimedAt { get; set; }
 
+    public Guid? ExecutionId { get; set; }
+
+    public long LastEventSequence { get; set; }
+
     public DateTimeOffset? LeaseUntil { get; set; }
 
     public DateTimeOffset? CompletedAt { get; set; }
@@ -338,6 +342,10 @@ public sealed class JobEventEntity
 
     public Guid JobId { get; set; }
 
+    public Guid ExecutionId { get; set; }
+
+    public long Sequence { get; set; }
+
     public JobStatus Status { get; set; }
 
     public DateTimeOffset OccurredAt { get; set; }
@@ -345,6 +353,8 @@ public sealed class JobEventEntity
     public required string Message { get; set; }
 
     public string? DetailCode { get; set; }
+
+    public string? VerificationDetail { get; set; }
 }
 
 public sealed class AuditEventEntity

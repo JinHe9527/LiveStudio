@@ -19,8 +19,8 @@ public sealed class ApplicationUpdateServiceTests
                   "name": "LiveStudio v0.2.0",
                   "published_at": "2026-08-20T08:00:00Z",
                   "assets": [
-                    { "name": "LiveStudio-Windows-x64.zip", "url": "https://api.github.com/assets/1" },
-                    { "name": "LiveStudio-Windows-x64.zip.sha256", "url": "https://api.github.com/assets/2" }
+                    { "name": "LiveStudio-Windows-x64.msix", "url": "https://api.github.com/assets/1" },
+                    { "name": "LiveStudio-Windows-x64.msix.sha256", "url": "https://api.github.com/assets/2" }
                   ]
                 }
                 """);

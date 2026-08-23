@@ -7,7 +7,7 @@ namespace LiveStudio.Packaging;
 
 public static class SnapshotPackageReader
 {
-    private const int SupportedSchemaVersion = 1;
+    private const int SupportedSchemaVersion = 2;
     private const long MaximumMetadataLength = 256 * 1024;
     private const long MaximumEntryLength = 512L * 1024 * 1024;
     private const long MaximumPackageLength = 2L * 1024 * 1024 * 1024;
@@ -146,9 +146,66 @@ public static class SnapshotPackageReader
             throw new SnapshotPackageException("存档元数据与参数内容不一致");
         }
 
+        EnsureManifestMatchesParameters(manifest, snapshot);
+
         return new SnapshotPackageInspection(
             new SnapshotPackage(manifest, snapshot, files),
             signer);
+    }
+
+    private static void EnsureManifestMatchesParameters(
+        SnapshotPackageManifest manifest,
+        CombinedSnapshot snapshot)
+    {
+        var applications = snapshot.Applications.ToDictionary(application => application.Kind);
+        if (applications.Count != manifest.Applications.Count)
+        {
+            throw new SnapshotPackageException("存档适配器清单与参数内容不一致");
+        }
+
+        foreach (var expected in manifest.Applications)
+        {
+            if (!applications.TryGetValue(expected.Application, out var actual)
+                || !string.Equals(expected.AdapterId, actual.AdapterId, StringComparison.Ordinal)
+                || !string.Equals(
+                    expected.AdapterDefinitionSha256,
+                    actual.AdapterDefinitionSha256,
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    expected.StructureFingerprint,
+                    actual.StructureFingerprint,
+                    StringComparison.Ordinal)
+                || expected.Compatibility != actual.Compatibility
+                || expected.WasRunning != actual.WasRunning
+                || !expected.FieldCoverage.SequenceEqual(
+                    actual.FieldCoverage.Select(field => field.NativePath),
+                    StringComparer.Ordinal))
+            {
+                throw new SnapshotPackageException("存档适配器清单与参数内容不一致");
+            }
+
+            if (actual.Compatibility == CompatibilityLevel.Verified
+                && (actual.AdapterDefinitionSha256.Length != 64
+                    || !actual.AdapterDefinitionSha256.All(Uri.IsHexDigit)))
+            {
+                throw new SnapshotPackageException($"{actual.Kind} 缺少有效的适配定义哈希");
+            }
+        }
+
+        var actualBindings = snapshot.Applications.SelectMany(application => application.Sources)
+            .SelectMany(source => source.Filters)
+            .SelectMany(filter => filter.Assets)
+            .ToDictionary(binding => binding.Id);
+        if (actualBindings.Count != manifest.AssetBindings.Count
+            || manifest.AssetBindings.Any(expected =>
+                !actualBindings.TryGetValue(expected.Id, out var actual)
+                || !string.Equals(expected.BlobSha256, actual.BlobSha256, StringComparison.Ordinal)
+                || !string.Equals(expected.OriginalFileName, actual.OriginalFileName, StringComparison.Ordinal)
+                || !string.Equals(expected.SourcePath, actual.SourcePath, StringComparison.Ordinal)
+                || !string.Equals(expected.ReferencePath, actual.ReferencePath, StringComparison.Ordinal)))
+        {
+            throw new SnapshotPackageException("存档素材 Binding 清单与参数内容不一致");
+        }
     }
 
     private static void ValidateSignatureMetadata(PackageSignature signature)

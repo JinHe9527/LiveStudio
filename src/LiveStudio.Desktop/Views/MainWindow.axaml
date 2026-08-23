@@ -11,8 +11,8 @@
         x:DataType="vm:MainViewModel"
         Width="1240"
         Height="780"
-        MinWidth="1080"
-        MinHeight="700"
+        MinWidth="760"
+        MinHeight="560"
         Background="#1C1C1E"
         Title="LiveStudio">
 
@@ -20,7 +20,7 @@
         <vm:MainViewModel />
     </Design.DataContext>
 
-    <Grid ColumnDefinitions="216,*">
+    <Grid ColumnDefinitions="200,*">
         <Border Grid.Column="0" Classes="sidebar">
             <Grid RowDefinitions="Auto,*,Auto">
                 <StackPanel Margin="18,22,14,24" Orientation="Horizontal" Spacing="10">

@@ -19,17 +19,23 @@ public static class CompatibilityMatcher
         string structureFingerprint,
         IEnumerable<VerifiedAdapterDefinition> adapters)
     {
-        if (!Version.TryParse(applicationVersion, out var version))
-        {
-            return new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, "无法解析直播伴侣版本号");
-        }
-
         var candidates = adapters
             .Where(adapter => string.Equals(
                 adapter.Definition.StructureFingerprint,
                 structureFingerprint,
                 StringComparison.Ordinal))
             .ToArray();
+        if (!Version.TryParse(applicationVersion, out var version))
+        {
+            var structuralMatch = candidates.FirstOrDefault();
+            return structuralMatch is null
+                ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, "无法解析版本号且没有结构指纹匹配")
+                : new AdapterMatchResult(
+                    AdapterMatchLevel.Experimental,
+                    structuralMatch,
+                    "结构指纹匹配，但目标版本号无法验证");
+        }
+
         var verified = candidates.FirstOrDefault(adapter =>
             Version.Parse(adapter.Definition.MinimumVersion) <= version
             && Version.Parse(adapter.Definition.MaximumVersion) >= version);

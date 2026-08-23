@@ -85,7 +85,7 @@ public static class SnapshotParameterComparer
                             ", ",
                             filter.Assets
                                 .OrderBy(asset => asset.OriginalFileName, StringComparer.Ordinal)
-                                .Select(asset => $"{asset.OriginalFileName}（{asset.Sha256}）")));
+                                .Select(asset => $"{asset.OriginalFileName}（{asset.BlobSha256}）")));
                 }
             }
 

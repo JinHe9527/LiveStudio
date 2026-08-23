@@ -47,11 +47,15 @@ try {
     $runtimeIdentifier = "win-$Architecture"
 
     & dotnet publish (Join-Path $repositoryRoot 'src\LiveStudio.Desktop\LiveStudio.Desktop.csproj') `
-        -c Release -r $runtimeIdentifier --self-contained true -o $desktopPublish
+        -c Release -r $runtimeIdentifier --self-contained true -o $desktopPublish `
+        -p:Version=$Version `
+        -p:LiveStudioUpdatePublisher=$Publisher `
+        -p:LiveStudioUpdateCertificateThumbprint=$CertificateThumbprint
     if ($LASTEXITCODE -ne 0) { throw '桌面端发布失败。' }
 
     & dotnet publish (Join-Path $repositoryRoot 'src\LiveStudio.Agent\LiveStudio.Agent.csproj') `
-        -c Release -r $runtimeIdentifier --self-contained true -o $agentPublish
+        -c Release -r $runtimeIdentifier --self-contained true -o $agentPublish `
+        -p:Version=$Version
     if ($LASTEXITCODE -ne 0) { throw 'Agent 发布失败。' }
 
     Copy-Item -Path (Join-Path $desktopPublish '*') -Destination $desktopPayload -Recurse -Force

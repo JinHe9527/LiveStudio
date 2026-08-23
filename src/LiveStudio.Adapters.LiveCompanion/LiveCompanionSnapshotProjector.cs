@@ -100,7 +100,7 @@ internal static class LiveCompanionSnapshotProjector
             assets);
     }
 
-    private static async Task<IReadOnlyList<AssetReference>> CaptureAssetsAsync(
+    private static async Task<IReadOnlyList<AssetBinding>> CaptureAssetsAsync(
         JsonElement value,
         CancellationToken cancellationToken)
     {
@@ -109,19 +109,18 @@ internal static class LiveCompanionSnapshotProjector
             .Select(Path.GetFullPath)
             .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
             .ToArray();
-        var assets = new List<AssetReference>(paths.Length);
+        var assets = new List<AssetBinding>(paths.Length);
         foreach (var path in paths)
         {
             await using var stream = File.OpenRead(path);
             var sha256 = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
             var info = new FileInfo(path);
-            assets.Add(new AssetReference(
+            assets.Add(new AssetBinding(
+                CreateLogicalId($"live-companion-asset|{path}"),
                 sha256,
                 info.Name,
-                MediaType(info.Extension),
-                info.Length,
-                $"assets/{sha256}/{info.Name}",
-                path));
+                path,
+                string.Empty));
         }
 
         return assets;
@@ -252,17 +251,6 @@ internal static class LiveCompanionSnapshotProjector
 
     private static string NormalizePointerLeaf(string pointer) => string.Concat(
         pointer.Split('/').Last().Where(char.IsLetterOrDigit)).ToLowerInvariant();
-
-    private static string MediaType(string extension) => extension.ToLowerInvariant() switch
-    {
-        ".bmp" => "image/bmp",
-        ".cube" => "application/octet-stream",
-        ".gif" => "image/gif",
-        ".jpg" or ".jpeg" => "image/jpeg",
-        ".png" => "image/png",
-        ".webp" => "image/webp",
-        _ => "application/octet-stream"
-    };
 
     private static Guid CreateLogicalId(string value)
     {

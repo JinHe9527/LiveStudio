@@ -48,6 +48,7 @@ builder.Services.AddSingleton<IObsCredentialProvider>(services =>
     services.GetRequiredService<AgentObsConfigurationStore>());
 builder.Services.AddSingleton<IObsDeviceCatalog, AgentObsDeviceCatalog>();
 builder.Services.AddSingleton<IApplicationAdapter, ObsAdapter>();
+builder.Services.AddSingleton<LiveCompanionAdapterCatalog>();
 builder.Services.AddSingleton<IApplicationAdapter, LiveCompanionAdapter>();
 builder.Services.AddSingleton<SnapshotCaptureService>();
 builder.Services.AddSingleton<RestoreCoordinator>();
@@ -62,5 +63,6 @@ builder.Services.AddSingleton<CloudAgentRuntime>();
 builder.Services.AddHostedService<LocalControlServer>();
 builder.Services.AddHostedService(services => services.GetRequiredService<LanSnapshotWorker>());
 builder.Services.AddHostedService(services => services.GetRequiredService<CloudAgentRuntime>());
+await LiveCompanionRecovery.RecoverPendingAsync(CancellationToken.None);
 await builder.Build().RunAsync();
 return 0;

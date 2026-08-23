@@ -55,6 +55,9 @@ public sealed record RestoreJob(
     Guid RoomId,
     Guid DeviceId,
     Guid SnapshotId,
+    Guid? ExecutionId,
+    Guid? LocalTransactionId,
+    long LastConfirmedEventSequence,
     CompatibilityLevel Compatibility,
     JobStatus Status,
     DateTimeOffset CreatedAt,
@@ -63,10 +66,13 @@ public sealed record RestoreJob(
 public sealed record JobEvent(
     Guid Id,
     Guid JobId,
+    Guid ExecutionId,
+    long Sequence,
     JobStatus Status,
     DateTimeOffset OccurredAt,
     string Message,
-    string? DetailCode);
+    string? DetailCode,
+    string? VerificationDetail);
 
 public sealed record CompatibilityAssessment(
     ApplicationKind Application,
@@ -74,7 +80,13 @@ public sealed record CompatibilityAssessment(
     string TargetVersion,
     CompatibilityLevel Level,
     string AdapterId,
-    IReadOnlyList<string> Reasons);
+    IReadOnlyList<string> Reasons,
+    IReadOnlyList<FieldCompatibilityAssessment> Fields);
+
+public sealed record FieldCompatibilityAssessment(
+    string NativePath,
+    CompatibilityLevel Level,
+    string Reason);
 
 public sealed record AgentJobNotification(Guid JobId, JobKind Kind);
 

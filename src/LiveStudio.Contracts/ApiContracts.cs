@@ -98,6 +98,7 @@ public sealed record CreateRefreshPreviewJobRequest(Guid RoomId, Guid DeviceId);
 
 public sealed record ClaimJobResponse(
     Guid Id,
+    Guid ExecutionId,
     JobKind Kind,
     string Name,
     Guid RoomId,
@@ -114,4 +115,10 @@ public sealed record AgentSnapshotDownloadResponse(
     string SigningKeyId,
     string SigningPublicKeyPem);
 
-public sealed record ReportJobEventRequest(JobStatus Status, string Message, string? DetailCode);
+public sealed record ReportJobEventRequest(
+    Guid ExecutionId,
+    long Sequence,
+    JobStatus Status,
+    string Message,
+    string? DetailCode,
+    string? VerificationDetail);

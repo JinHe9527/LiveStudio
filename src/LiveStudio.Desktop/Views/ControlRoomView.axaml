@@ -14,9 +14,9 @@
                 <TextBlock Margin="0,0,6,0" Classes="toolbar-context" VerticalAlignment="Center" Text="{Binding PlatformMode}" />
                 <Button Classes="standard" IsVisible="{Binding IsDisconnected}"
                         Command="{Binding OpenConnectionSettingsCommand}">连接电脑…</Button>
-                <Button Classes="standard" IsVisible="{Binding IsAgentConnected}"
+                <Button Classes="standard" AutomationProperties.Name="选择并恢复画面存档" IsVisible="{Binding IsAgentConnected}"
                         Command="{Binding RestoreSnapshotCommand}">恢复</Button>
-                <Button Classes="standard accent" IsVisible="{Binding IsAgentConnected}"
+                <Button Classes="standard accent" AutomationProperties.Name="联合保存 OBS 和直播伴侣当前画面参数" IsVisible="{Binding IsAgentConnected}"
                         Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
             </StackPanel>
             <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
@@ -35,7 +35,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="1" IsVisible="{Binding IsAgentConnected}" ColumnDefinitions="*,292">
+        <Grid Grid.Row="1" IsVisible="{Binding IsAgentConnected}" ColumnDefinitions="0.68*,0.32*">
             <Grid Classes="preview-pane">
                 <StackPanel Width="430" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
                     <Path Width="34" Height="34" Margin="0,0,0,5" HorizontalAlignment="Center"

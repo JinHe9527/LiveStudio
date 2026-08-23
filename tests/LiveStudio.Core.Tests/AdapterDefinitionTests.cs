@@ -62,6 +62,32 @@ public sealed class AdapterDefinitionTests
         Assert.Equal(AdapterMatchLevel.Experimental, result.Level);
     }
 
+    [Fact]
+    public void CatalogLoadsDefinitionOnlyWithMatchingTrustedSignature()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"livestudio-adapter-catalog-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(directory, "trusted-keys"));
+        try
+        {
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var (definitionJson, signatureJson) = Sign(CreateDefinition(), signingKey);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.adapter.json"), definitionJson);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.signature.json"), signatureJson);
+            File.WriteAllText(
+                Path.Combine(directory, "trusted-keys", "catalog.pem"),
+                signingKey.ExportSubjectPublicKeyInfoPem());
+
+            var catalog = new LiveCompanionAdapterCatalog(directory);
+
+            var adapter = Assert.Single(catalog.GetAll());
+            Assert.Equal("live-companion-1", adapter.Definition.Id);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static LiveCompanionAdapterDefinition CreateDefinition()
     {
         var fields = new[]

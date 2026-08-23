@@ -39,11 +39,22 @@ public sealed class SnapshotCaptureService(
             .Where(preview => preview is not null)
             .Select(preview => preview!)
             .ToArray();
-        var assets = snapshots.SelectMany(application => application.Sources)
+        var assetBindings = snapshots.SelectMany(application => application.Sources)
             .SelectMany(source => source.Filters)
             .SelectMany(filter => filter.Assets)
-            .GroupBy(asset => asset.Sha256, StringComparer.Ordinal)
-            .Select(group => group.First())
+            .ToArray();
+        var assets = assetBindings
+            .GroupBy(asset => asset.BlobSha256, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var binding = group.First();
+                var info = new FileInfo(binding.SourcePath);
+                return new AssetBlob(
+                    binding.BlobSha256,
+                    GetMediaType(info.Extension),
+                    info.Length,
+                    $"assets/{binding.BlobSha256}/content");
+            })
             .ToArray();
         var previewReferences = previews.Select(preview => new PreviewReference(
             preview.Application,
@@ -57,7 +68,7 @@ public sealed class SnapshotCaptureService(
             credentials.RoomId,
             name.Trim(),
             DateTimeOffset.UtcNow,
-            1,
+            2,
             snapshots,
             assets,
             previewReferences);
@@ -80,7 +91,9 @@ public sealed class SnapshotCaptureService(
 
         foreach (var asset in assets)
         {
-            files.Add(await ReadAssetAsync(asset, cancellationToken));
+            var binding = assetBindings.First(item =>
+                string.Equals(item.BlobSha256, asset.Sha256, StringComparison.Ordinal));
+            files.Add(await ReadAssetAsync(asset, binding, cancellationToken));
         }
 
         var snapshotDirectory = Path.Combine(
@@ -159,22 +172,34 @@ public sealed class SnapshotCaptureService(
     }
 
     private static async Task<PackageFile> ReadAssetAsync(
-        AssetReference asset,
+        AssetBlob asset,
+        AssetBinding binding,
         CancellationToken cancellationToken)
     {
-        if (!File.Exists(asset.SourcePath))
+        if (!File.Exists(binding.SourcePath))
         {
-            throw new SnapshotCaptureException($"找不到滤镜素材: {asset.OriginalFileName}");
+            throw new SnapshotCaptureException($"找不到滤镜素材: {binding.OriginalFileName}");
         }
 
-        await using var stream = File.OpenRead(asset.SourcePath);
+        await using var stream = File.OpenRead(binding.SourcePath);
         var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
         if (!string.Equals(hash, asset.Sha256, StringComparison.Ordinal))
         {
-            throw new SnapshotCaptureException($"滤镜素材在保存期间发生变化: {asset.OriginalFileName}");
+            throw new SnapshotCaptureException($"滤镜素材在保存期间发生变化: {binding.OriginalFileName}");
         }
 
-        var content = await File.ReadAllBytesAsync(asset.SourcePath, cancellationToken);
+        var content = await File.ReadAllBytesAsync(binding.SourcePath, cancellationToken);
         return new PackageFile(asset.PackagePath, asset.MediaType, content);
     }
+
+    private static string GetMediaType(string extension) => extension.ToLowerInvariant() switch
+    {
+        ".bmp" => "image/bmp",
+        ".gif" => "image/gif",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".tga" => "image/x-tga",
+        ".webp" => "image/webp",
+        _ => "application/octet-stream"
+    };
 }

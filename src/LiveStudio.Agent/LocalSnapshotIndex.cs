@@ -28,6 +28,17 @@ public sealed record LocalOperationRecord(
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt);
 
+public sealed record PendingJobEvent(
+    Guid Id,
+    Guid JobId,
+    Guid ExecutionId,
+    long Sequence,
+    JobStatus Status,
+    string Message,
+    string? DetailCode,
+    string? VerificationDetail,
+    DateTimeOffset CreatedAt);
+
 public sealed class LocalSnapshotIndex
 {
     private readonly string connectionString;
@@ -98,6 +109,21 @@ public sealed class LocalSnapshotIndex
             );
             CREATE INDEX IF NOT EXISTS ix_local_operations_started_at
                 ON local_operations(started_at DESC);
+            CREATE TABLE IF NOT EXISTS job_event_outbox (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                execution_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                status INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                detail_code TEXT NULL,
+                verification_detail TEXT NULL,
+                created_at TEXT NOT NULL,
+                uploaded INTEGER NOT NULL DEFAULT 0 CHECK (uploaded IN (0, 1)),
+                UNIQUE(job_id, execution_id, sequence)
+            );
+            CREATE INDEX IF NOT EXISTS ix_job_event_outbox_pending
+                ON job_event_outbox(uploaded, created_at);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureUploadEligibleColumnAsync(connection, cancellationToken);
@@ -144,6 +170,73 @@ public sealed class LocalSnapshotIndex
         command.Parameters.AddWithValue(
             "$completedAt",
             operation.CompletedAt is { } completedAt ? completedAt.ToString("O") : DBNull.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task EnqueueJobEventAsync(PendingJobEvent jobEvent, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO job_event_outbox(
+                id, job_id, execution_id, sequence, status, message,
+                detail_code, verification_detail, created_at, uploaded)
+            VALUES (
+                $id, $jobId, $executionId, $sequence, $status, $message,
+                $detailCode, $verificationDetail, $createdAt, 0);
+            """;
+        command.Parameters.AddWithValue("$id", jobEvent.Id.ToString("N"));
+        command.Parameters.AddWithValue("$jobId", jobEvent.JobId.ToString("N"));
+        command.Parameters.AddWithValue("$executionId", jobEvent.ExecutionId.ToString("N"));
+        command.Parameters.AddWithValue("$sequence", jobEvent.Sequence);
+        command.Parameters.AddWithValue("$status", (int)jobEvent.Status);
+        command.Parameters.AddWithValue("$message", jobEvent.Message);
+        command.Parameters.AddWithValue("$detailCode", (object?)jobEvent.DetailCode ?? DBNull.Value);
+        command.Parameters.AddWithValue("$verificationDetail", (object?)jobEvent.VerificationDetail ?? DBNull.Value);
+        command.Parameters.AddWithValue("$createdAt", jobEvent.CreatedAt.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PendingJobEvent>> GetPendingJobEventsAsync(CancellationToken cancellationToken)
+    {
+        var events = new List<PendingJobEvent>();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, job_id, execution_id, sequence, status, message,
+                   detail_code, verification_detail, created_at
+            FROM job_event_outbox
+            WHERE uploaded = 0
+            ORDER BY created_at, sequence
+            LIMIT 200;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            events.Add(new PendingJobEvent(
+                Guid.ParseExact(reader.GetString(0), "N"),
+                Guid.ParseExact(reader.GetString(1), "N"),
+                Guid.ParseExact(reader.GetString(2), "N"),
+                reader.GetInt64(3),
+                (JobStatus)reader.GetInt32(4),
+                reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                DateTimeOffset.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        return events;
+    }
+
+    public async Task MarkJobEventUploadedAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE job_event_outbox SET uploaded = 1 WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("N"));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

@@ -8,6 +8,9 @@ namespace LiveStudio.Adapters.Obs;
 
 internal static partial class ObsSnapshotMapper
 {
+    private static readonly string AdapterDefinitionSha256 = Convert.ToHexStringLower(
+        SHA256.HashData("obs-websocket-5|video-capture|source-filters|readback"u8));
+
     private static readonly string[] AllowedSourceSettings =
     [
         "video_device_id",
@@ -89,11 +92,41 @@ internal static partial class ObsSnapshotMapper
         }
 
         sources.Sort((left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-        var fingerprintBytes = JsonSerializer.SerializeToUtf8Bytes(sources);
+        var structure = sources.Select(source => new
+        {
+            source.Kind,
+            Settings = source.Settings.Select(pair => new { pair.Key, Type = pair.Value.ValueKind.ToString() }),
+            Filters = source.Filters.Select(filter => new
+            {
+                filter.Kind,
+                Settings = filter.Settings.Select(pair => new { pair.Key, Type = pair.Value.ValueKind.ToString() })
+            })
+        });
+        var fingerprintBytes = JsonSerializer.SerializeToUtf8Bytes(structure);
+        var coverage = sources.SelectMany(source => source.Settings.Select(pair => new CapturedParameterField(
+                $"/sources/{source.LogicalId:N}/settings/{pair.Key}",
+                "VideoSource",
+                pair.Value.ValueKind.ToString(),
+                true,
+                true,
+                "ObsWebSocketReadback")))
+            .Concat(sources.SelectMany(source => source.Filters.SelectMany(filter => filter.Settings.Select(pair =>
+                new CapturedParameterField(
+                    $"/sources/{source.LogicalId:N}/filters/{filter.LogicalId:N}/settings/{pair.Key}",
+                    "VideoFilter",
+                    pair.Value.ValueKind.ToString(),
+                    true,
+                    true,
+                    "ObsWebSocketReadback"))))).ToArray();
         return new ApplicationSnapshot(
             ApplicationKind.Obs,
             version,
+            "obs-websocket-5",
+            AdapterDefinitionSha256,
             Convert.ToHexStringLower(SHA256.HashData(fingerprintBytes)),
+            CompatibilityLevel.Verified,
+            true,
+            coverage,
             sources,
             []);
     }

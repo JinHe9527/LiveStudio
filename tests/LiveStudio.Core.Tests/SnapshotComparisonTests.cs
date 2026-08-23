@@ -122,7 +122,12 @@ public sealed class SnapshotComparisonTests
         var application = new ApplicationSnapshot(
             ApplicationKind.Obs,
             "31.1.2",
+            "test-adapter",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
             "fingerprint",
+            CompatibilityLevel.Verified,
+            true,
+            [],
             [source],
             []);
         return new SnapshotDetail(summary, [application], new Dictionary<ApplicationKind, Uri>());

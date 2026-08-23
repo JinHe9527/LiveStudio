@@ -91,7 +91,7 @@ public sealed class RestoreCoordinatorTests
     }
 
     [Fact]
-    public async Task ExecuteAsyncRollsBackWhenAssetMaterializationFails()
+    public async Task ExecuteAsyncFailsBeforeCreatingSessionWhenAssetMaterializationFails()
     {
         var adapter = new FakeAdapter(ApplicationKind.Obs);
         var coordinator = new RestoreCoordinator([adapter]);
@@ -107,8 +107,9 @@ public sealed class RestoreCoordinatorTests
             CancellationToken.None);
 
         Assert.Equal(JobStatus.FailedRolledBack, result.Status);
-        Assert.True(adapter.Session.WasStopped);
-        Assert.True(adapter.Session.WasRolledBack);
+        Assert.Equal(0, adapter.BeginRestoreCount);
+        Assert.False(adapter.Session.WasStopped);
+        Assert.False(adapter.Session.WasRolledBack);
         Assert.False(adapter.Session.WasCommitted);
     }
 
@@ -118,8 +119,18 @@ public sealed class RestoreCoordinatorTests
         Guid.NewGuid(),
         "测试存档",
         DateTimeOffset.UtcNow,
-        1,
-        applications.Select(application => new ApplicationSnapshot(application, "1.0.0", "fingerprint", [], [])).ToArray(),
+        2,
+        applications.Select(application => new ApplicationSnapshot(
+            application,
+            "1.0.0",
+            "test-adapter",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "fingerprint",
+            CompatibilityLevel.Verified,
+            true,
+            [],
+            [],
+            [])).ToArray(),
         [],
         []);
 
@@ -139,7 +150,17 @@ public sealed class RestoreCoordinatorTests
             Task.FromResult(RuntimeStatus);
 
         public Task<ApplicationSnapshot> CaptureAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(new ApplicationSnapshot(Kind, RuntimeStatus.Version, "fingerprint", [], []));
+            Task.FromResult(new ApplicationSnapshot(
+                Kind,
+                RuntimeStatus.Version,
+                "test-adapter",
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "fingerprint",
+                CompatibilityLevel.Verified,
+                RuntimeStatus.IsRunning,
+                [],
+                [],
+                []));
 
         public Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken) =>
             CaptureAsync(cancellationToken);

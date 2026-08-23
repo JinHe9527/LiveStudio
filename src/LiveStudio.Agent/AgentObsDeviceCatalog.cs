@@ -19,18 +19,20 @@ public sealed class AgentObsDeviceCatalog(
         var password = await credentialProvider.GetPasswordAsync(cancellationToken);
         await using var client = new ObsWebSocketClient(optionsProvider.Current.Endpoint, password);
         await client.ConnectAsync(cancellationToken);
-        JsonElement response;
-        try
-        {
-            response = await client.CallAsync(
-                "GetInputSettings",
-                new { inputName = targetSourceName },
-                cancellationToken);
-        }
-        catch (ObsRequestException)
+        var sourceName = await FindCapabilitySourceAsync(
+            client,
+            targetSourceName,
+            targetDeviceId,
+            cancellationToken);
+        if (sourceName is null)
         {
             return false;
         }
+
+        var response = await client.CallAsync(
+            "GetInputSettings",
+            new { inputName = sourceName },
+            cancellationToken);
 
         var settings = response.GetProperty("inputSettings");
         if (!Matches(settings, "video_device_id", targetDeviceId))
@@ -40,28 +42,28 @@ public sealed class AgentObsDeviceCatalog(
 
         if (!await SupportsValueAsync(
                 client,
-                targetSourceName,
+                sourceName,
                 settings,
                 "resolution",
                 $"{mode.Width}x{mode.Height}",
                 cancellationToken)
             || !await SupportsRequiredValueAsync(
                 client,
-                targetSourceName,
+                sourceName,
                 settings,
                 "video_format",
                 mode.PixelFormat,
                 cancellationToken)
             || !await SupportsRequiredValueAsync(
                 client,
-                targetSourceName,
+                sourceName,
                 settings,
                 "color_space",
                 mode.ColorSpace,
                 cancellationToken)
             || !await SupportsRequiredValueAsync(
                 client,
-                targetSourceName,
+                sourceName,
                 settings,
                 "color_range",
                 mode.ColorRange,
@@ -98,10 +100,44 @@ public sealed class AgentObsDeviceCatalog(
 
         return await ContainsPropertyValueAsync(
             client,
-            targetSourceName,
+            sourceName,
             "frame_interval",
             expectedInterval.ToString(System.Globalization.CultureInfo.InvariantCulture),
             cancellationToken);
+    }
+
+    private static async Task<string?> FindCapabilitySourceAsync(
+        ObsWebSocketClient client,
+        string preferredSourceName,
+        string targetDeviceId,
+        CancellationToken cancellationToken)
+    {
+        var inputs = await client.CallAsync("GetInputList", null, cancellationToken);
+        var names = inputs.GetProperty("inputs").EnumerateArray()
+            .Select(input => input.GetProperty("inputName").GetString())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .OrderByDescending(name => string.Equals(name, preferredSourceName, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var name in names)
+        {
+            try
+            {
+                var response = await client.CallAsync(
+                    "GetInputSettings",
+                    new { inputName = name },
+                    cancellationToken);
+                if (Matches(response.GetProperty("inputSettings"), "video_device_id", targetDeviceId))
+                {
+                    return name;
+                }
+            }
+            catch (ObsRequestException)
+            {
+            }
+        }
+
+        return null;
     }
 
     private static bool Matches(JsonElement settings, string propertyName, string expected) =>

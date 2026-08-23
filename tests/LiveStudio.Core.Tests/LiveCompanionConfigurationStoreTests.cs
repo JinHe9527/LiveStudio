@@ -59,7 +59,7 @@ public sealed class LiveCompanionConfigurationStoreTests
             var assetDirectory = Path.Combine(fixture.RootPath, "stable-assets");
             foreach (var asset in assets)
             {
-                var directory = Path.Combine(assetDirectory, asset.Sha256);
+                var directory = Path.Combine(assetDirectory, asset.BlobSha256);
                 Directory.CreateDirectory(directory);
                 File.Copy(asset.SourcePath, Path.Combine(directory, asset.OriginalFileName));
             }
@@ -126,6 +126,76 @@ public sealed class LiveCompanionConfigurationStoreTests
             var live = await store.InspectLiveStateAsync(CancellationToken.None);
             Assert.True(live.CanDetermine);
             Assert.True(live.IsLive);
+        }
+        finally
+        {
+            Directory.Delete(fixture.RootPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SignedDefinitionCapturesOnlyDeclaredFieldsWithExactTypes()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            var store = new LiveCompanionConfigurationStore(fixture.RootPath);
+            var definition = new LiveCompanionAdapterDefinition(
+                "fixture-adapter",
+                "1.0.0",
+                "1.0.0",
+                new string('a', 64),
+                [new ConfigurationStoreDefinition(
+                    "main",
+                    ConfigurationStorageKind.JsonFile,
+                    "studio.json",
+                    null,
+                    true)],
+                [
+                    new FieldMappingDefinition(
+                        "device",
+                        UnifiedFieldKind.DeviceSelection,
+                        "main",
+                        "/studio/cameraId",
+                        "string",
+                        true,
+                        true),
+                    new FieldMappingDefinition(
+                        "width",
+                        UnifiedFieldKind.Width,
+                        "main",
+                        "/studio/width",
+                        "int",
+                        true,
+                        true)
+                ],
+                ["/login"],
+                new LiveStateRuleDefinition("main", "/isLive", "false"),
+                new ScreenshotRuleDefinition("window", "main"));
+            var verified = new VerifiedAdapterDefinition(definition, "test", new string('b', 64));
+
+            var documents = await store.CaptureDefinedDocumentsAsync(verified, CancellationToken.None);
+            var liveState = await store.InspectDefinedLiveStateAsync(verified, CancellationToken.None);
+
+            var document = Assert.Single(documents);
+            LiveCompanionConfigurationStore.ValidateDefinedDocuments(verified, documents);
+            Assert.Equal("fixture-adapter", document.StructureVersion);
+            Assert.Equal(2, document.Values.Count);
+            Assert.Contains(document.Values, value => value.JsonPointer == "/studio/cameraId");
+            Assert.Contains(document.Values, value => value.JsonPointer == "/studio/width");
+            Assert.DoesNotContain(document.Values, value => value.JsonPointer.Contains("login", StringComparison.OrdinalIgnoreCase));
+            Assert.True(liveState.CanDetermine);
+            Assert.False(liveState.IsLive);
+
+            var injected = document with
+            {
+                Values = document.Values.Append(new NativeConfigurationValue(
+                    "/login/token",
+                    "Filter",
+                    JsonSerializer.SerializeToElement("injected"))).ToArray()
+            };
+            Assert.Throws<InvalidOperationException>(() =>
+                LiveCompanionConfigurationStore.ValidateDefinedDocuments(verified, [injected]));
         }
         finally
         {

@@ -65,6 +65,7 @@ public sealed class AgentWorker(
             {
                 await connection.StartAsync(cancellationToken);
                 await ScheduleAvailableAsync(cancellationToken);
+                await FlushJobEventsAsync(cancellationToken);
                 await closed.Task.WaitAsync(cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -166,15 +167,33 @@ public sealed class AgentWorker(
     private async Task ExecuteJobAsync(ClaimJobResponse job, CancellationToken cancellationToken)
     {
         var lastStatus = JobStatus.Claimed;
-        async Task ReportAsync(JobStatus status, string message, string? detailCode = null)
+        var sequence = 1L;
+        async Task ReportAsync(
+            JobStatus status,
+            string message,
+            string? detailCode = null,
+            string? verificationDetail = null)
         {
             if (status == lastStatus)
             {
                 return;
             }
 
-            await apiClient.ReportAsync(job.Id, status, message, detailCode, cancellationToken);
+            sequence++;
+            await snapshotIndex.EnqueueJobEventAsync(
+                new PendingJobEvent(
+                    Guid.NewGuid(),
+                    job.Id,
+                    job.ExecutionId,
+                    sequence,
+                    status,
+                    message,
+                    detailCode,
+                    verificationDetail,
+                    DateTimeOffset.UtcNow),
+                cancellationToken);
             lastStatus = status;
+            await TryFlushJobEventsAsync(cancellationToken);
         }
 
         try
@@ -222,7 +241,13 @@ public sealed class AgentWorker(
 
                     if (result.Status != lastStatus)
                     {
-                        await ReportAsync(result.Status, result.Message, result.Status.ToString());
+                        await ReportAsync(
+                            result.Status,
+                            result.Message,
+                            result.Status.ToString(),
+                            result.Differences.Count == 0
+                                ? null
+                                : string.Join(Environment.NewLine, result.Differences));
                     }
 
                     break;
@@ -265,6 +290,27 @@ public sealed class AgentWorker(
         }
     }
 
+    private async Task TryFlushJobEventsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FlushJobEventsAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            LogConnectionFailure(logger, exception);
+        }
+    }
+
+    private async Task FlushJobEventsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var jobEvent in await snapshotIndex.GetPendingJobEventsAsync(cancellationToken))
+        {
+            await apiClient.ReportAsync(jobEvent, cancellationToken);
+            await snapshotIndex.MarkJobEventUploadedAsync(jobEvent.Id, cancellationToken);
+        }
+    }
+
     private async Task<(HeartbeatRequest Heartbeat, CurrentParameterState? CurrentState)> CaptureTelemetryAsync(
         CancellationToken cancellationToken)
     {
@@ -274,7 +320,7 @@ public sealed class AgentWorker(
             try
             {
                 var status = await adapter.InspectAsync(cancellationToken);
-                if (status.IsRunning)
+                if (status.IsRunning || adapter.Kind == ApplicationKind.LiveCompanion)
                 {
                     applications.Add(await adapter.CaptureAsync(cancellationToken));
                 }

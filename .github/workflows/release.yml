@@ -35,32 +35,51 @@ jobs:
           dotnet build LiveStudio.slnx --configuration Release --no-restore --nologo
           dotnet test tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj --configuration Release --no-build --nologo
 
-      - name: 发布 Windows x64
+      - name: 导入内部代码签名证书
         shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.LIVESTUDIO_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.LIVESTUDIO_SIGNING_PFX_PASSWORD }}
+          EXPECTED_PUBLISHER: ${{ secrets.LIVESTUDIO_SIGNING_PUBLISHER }}
         run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
-          $packageRoot = Join-Path $PWD 'artifacts\LiveStudio'
-          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
-          dotnet publish src/LiveStudio.Desktop/LiveStudio.Desktop.csproj `
-            --configuration Release --runtime win-x64 --self-contained true `
-            -p:Version=$version -o (Join-Path $packageRoot 'Desktop')
-          dotnet publish src/LiveStudio.Agent/LiveStudio.Agent.csproj `
-            --configuration Release --runtime win-x64 --self-contained true `
-            -p:Version=$version -o (Join-Path $packageRoot 'Agent')
-          @'
-          @echo off
-          setlocal
-          start "" "%~dp0Desktop\LiveStudio.Desktop.exe"
-          endlocal
-          '@ | Set-Content -Encoding ascii (Join-Path $packageRoot '启动 LiveStudio.cmd')
-          @'
-          解压整个目录后双击“启动 LiveStudio.cmd”。
-          软件设置位于窗口左下角。GitHub 私有仓库更新需要保存一次 Fine-grained Token，之后可在软件内检查、安装并重启。
-          '@ | Set-Content -Encoding utf8 (Join-Path $packageRoot '使用说明.txt')
-          $archive = Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.zip'
-          Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $archive -CompressionLevel Optimal
-          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          "$hash  LiveStudio-Windows-x64.zip" | Set-Content -Encoding ascii "$archive.sha256"
+          if (-not $env:SIGNING_PFX_BASE64 -or -not $env:SIGNING_PFX_PASSWORD -or -not $env:EXPECTED_PUBLISHER) {
+            throw '缺少 MSIX 签名 Secrets'
+          }
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'LiveStudio-signing.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if (-not $certificate -or $certificate.Subject -ne $env:EXPECTED_PUBLISHER) {
+            throw '签名证书 Subject 与固定 Publisher 不一致'
+          }
+          "LIVESTUDIO_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 构建并验证签名 MSIX
+        shell: pwsh
+        env:
+          PACKAGE_PUBLISHER: ${{ secrets.LIVESTUDIO_SIGNING_PUBLISHER }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v') + '.0'
+          $output = Join-Path $PWD 'artifacts\msix'
+          $package = .\deploy\windows\Build-Msix.ps1 `
+            -Version $version `
+            -Architecture x64 `
+            -Publisher $env:PACKAGE_PUBLISHER `
+            -CertificateThumbprint $env:LIVESTUDIO_CERTIFICATE_THUMBPRINT `
+            -TimestampUrl 'http://timestamp.digicert.com' `
+            -OutputDirectory $output | Select-Object -Last 1
+          $releasePackage = Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.msix'
+          Copy-Item -LiteralPath $package -Destination $releasePackage
+          $hash = (Get-FileHash -Algorithm SHA256 $releasePackage).Hash.ToLowerInvariant()
+          "$hash  LiveStudio-Windows-x64.msix" | Set-Content -Encoding ascii "$releasePackage.sha256"
+          $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $signTool = Get-ChildItem -Path $sdkRoot -Filter signtool.exe -Recurse |
+            Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signTool verify /pa /v $releasePackage 2>&1 |
+            Tee-Object -FilePath (Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.signature.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Release MSIX 签名复验失败' }
 
       - name: 创建 GitHub Release
         shell: pwsh
@@ -68,8 +87,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            artifacts/LiveStudio-Windows-x64.zip `
-            artifacts/LiveStudio-Windows-x64.zip.sha256 `
+            artifacts/LiveStudio-Windows-x64.msix `
+            artifacts/LiveStudio-Windows-x64.msix.sha256 `
+            artifacts/LiveStudio-Windows-x64.signature.txt `
             --title "LiveStudio ${{ github.ref_name }}" `
             --generate-notes `
             --verify-tag

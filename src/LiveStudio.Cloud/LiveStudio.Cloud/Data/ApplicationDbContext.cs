@@ -130,6 +130,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             .WithMany()
             .HasForeignKey(jobEvent => jobEvent.JobId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<JobEventEntity>().HasIndex(jobEvent => new
+        {
+            jobEvent.JobId,
+            jobEvent.ExecutionId,
+            jobEvent.Sequence
+        }).IsUnique();
         builder.Entity<SnapshotEntity>().HasIndex(snapshot => new { snapshot.OrganizationId, snapshot.RoomId, snapshot.CreatedAt });
         builder.Entity<SnapshotUploadEntity>().HasIndex(upload => new { upload.OrganizationId, upload.ExpiresAt });
         builder.Entity<AuditEventEntity>().HasIndex(audit => new { audit.OrganizationId, audit.OccurredAt });

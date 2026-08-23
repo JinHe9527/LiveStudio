@@ -19,6 +19,7 @@ public sealed record ProcessObservation(
 public sealed record FileObservation(
     string Root,
     string RelativePath,
+    string StorageFormat,
     long Length,
     DateTimeOffset LastWriteTime,
     string Sha256);

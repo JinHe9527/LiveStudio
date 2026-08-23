@@ -15,7 +15,18 @@ public sealed record SnapshotPackageManifest(
     string Name,
     DateTimeOffset CreatedAt,
     int SchemaVersion,
+    IReadOnlyList<SnapshotApplicationManifest> Applications,
+    IReadOnlyList<AssetBinding> AssetBindings,
     IReadOnlyList<PackageFileEntry> Files);
+
+public sealed record SnapshotApplicationManifest(
+    ApplicationKind Application,
+    string AdapterId,
+    string AdapterDefinitionSha256,
+    string StructureFingerprint,
+    CompatibilityLevel Compatibility,
+    bool WasRunning,
+    IReadOnlyList<string> FieldCoverage);
 
 public sealed record PackageSignature(
     string Algorithm,

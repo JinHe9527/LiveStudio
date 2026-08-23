@@ -58,16 +58,45 @@ public sealed class DiscoveryCollector
                 FileShare.ReadWrite | FileShare.Delete,
                 131_072,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var header = new byte[Math.Min(64, checked((int)Math.Min(info.Length, 64)))];
+            _ = await stream.ReadAsync(header, cancellationToken);
+            stream.Position = 0;
             var hash = await SHA256.HashDataAsync(stream, cancellationToken);
             observations.Add(new FileObservation(
                 fullRoot,
                 Path.GetRelativePath(fullRoot, path),
+                DetectStorageFormat(path, header),
                 info.Length,
                 info.LastWriteTimeUtc,
                 Convert.ToHexStringLower(hash)));
         }
 
         return observations;
+    }
+
+    private static string DetectStorageFormat(string path, ReadOnlySpan<byte> header)
+    {
+        if (header.StartsWith("SQLite format 3\0"u8))
+        {
+            return "SQLite";
+        }
+
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "JSON";
+        }
+
+        if (extension.Equals(".ldb", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".log", StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(Path.GetDirectoryName(path))?.Contains("leveldb", StringComparison.OrdinalIgnoreCase) == true
+            || Path.GetFileName(path).Equals("CURRENT", StringComparison.OrdinalIgnoreCase)
+                && Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "MANIFEST-*").Any())
+        {
+            return "LevelDB";
+        }
+
+        return "File";
     }
 
     private static List<ProcessObservation> CaptureProcesses(IReadOnlyList<string> names)

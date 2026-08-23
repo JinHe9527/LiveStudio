@@ -184,7 +184,7 @@
                                             <div class="filter-assets">
                                                 @foreach (var asset in filter.Assets)
                                                 {
-                                                    <span><strong>@asset.OriginalFileName</strong><small>SHA-256 @asset.Sha256[..12]…</small></span>
+                                                    <span><strong>@asset.OriginalFileName</strong><small>SHA-256 @asset.BlobSha256[..12]…</small></span>
                                                 }
                                             </div>
                                         }

@@ -10,13 +10,13 @@
                 <TextBlock Classes="page-subtitle" Text="{Binding SnapshotsSubtitle}" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
-                <Button Classes="toolbar-action" Click="ImportSnapshotClicked">打开存档…</Button>
+                <Button Classes="toolbar-action" AutomationProperties.Name="打开画面存档" Click="ImportSnapshotClicked">打开存档…</Button>
                 <Button Classes="toolbar-action" IsVisible="{Binding SupportsLocalAgent}"
                         IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked">导出…</Button>
                 <Button Classes="toolbar-action" Command="{Binding RefreshStateCommand}">刷新</Button>
-                <Button Classes="toolbar-action" IsVisible="{Binding CanShowRestoreAction}"
+                <Button Classes="toolbar-action" AutomationProperties.Name="恢复选中的画面存档" IsVisible="{Binding CanShowRestoreAction}"
                         Command="{Binding RestoreSnapshotCommand}">恢复</Button>
-                <Button Classes="standard accent" IsVisible="{Binding SupportsLocalAgent}"
+                <Button Classes="standard accent" AutomationProperties.Name="联合保存 OBS 和直播伴侣当前画面参数" IsVisible="{Binding SupportsLocalAgent}"
                         Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
             </StackPanel>
             <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
@@ -43,7 +43,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="360,*">
+        <Grid Grid.Row="2" ColumnDefinitions="0.36*,0.64*">
             <Grid>
                 <Grid IsVisible="{Binding HasSnapshots}" RowDefinitions="38,*">
                     <Grid Margin="22,0" ColumnDefinitions="*,106">
@@ -121,6 +121,7 @@
                                                     <StackPanel Spacing="3">
                                                         <TextBlock Classes="application-title" Text="{Binding Name}" />
                                                         <TextBlock Classes="detail-meta" Text="{Binding Summary}" />
+                                                        <TextBlock Classes="technical-value" Text="{Binding AdapterStatus}" />
                                                     </StackPanel>
                                                     <TextBlock Grid.Column="1" Classes="detail-meta" VerticalAlignment="Center"
                                                                Text="{Binding Version}" />

@@ -370,14 +370,22 @@ public static class DeviceEndpoints
             });
         }
 
-        var previews = new List<(ApplicationKind Application, byte[] Content)>();
+        var previews = new List<(ApplicationKind Application, string MediaType, string Extension, byte[] Content)>();
         foreach (var preview in request.Previews)
         {
-            if (!string.Equals(preview.MediaType, "image/webp", StringComparison.OrdinalIgnoreCase))
+            var normalizedMediaType = preview.MediaType.ToLowerInvariant();
+            var extension = normalizedMediaType switch
+            {
+                "image/webp" => ".webp",
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                _ => null
+            };
+            if (extension is null)
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    [nameof(request.Previews)] = ["当前画面预览必须使用 WebP"]
+                    [nameof(request.Previews)] = ["当前画面预览只允许 PNG、WebP 或 JPEG"]
                 });
             }
 
@@ -395,8 +403,7 @@ public static class DeviceEndpoints
             }
 
             if (content.Length is <= 12 or > 4 * 1024 * 1024
-                || !content.AsSpan(0, 4).SequenceEqual("RIFF"u8)
-                || !content.AsSpan(8, 4).SequenceEqual("WEBP"u8))
+                || !HasExpectedImageSignature(normalizedMediaType, content))
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
@@ -404,7 +411,7 @@ public static class DeviceEndpoints
                 });
             }
 
-            previews.Add((preview.Application, content));
+            previews.Add((preview.Application, normalizedMediaType, extension, content));
         }
 
         var entity = await dbContext.CurrentParameterStates.SingleOrDefaultAsync(
@@ -432,8 +439,8 @@ public static class DeviceEndpoints
 
         foreach (var preview in previews)
         {
-            var objectKey = $"{organizationId:N}/current/{deviceId:N}/{preview.Application.ToString().ToLowerInvariant()}.webp";
-            await objectStorage.UploadAsync(objectKey, preview.Content, "image/webp", cancellationToken);
+            var objectKey = $"{organizationId:N}/current/{deviceId:N}/{preview.Application.ToString().ToLowerInvariant()}{preview.Extension}";
+            await objectStorage.UploadAsync(objectKey, preview.Content, preview.MediaType, cancellationToken);
             if (preview.Application == ApplicationKind.Obs)
             {
                 entity.ObsPreviewObjectKey = objectKey;
@@ -613,6 +620,20 @@ public static class DeviceEndpoints
             return default;
         }
     }
+
+    private static bool HasExpectedImageSignature(string mediaType, ReadOnlySpan<byte> content) => mediaType switch
+    {
+        "image/webp" => content.Length >= 12
+            && content[..4].SequenceEqual("RIFF"u8)
+            && content.Slice(8, 4).SequenceEqual("WEBP"u8),
+        "image/png" => content.Length >= 8
+            && content[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+        "image/jpeg" => content.Length >= 3
+            && content[0] == 0xFF
+            && content[1] == 0xD8
+            && content[2] == 0xFF,
+        _ => false
+    };
 
     private static bool IsSameDevice(ClaimsPrincipal user, Guid deviceId) => string.Equals(
         user.FindFirstValue(DeviceAuthenticationHandler.DeviceIdClaim),

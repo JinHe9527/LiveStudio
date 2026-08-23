@@ -309,7 +309,14 @@ public static class SnapshotEndpoints
                     throw new SnapshotPackageException($"找不到预览图文件: {preview.PackagePath}");
                 }
 
-                var previewKey = $"{upload.OrganizationId:N}/previews/{package.Manifest.SnapshotId:N}/{preview.Application.ToString().ToLowerInvariant()}.webp";
+                var previewExtension = preview.MediaType.ToLowerInvariant() switch
+                {
+                    "image/webp" => ".webp",
+                    "image/png" => ".png",
+                    "image/jpeg" => ".jpg",
+                    _ => throw new SnapshotPackageException($"不支持的预览图格式: {preview.MediaType}")
+                };
+                var previewKey = $"{upload.OrganizationId:N}/previews/{package.Manifest.SnapshotId:N}/{preview.Application.ToString().ToLowerInvariant()}{previewExtension}";
                 await objectStorage.UploadAsync(previewKey, previewFile.Content, preview.MediaType, cancellationToken);
                 materializedObjectKeys.Add(previewKey);
                 previewObjectKeys[preview.Application] = previewKey;

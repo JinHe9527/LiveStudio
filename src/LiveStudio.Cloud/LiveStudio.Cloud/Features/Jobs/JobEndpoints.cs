@@ -188,6 +188,8 @@ public static class JobEndpoints
         {
             Id = Guid.NewGuid(),
             JobId = job.Id,
+            ExecutionId = Guid.Empty,
+            Sequence = 0,
             Status = JobStatus.Queued,
             OccurredAt = now,
             Message = message
@@ -281,7 +283,7 @@ public static class JobEndpoints
 
             var structureMatches = catalog.Where(adapter => string.Equals(
                     adapter.StructureFingerprint,
-                    targetApplication.ConfigurationFingerprint,
+                    targetApplication.StructureFingerprint,
                     StringComparison.Ordinal))
                 .ToArray();
             if (structureMatches.Length == 0
@@ -332,10 +334,13 @@ public static class JobEndpoints
             .Select(value => new JobEvent(
                 value.Id,
                 value.JobId,
+                value.ExecutionId,
+                value.Sequence,
                 value.Status,
                 value.OccurredAt,
                 value.Message,
-                value.DetailCode))
+                value.DetailCode,
+                value.VerificationDetail))
             .ToListAsync(cancellationToken);
         return TypedResults.Ok(new { Job = ToContract(job), Events = events });
     }
@@ -393,16 +398,18 @@ public static class JobEndpoints
         var now = DateTimeOffset.UtcNow;
         var organizationId = GetOrganizationId(user);
         var leaseUntil = now.AddMinutes(2);
+        var executionId = Guid.NewGuid();
         var changed = await dbContext.RemoteJobs
             .Where(job => job.Id == jobId
                 && job.DeviceId == deviceId
                 && job.OrganizationId == organizationId
-                && (job.Status == JobStatus.Queued
-                    || (job.Status == JobStatus.Claimed && job.LeaseUntil < now)))
+                && job.Status == JobStatus.Queued)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(job => job.Status, JobStatus.Claimed)
                     .SetProperty(job => job.ClaimedAt, now)
+                    .SetProperty(job => job.ExecutionId, executionId)
+                    .SetProperty(job => job.LastEventSequence, 1)
                     .SetProperty(job => job.LeaseUntil, leaseUntil),
                 cancellationToken);
         if (changed != 1)
@@ -417,6 +424,8 @@ public static class JobEndpoints
         {
             Id = Guid.NewGuid(),
             JobId = job.Id,
+            ExecutionId = executionId,
+            Sequence = 1,
             Status = JobStatus.Claimed,
             OccurredAt = now,
             Message = "Agent 已领取任务"
@@ -424,6 +433,7 @@ public static class JobEndpoints
         await dbContext.SaveChangesAsync(cancellationToken);
         return TypedResults.Ok(new ClaimJobResponse(
             job.Id,
+            executionId,
             job.Kind,
             job.Message ?? (job.Kind == JobKind.Capture ? "画面存档" : "恢复存档"),
             job.RoomId,
@@ -444,13 +454,11 @@ public static class JobEndpoints
             return TypedResults.Forbid();
         }
 
-        var now = DateTimeOffset.UtcNow;
         var organizationId = GetOrganizationId(user);
         var jobs = await dbContext.RemoteJobs.AsNoTracking()
             .Where(job => job.DeviceId == deviceId
                 && job.OrganizationId == organizationId
-                && (job.Status == JobStatus.Queued
-                    || (job.Status == JobStatus.Claimed && job.LeaseUntil < now)))
+                && job.Status == JobStatus.Queued)
             .OrderBy(job => job.CreatedAt)
             .Select(job => new AgentJobNotification(job.Id, job.Kind))
             .ToListAsync(cancellationToken);
@@ -481,6 +489,34 @@ public static class JobEndpoints
             return TypedResults.NotFound();
         }
 
+
+        if (job.ExecutionId != request.ExecutionId)
+        {
+            return TypedResults.Conflict("任务执行标识不一致");
+        }
+
+        if (request.Sequence <= job.LastEventSequence)
+        {
+            var existing = await dbContext.JobEvents.AsNoTracking().SingleOrDefaultAsync(value =>
+                value.JobId == jobId
+                && value.ExecutionId == request.ExecutionId
+                && value.Sequence == request.Sequence,
+                cancellationToken);
+            var isSameEvent = existing is not null
+                && existing.Status == request.Status
+                && string.Equals(existing.Message, request.Message, StringComparison.Ordinal)
+                && string.Equals(existing.DetailCode, request.DetailCode, StringComparison.Ordinal)
+                && string.Equals(existing.VerificationDetail, request.VerificationDetail, StringComparison.Ordinal);
+            return isSameEvent
+                ? TypedResults.NoContent()
+                : TypedResults.Conflict("任务事件序号无效或事件内容不一致");
+        }
+
+        if (request.Sequence != job.LastEventSequence + 1)
+        {
+            return TypedResults.Conflict("任务事件必须按顺序上报");
+        }
+
         if (!JobTransitionRules.CanTransition(job.Status, request.Status))
         {
             return TypedResults.Problem(
@@ -493,6 +529,7 @@ public static class JobEndpoints
         job.Status = request.Status;
         job.Message = request.Message;
         job.DetailCode = request.DetailCode;
+        job.LastEventSequence = request.Sequence;
         job.LeaseUntil = JobTransitionRules.IsTerminal(request.Status) ? null : now.AddMinutes(2);
         if (JobTransitionRules.IsTerminal(request.Status))
         {
@@ -520,10 +557,13 @@ public static class JobEndpoints
         {
             Id = Guid.NewGuid(),
             JobId = job.Id,
+            ExecutionId = request.ExecutionId,
+            Sequence = request.Sequence,
             Status = request.Status,
             OccurredAt = now,
             Message = request.Message,
-            DetailCode = request.DetailCode
+            DetailCode = request.DetailCode,
+            VerificationDetail = request.VerificationDetail
         });
         await dbContext.SaveChangesAsync(cancellationToken);
         return TypedResults.NoContent();

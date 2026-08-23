@@ -86,8 +86,30 @@ public sealed class LocalRestoreService(
                 || file.Content.Length != asset.Length
                 || !string.Equals(file.MediaType, asset.MediaType, StringComparison.OrdinalIgnoreCase))
             {
-                throw new SnapshotPackageException($"滤镜素材元数据不一致: {asset.OriginalFileName}");
+                throw new SnapshotPackageException($"滤镜素材元数据不一致: {asset.Sha256}");
             }
+        }
+
+        var blobs = package.Snapshot.Assets.Select(asset => asset.Sha256).ToHashSet(StringComparer.Ordinal);
+        var bindings = package.Snapshot.Applications.SelectMany(application => application.Sources)
+            .SelectMany(source => source.Filters)
+            .SelectMany(filter => filter.Assets)
+            .ToArray();
+        var missingBinding = bindings.FirstOrDefault(binding => !blobs.Contains(binding.BlobSha256));
+        if (missingBinding is not null)
+        {
+            throw new SnapshotPackageException($"滤镜素材引用缺少内容 Blob: {missingBinding.OriginalFileName}");
+        }
+
+        var invalidFileName = bindings.FirstOrDefault(binding =>
+            string.IsNullOrWhiteSpace(binding.OriginalFileName)
+            || !string.Equals(
+                Path.GetFileName(binding.OriginalFileName),
+                binding.OriginalFileName,
+                StringComparison.Ordinal));
+        if (invalidFileName is not null)
+        {
+            throw new SnapshotPackageException($"滤镜素材文件名无效: {invalidFileName.OriginalFileName}");
         }
     }
 
@@ -103,19 +125,27 @@ public sealed class LocalRestoreService(
         string assetDirectory,
         CancellationToken cancellationToken)
     {
+        EnsureAssetCapacity(package, assetDirectory);
         Directory.CreateDirectory(assetDirectory);
-        foreach (var asset in package.Snapshot.Assets)
+        var blobs = package.Snapshot.Assets.ToDictionary(asset => asset.Sha256, StringComparer.Ordinal);
+        var bindings = package.Snapshot.Applications.SelectMany(application => application.Sources)
+            .SelectMany(source => source.Filters)
+            .SelectMany(filter => filter.Assets)
+            .DistinctBy(binding => $"{binding.BlobSha256}\0{binding.OriginalFileName}", StringComparer.Ordinal)
+            .ToArray();
+        foreach (var binding in bindings)
         {
+            var asset = blobs[binding.BlobSha256];
             if (!package.Files.TryGetValue(asset.PackagePath, out var file))
             {
                 throw new SnapshotPackageException($"存档缺少滤镜素材 {asset.PackagePath}");
             }
 
-            var fileName = Path.GetFileName(asset.OriginalFileName);
+            var fileName = Path.GetFileName(binding.OriginalFileName);
             if (string.IsNullOrWhiteSpace(fileName)
-                || !string.Equals(fileName, asset.OriginalFileName, StringComparison.Ordinal))
+                || !string.Equals(fileName, binding.OriginalFileName, StringComparison.Ordinal))
             {
-                throw new SnapshotPackageException($"滤镜素材文件名无效: {asset.OriginalFileName}");
+                throw new SnapshotPackageException($"滤镜素材文件名无效: {binding.OriginalFileName}");
             }
 
             var destinationDirectory = Path.Combine(assetDirectory, asset.Sha256.ToLowerInvariant());
@@ -147,6 +177,30 @@ public sealed class LocalRestoreService(
                     File.Delete(temporaryPath);
                 }
             }
+        }
+    }
+
+    private static void EnsureAssetCapacity(SnapshotPackage package, string assetDirectory)
+    {
+        var fullPath = Path.GetFullPath(assetDirectory);
+        var root = Path.GetPathRoot(fullPath)
+            ?? throw new IOException($"无法确定素材目录所在磁盘: {fullPath}");
+        var blobs = package.Snapshot.Assets.ToDictionary(asset => asset.Sha256, StringComparer.Ordinal);
+        var requiredBytes = package.Snapshot.Applications
+            .SelectMany(application => application.Sources)
+            .SelectMany(source => source.Filters)
+            .SelectMany(filter => filter.Assets)
+            .DistinctBy(binding => $"{binding.BlobSha256}\0{binding.OriginalFileName}", StringComparer.Ordinal)
+            .Where(binding => !File.Exists(Path.Combine(
+                fullPath,
+                binding.BlobSha256.ToLowerInvariant(),
+                binding.OriginalFileName)))
+            .Sum(binding => blobs[binding.BlobSha256].Length);
+        var availableBytes = new DriveInfo(root).AvailableFreeSpace;
+        if (availableBytes < requiredBytes + 64L * 1024 * 1024)
+        {
+            throw new IOException(
+                $"素材目录磁盘空间不足，需要 {requiredBytes} 字节并保留 64 MiB，当前可用 {availableBytes} 字节");
         }
     }
 }

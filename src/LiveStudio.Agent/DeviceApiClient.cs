@@ -67,15 +67,18 @@ public sealed class DeviceApiClient : IDisposable
     }
 
     public async Task ReportAsync(
-        Guid jobId,
-        JobStatus status,
-        string message,
-        string? detailCode,
+        PendingJobEvent jobEvent,
         CancellationToken cancellationToken)
     {
         using var response = await httpClient.PostAsJsonAsync(
-            $"/api/v1/devices/{credentials.DeviceId}/jobs/{jobId}/events",
-            new ReportJobEventRequest(status, message, detailCode),
+            $"/api/v1/devices/{credentials.DeviceId}/jobs/{jobEvent.JobId}/events",
+            new ReportJobEventRequest(
+                jobEvent.ExecutionId,
+                jobEvent.Sequence,
+                jobEvent.Status,
+                jobEvent.Message,
+                jobEvent.DetailCode,
+                jobEvent.VerificationDetail),
             cancellationToken);
         response.EnsureSuccessStatusCode();
     }

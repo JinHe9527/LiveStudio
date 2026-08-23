@@ -29,7 +29,8 @@ public sealed class ObsAdapter(
         }
         catch (Exception exception) when (exception is WebSocketException or ObsRequestException)
         {
-            return new ApplicationRuntimeStatus(false, false, false, "unknown", false);
+            var running = ObsProcessController.FindRunning() is not null;
+            return new ApplicationRuntimeStatus(running, false, false, "unknown", !running);
         }
     }
 
@@ -41,10 +42,43 @@ public sealed class ObsAdapter(
             cancellationToken);
     }
 
-    public Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken) =>
-        CaptureAsync(cancellationToken);
+    public async Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken)
+    {
+        var original = ObsProcessController.FindRunning();
+        var temporary = original is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return (await CaptureAsync(cancellationToken)) with { WasRunning = original is not null };
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
+            }
+        }
+    }
 
     public async Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken)
+    {
+        var original = ObsProcessController.FindRunning();
+        var temporary = original is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return await CapturePreviewConnectedAsync(cancellationToken);
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
+            }
+        }
+    }
+
+    private async Task<PreviewCapture?> CapturePreviewConnectedAsync(CancellationToken cancellationToken)
     {
         await using var client = await CreateClientAsync(cancellationToken);
         var currentScene = await client.CallAsync("GetCurrentProgramScene", null, cancellationToken);
@@ -84,6 +118,26 @@ public sealed class ObsAdapter(
     }
 
     public async Task<RestorePreflightResult> PreflightAsync(
+        RestoreExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var original = ObsProcessController.FindRunning();
+        var temporary = original is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return await PreflightConnectedAsync(context, cancellationToken);
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
+            }
+        }
+    }
+
+    private async Task<RestorePreflightResult> PreflightConnectedAsync(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
@@ -157,8 +211,23 @@ public sealed class ObsAdapter(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var rollbackSnapshot = await CaptureAsync(cancellationToken);
-        return new ObsRestoreSession(this, context, rollbackSnapshot);
+        var original = ObsProcessController.FindRunning();
+        var temporary = original is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            var rollbackSnapshot = await CaptureAsync(cancellationToken);
+            return new ObsRestoreSession(this, context, rollbackSnapshot, temporary);
+        }
+        catch
+        {
+            if (temporary is not null)
+            {
+                await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
+            }
+
+            throw;
+        }
     }
 
     internal async Task ApplySnapshotAsync(
@@ -352,6 +421,26 @@ public sealed class ObsAdapter(
         }
     }
 
+    private async Task WaitUntilConnectedAsync(CancellationToken cancellationToken)
+    {
+        Exception? lastError = null;
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            try
+            {
+                await using var client = await CreateClientAsync(cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (exception is WebSocketException or ObsRequestException)
+            {
+                lastError = exception;
+                await Task.Delay(250, cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("OBS 已启动，但 obs-websocket 在 15 秒内没有就绪", lastError);
+    }
+
     private static Dictionary<string, JsonElement> MaterializeFilterSettings(
         VideoFilter filter,
         string assetDirectory)
@@ -369,7 +458,8 @@ public sealed class ObsAdapter(
     private sealed class ObsRestoreSession(
         ObsAdapter adapter,
         RestoreExecutionContext context,
-        ApplicationSnapshot rollbackSnapshot) : IApplicationRestoreSession
+        ApplicationSnapshot rollbackSnapshot,
+        ObsProcessInfo? temporaryProcess) : IApplicationRestoreSession
     {
         private readonly List<string> _createdSources = [];
         private bool _committed;
@@ -393,7 +483,9 @@ public sealed class ObsAdapter(
         public Task CommitAsync(CancellationToken cancellationToken)
         {
             _committed = true;
-            return Task.CompletedTask;
+            return temporaryProcess is null
+                ? Task.CompletedTask
+                : ObsProcessController.StopAsync(temporaryProcess.ProcessId, cancellationToken);
         }
 
         public async Task RollbackAsync(CancellationToken cancellationToken)
@@ -421,6 +513,10 @@ public sealed class ObsAdapter(
                 context.AssetDirectory,
                 unusedCreatedSources,
                 cancellationToken);
+            if (temporaryProcess is not null)
+            {
+                await ObsProcessController.StopAsync(temporaryProcess.ProcessId, cancellationToken);
+            }
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

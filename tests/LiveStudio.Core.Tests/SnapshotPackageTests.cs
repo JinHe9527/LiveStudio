@@ -32,6 +32,10 @@ public sealed class SnapshotPackageTests
                 CancellationToken.None);
 
             Assert.Equal(snapshot.Id, package.Snapshot.Id);
+            var applicationManifest = Assert.Single(package.Manifest.Applications);
+            Assert.Equal("test-adapter", applicationManifest.AdapterId);
+            Assert.Equal(new string('d', 64), applicationManifest.AdapterDefinitionSha256);
+            Assert.True(applicationManifest.WasRunning);
             Assert.Contains("assets/lut.cube", package.Files.Keys);
             Assert.Contains("parameters.json", package.Files.Keys);
         }
@@ -253,6 +257,9 @@ public sealed class SnapshotPackageTests
                 }));
             var nativeDocument = new NativeConfigurationDocument(
                 "webcast_mate",
+                "JsonFile",
+                "json-v1",
+                "studio.json",
                 "studio.json",
                 new string('a', 64),
                 sourceId,
@@ -264,7 +271,12 @@ public sealed class SnapshotPackageTests
                     new ApplicationSnapshot(
                         ApplicationKind.LiveCompanion,
                         "9.2.0",
+                        "test-adapter",
+                        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                         "fingerprint",
+                        CompatibilityLevel.Verified,
+                        true,
+                        [],
                         [],
                         [nativeDocument])
                 ]
@@ -298,8 +310,18 @@ public sealed class SnapshotPackageTests
         Guid.NewGuid(),
         "画面存档",
         DateTimeOffset.UtcNow,
-        1,
-        [new ApplicationSnapshot(ApplicationKind.Obs, "32.0.0", "fingerprint", [], [])],
+        2,
+        [new ApplicationSnapshot(
+            ApplicationKind.Obs,
+            "32.0.0",
+            "test-adapter",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "fingerprint",
+            CompatibilityLevel.Verified,
+            true,
+            [],
+            [],
+            [])],
         [],
         []);
 

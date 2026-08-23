@@ -23,16 +23,30 @@ dotnet list LiveStudio.slnx package --vulnerable --include-transitive
 
 构建机要求 Windows 10/11、.NET 10 SDK、Windows SDK，以及位于当前用户或本机证书库中的代码签名证书。`Publisher` 必须与证书 Subject 完全一致。
 
+首次生成内部签名身份必须在离线 Windows 电脑执行，输出目录不得位于 Git 仓库：
+
+```powershell
+$password = Read-Host 'PFX password' -AsSecureString
+.\deploy\windows\New-InternalSigningCertificate.ps1 `
+  -Publisher 'CN=LiveStudio Internal' `
+  -Password $password `
+  -OutputDirectory 'D:\LiveStudio-Signing'
+```
+
+只把 `.cer` 安装到测试电脑的 `Local Machine\Trusted People`；PFX 和密码不得离开受控的离线备份与 GitHub 加密 Secret。
+
 ```powershell
 .\deploy\windows\Build-Msix.ps1 `
   -Version 1.0.0.0 `
   -Architecture x64 `
   -Publisher 'CN=LiveStudio' `
   -CertificateThumbprint '<SHA1 thumbprint>' `
-  -TimestampUrl 'https://timestamp.example.com'
+    -TimestampUrl 'http://timestamp.digicert.com'
 ```
 
 脚本会分别 self-contained publish Desktop 与 Agent，放入 MSIX 的 `Desktop\`、`Agent\` 目录，生成 manifest，使用 SHA-256 签名并执行 `SignTool verify /pa /v`。不得将两套 publish 输出直接合并到同一目录。
+
+GitHub Actions Release 只发布 `LiveStudio-Windows-x64.msix`、SHA-256 和签名验证报告。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个测试安装包就不得更换。首次安装前把公钥证书导入测试电脑 `Trusted People`，并人工核对指纹。
 
 安装后在真实 Windows 用户会话验收：
 

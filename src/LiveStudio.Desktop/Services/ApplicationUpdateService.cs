@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -19,21 +18,23 @@ public sealed record ApplicationUpdateRelease(
 public sealed record PreparedApplicationUpdate(
     ApplicationUpdateRelease Release,
     string InstallerScriptPath,
-    string PayloadRoot,
-    string BackupRoot,
-    string InstallRoot,
-    string DesktopExecutablePath);
+    string PackagePath);
 
 public sealed class ApplicationUpdateService(
     HttpMessageHandler? messageHandler = null,
     string repositoryOwner = "JinHe9527",
     string repositoryName = "LiveStudio",
-    Version? applicationVersion = null)
+    Version? applicationVersion = null,
+    string? trustedPublisher = null,
+    string? trustedCertificateThumbprint = null)
 {
-    private const string WindowsAssetName = "LiveStudio-Windows-x64.zip";
-    private const string ChecksumAssetName = "LiveStudio-Windows-x64.zip.sha256";
+    private const string WindowsAssetName = "LiveStudio-Windows-x64.msix";
+    private const string ChecksumAssetName = "LiveStudio-Windows-x64.msix.sha256";
     private readonly HttpMessageHandler? messageHandler = messageHandler;
     private readonly Version applicationVersion = applicationVersion ?? GetCurrentVersion();
+    private readonly string trustedPublisher = trustedPublisher ?? GetAssemblyMetadata("LiveStudioUpdatePublisher");
+    private readonly string trustedCertificateThumbprint = NormalizeThumbprint(
+        trustedCertificateThumbprint ?? GetAssemblyMetadata("LiveStudioUpdateCertificateThumbprint"));
 
     public string CurrentVersionText => applicationVersion.ToString(3);
 
@@ -83,41 +84,30 @@ public sealed class ApplicationUpdateService(
             "Updates",
             release.Version.ToString(3));
         Directory.CreateDirectory(updateRoot);
-        var archivePath = Path.Combine(updateRoot, WindowsAssetName);
+        var packagePath = Path.Combine(updateRoot, WindowsAssetName);
         var checksumPath = Path.Combine(updateRoot, ChecksumAssetName);
         using var client = CreateClient(token);
-        await DownloadAssetAsync(client, release.PackageApiUrl, archivePath, cancellationToken);
+        await DownloadAssetAsync(client, release.PackageApiUrl, packagePath, cancellationToken);
         await DownloadAssetAsync(client, release.ChecksumApiUrl, checksumPath, cancellationToken);
-        await VerifyChecksumAsync(archivePath, checksumPath, cancellationToken);
-
-        var payloadDirectory = Path.Combine(updateRoot, "payload");
-        if (Directory.Exists(payloadDirectory))
+        await VerifyChecksumAsync(packagePath, checksumPath, cancellationToken);
+        if (string.IsNullOrWhiteSpace(trustedPublisher)
+            || string.IsNullOrWhiteSpace(trustedCertificateThumbprint))
         {
-            Directory.Delete(payloadDirectory, true);
+            throw new InvalidOperationException("当前安装包没有内置更新签名身份，禁止安装更新");
         }
 
-        Directory.CreateDirectory(payloadDirectory);
-        ExtractArchive(archivePath, payloadDirectory);
-        var payloadRoot = ResolvePayloadRoot(payloadDirectory);
-        var desktopExecutablePath = Environment.ProcessPath
-            ?? throw new InvalidOperationException("无法确定当前 LiveStudio 程序路径");
-        var desktopDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-        var installRoot = Directory.GetParent(desktopDirectory)?.FullName
-            ?? throw new InvalidOperationException("无法确定 LiveStudio 安装目录");
-        if (!Directory.Exists(Path.Combine(installRoot, "Agent")))
-        {
-            throw new InvalidOperationException("当前安装目录缺少 Agent，无法执行完整更新");
-        }
+        await VerifyPackageIdentityAsync(
+            packagePath,
+            trustedPublisher,
+            trustedCertificateThumbprint,
+            cancellationToken);
 
         var scriptPath = Path.Combine(updateRoot, "install-update.ps1");
         await File.WriteAllTextAsync(scriptPath, InstallerScript, cancellationToken);
         return new PreparedApplicationUpdate(
             release,
             scriptPath,
-            payloadRoot,
-            Path.Combine(updateRoot, $"backup-{Guid.NewGuid():N}"),
-            installRoot,
-            desktopExecutablePath);
+            packagePath);
     }
 
     public static void LaunchInstaller(PreparedApplicationUpdate update)
@@ -138,14 +128,8 @@ public sealed class ApplicationUpdateService(
         startInfo.ArgumentList.Add(update.InstallerScriptPath);
         startInfo.ArgumentList.Add("-DesktopPid");
         startInfo.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        startInfo.ArgumentList.Add("-InstallRoot");
-        startInfo.ArgumentList.Add(update.InstallRoot);
-        startInfo.ArgumentList.Add("-PayloadRoot");
-        startInfo.ArgumentList.Add(update.PayloadRoot);
-        startInfo.ArgumentList.Add("-BackupRoot");
-        startInfo.ArgumentList.Add(update.BackupRoot);
-        startInfo.ArgumentList.Add("-DesktopExecutable");
-        startInfo.ArgumentList.Add(update.DesktopExecutablePath);
+        startInfo.ArgumentList.Add("-PackagePath");
+        startInfo.ArgumentList.Add(update.PackagePath);
         _ = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动更新安装程序");
     }
 
@@ -208,48 +192,49 @@ public sealed class ApplicationUpdateService(
         }
     }
 
-    private static void ExtractArchive(string archivePath, string targetDirectory)
+    private static async Task VerifyPackageIdentityAsync(
+        string packagePath,
+        string trustedPublisher,
+        string trustedCertificateThumbprint,
+        CancellationToken cancellationToken)
     {
-        var normalizedTarget = Path.GetFullPath(targetDirectory) + Path.DirectorySeparatorChar;
-        using var archive = ZipFile.OpenRead(archivePath);
-        foreach (var entry in archive.Entries)
+        var startInfo = new ProcessStartInfo
         {
-            var destination = Path.GetFullPath(Path.Combine(targetDirectory, entry.FullName));
-            if (!destination.StartsWith(normalizedTarget, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException("更新包包含越界路径");
-            }
-
-            if (string.IsNullOrEmpty(entry.Name))
-            {
-                Directory.CreateDirectory(destination);
-                continue;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            entry.ExtractToFile(destination, true);
+            FileName = "powershell.exe",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("-NoLogo");
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add(VerifyPackageScript);
+        startInfo.ArgumentList.Add(packagePath);
+        startInfo.ArgumentList.Add(trustedPublisher);
+        startInfo.ArgumentList.Add(trustedCertificateThumbprint);
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("无法启动 MSIX 签名验证");
+        var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var output = await standardOutput;
+        var error = await standardError;
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidDataException(
+                $"MSIX 签名身份校验失败：{string.Join(' ', new[] { output, error }.Where(value => !string.IsNullOrWhiteSpace(value))).Trim()}");
         }
     }
 
-    private static string ResolvePayloadRoot(string extractedDirectory)
-    {
-        if (HasRequiredDirectories(extractedDirectory))
-        {
-            return extractedDirectory;
-        }
+    private static string GetAssemblyMetadata(string key) =>
+        Assembly.GetEntryAssembly()?.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => string.Equals(attribute.Key, key, StringComparison.Ordinal))
+            ?.Value ?? string.Empty;
 
-        var directories = Directory.GetDirectories(extractedDirectory);
-        if (directories.Length == 1 && HasRequiredDirectories(directories[0]))
-        {
-            return directories[0];
-        }
-
-        throw new InvalidDataException("更新包缺少 Desktop 或 Agent 目录");
-    }
-
-    private static bool HasRequiredDirectories(string directory) =>
-        Directory.Exists(Path.Combine(directory, "Desktop"))
-        && Directory.Exists(Path.Combine(directory, "Agent"));
+    private static string NormalizeThumbprint(string value) => new(
+        value.Where(character => !char.IsWhiteSpace(character)).ToArray());
 
     private static Version GetCurrentVersion() =>
         Assembly.GetEntryAssembly()?.GetName().Version is { } version
@@ -264,37 +249,49 @@ public sealed class ApplicationUpdateService(
             : throw new InvalidDataException($"无法解析 Release 版本号：{tagName}");
     }
 
+    private const string VerifyPackageScript = """
+& {
+    param($PackagePath, $ExpectedPublisher, $ExpectedThumbprint)
+    $ErrorActionPreference = 'Stop'
+    $signature = Get-AuthenticodeSignature -LiteralPath $PackagePath
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "签名状态不是 Valid: $($signature.Status)"
+    }
+    if (-not $signature.SignerCertificate) {
+        throw '安装包没有签名证书'
+    }
+    $actualThumbprint = $signature.SignerCertificate.Thumbprint.Replace(' ', '')
+    if (-not $actualThumbprint.Equals($ExpectedThumbprint, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "证书指纹不匹配: $actualThumbprint"
+    }
+    if (-not $signature.SignerCertificate.Subject.Equals($ExpectedPublisher, [StringComparison]::Ordinal)) {
+        throw "Publisher 不匹配: $($signature.SignerCertificate.Subject)"
+    }
+} $args[0] $args[1] $args[2]
+""";
+
     private const string InstallerScript = """
 param(
     [Parameter(Mandatory = $true)][int]$DesktopPid,
-    [Parameter(Mandatory = $true)][string]$InstallRoot,
-    [Parameter(Mandatory = $true)][string]$PayloadRoot,
-    [Parameter(Mandatory = $true)][string]$BackupRoot,
-    [Parameter(Mandatory = $true)][string]$DesktopExecutable
+    [Parameter(Mandatory = $true)][string]$PackagePath
 )
 $ErrorActionPreference = 'Stop'
 try {
     Wait-Process -Id $DesktopPid -Timeout 45 -ErrorAction SilentlyContinue
     Get-Process -Name 'LiveStudio.Agent' -ErrorAction SilentlyContinue | ForEach-Object {
-        try {
-            if ($_.Path -and $_.Path.StartsWith($InstallRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-                Stop-Process -Id $_.Id -Force
-            }
-        } catch { }
+        Stop-Process -Id $_.Id -Force
     }
-    Start-Sleep -Milliseconds 800
-    New-Item -ItemType Directory -Path $BackupRoot | Out-Null
-    Get-ChildItem -LiteralPath $InstallRoot | Copy-Item -Destination $BackupRoot -Recurse -Force
-    Get-ChildItem -LiteralPath $PayloadRoot | Copy-Item -Destination $InstallRoot -Recurse -Force
-    Start-Process -FilePath $DesktopExecutable
+    Add-AppxPackage -Path $PackagePath -ForceApplicationShutdown
+    $package = Get-AppxPackage -Name 'LiveStudio.BroadcastConfiguration' |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+    if (-not $package) {
+        throw 'MSIX 已安装，但无法读取包身份'
+    }
+    Start-Process explorer.exe "shell:AppsFolder\$($package.PackageFamilyName)!LiveStudio"
 } catch {
-    $_ | Out-File -FilePath (Join-Path (Split-Path $BackupRoot -Parent) 'install-error.log') -Encoding utf8
-    if (Test-Path -LiteralPath $BackupRoot) {
-        Get-ChildItem -LiteralPath $BackupRoot | Copy-Item -Destination $InstallRoot -Recurse -Force
-        Start-Process -FilePath $DesktopExecutable
-    } else {
-        throw
-    }
+    $_ | Out-File -FilePath (Join-Path (Split-Path $PackagePath -Parent) 'install-error.log') -Encoding utf8
+    throw
 }
 """;
 

@@ -7,11 +7,15 @@
     <ApplicationTitle>LiveStudio</ApplicationTitle>
     <Product>LiveStudio</Product>
     <ApplicationIcon>Assets\LiveStudio.ico</ApplicationIcon>
+    <LiveStudioUpdatePublisher Condition="'$(LiveStudioUpdatePublisher)' == ''"></LiveStudioUpdatePublisher>
+    <LiveStudioUpdateCertificateThumbprint Condition="'$(LiveStudioUpdateCertificateThumbprint)' == ''"></LiveStudioUpdateCertificateThumbprint>
   </PropertyGroup>
 
   <ItemGroup>
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+    <AssemblyMetadata Include="LiveStudioUpdatePublisher" Value="$(LiveStudioUpdatePublisher)" />
+    <AssemblyMetadata Include="LiveStudioUpdateCertificateThumbprint" Value="$(LiveStudioUpdateCertificateThumbprint)" />
   </ItemGroup>
 
   <ItemGroup>

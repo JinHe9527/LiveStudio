@@ -16,22 +16,38 @@ public sealed record CombinedSnapshot(
     DateTimeOffset CreatedAt,
     int SchemaVersion,
     IReadOnlyList<ApplicationSnapshot> Applications,
-    IReadOnlyList<AssetReference> Assets,
+    IReadOnlyList<AssetBlob> Assets,
     IReadOnlyList<PreviewReference> Previews);
 
 public sealed record ApplicationSnapshot(
     ApplicationKind Kind,
     string Version,
-    string ConfigurationFingerprint,
+    string AdapterId,
+    string AdapterDefinitionSha256,
+    string StructureFingerprint,
+    CompatibilityLevel Compatibility,
+    bool WasRunning,
+    IReadOnlyList<CapturedParameterField> FieldCoverage,
     IReadOnlyList<VideoSource> Sources,
     IReadOnlyList<NativeConfigurationDocument> NativeDocuments);
 
 public sealed record NativeConfigurationDocument(
     string StoreId,
+    string StorageKind,
+    string StructureVersion,
+    string TransactionBoundary,
     string RelativePath,
     string Sha256,
     Guid SourceLogicalId,
     IReadOnlyList<NativeConfigurationValue> Values);
+
+public sealed record CapturedParameterField(
+    string NativePath,
+    string Category,
+    string ValueType,
+    bool Required,
+    bool Writable,
+    string Verification);
 
 public sealed record NativeConfigurationValue(
     string JsonPointer,
@@ -71,15 +87,20 @@ public sealed record VideoFilter(
     bool Enabled,
     int Order,
     IReadOnlyDictionary<string, JsonElement> Settings,
-    IReadOnlyList<AssetReference> Assets);
+    IReadOnlyList<AssetBinding> Assets);
 
-public sealed record AssetReference(
+public sealed record AssetBlob(
     string Sha256,
-    string OriginalFileName,
     string MediaType,
     long Length,
-    string PackagePath,
-    string SourcePath);
+    string PackagePath);
+
+public sealed record AssetBinding(
+    Guid Id,
+    string BlobSha256,
+    string OriginalFileName,
+    string SourcePath,
+    string ReferencePath);
 
 public sealed record PreviewReference(
     ApplicationKind Application,

@@ -25,13 +25,13 @@ public sealed class CurrentStatePublisher(
         foreach (var adapter in adapters)
         {
             var status = await adapter.InspectAsync(cancellationToken);
-            if (!status.IsRunning)
+            if (!status.IsRunning && adapter.Kind != ApplicationKind.LiveCompanion)
             {
                 continue;
             }
 
             applications.Add(await adapter.CaptureAsync(cancellationToken));
-            if (await adapter.CapturePreviewAsync(cancellationToken) is { } preview)
+            if (status.IsRunning && await adapter.CapturePreviewAsync(cancellationToken) is { } preview)
             {
                 previews.Add(new CurrentPreviewUpload(
                     preview.Application,

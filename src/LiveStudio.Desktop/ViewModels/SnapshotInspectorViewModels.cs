@@ -43,16 +43,24 @@ public sealed class SnapshotApplicationViewModel
     {
         Name = application.Kind == ApplicationKind.Obs ? "OBS Studio" : "抖音直播伴侣";
         Version = $"版本 {application.Version}";
+        AdapterStatus = application.Compatibility switch
+        {
+            CompatibilityLevel.Verified => $"已验证适配器 · {application.AdapterId}",
+            CompatibilityLevel.Experimental => $"实验适配器 · {application.AdapterId}",
+            _ => $"不可恢复 · {application.AdapterId}"
+        };
         Sources = application.Sources.Select(source => new SnapshotSourceViewModel(source)).ToArray();
-        var nativeFieldCount = application.NativeDocuments.Sum(document => document.Values.Count);
-        Summary = nativeFieldCount == 0
+        var capturedFieldCount = application.FieldCoverage.Count;
+        Summary = capturedFieldCount == 0
             ? $"{Sources.Count} 个视频来源 · {Sources.Sum(source => source.Filters.Count)} 个滤镜"
-            : $"{Sources.Count} 个视频来源 · {Sources.Sum(source => source.Filters.Count)} 个滤镜 · {nativeFieldCount} 项原生字段已完整保存";
+            : $"{Sources.Count} 个视频来源 · {Sources.Sum(source => source.Filters.Count)} 个滤镜 · 已保存 {capturedFieldCount} 项目标字段";
     }
 
     public string Name { get; }
 
     public string Version { get; }
+
+    public string AdapterStatus { get; }
 
     public string Summary { get; }
 
@@ -75,7 +83,7 @@ public sealed class SnapshotSourceViewModel
         ColorSpace = SnapshotParameterPresentation.ColorSpace(source.Mode?.ColorSpace);
         ColorRange = SnapshotParameterPresentation.ColorRange(source.Mode?.ColorRange);
         Settings = CreateSettings(SnapshotParameterPresentation.PresentSourceSettings(source.Settings));
-        SettingsTitle = $"完整来源参数（{Settings.Count} 项）";
+        SettingsTitle = $"来源目标参数（{Settings.Count} 项）";
         Filters = source.Filters
             .OrderBy(filter => filter.Order)
             .Select(filter => new SnapshotFilterViewModel(filter))
@@ -190,22 +198,16 @@ public sealed class SnapshotFilterViewModel
 
 public sealed class SnapshotAssetViewModel
 {
-    public SnapshotAssetViewModel(AssetReference asset)
+    public SnapshotAssetViewModel(AssetBinding asset)
     {
         Name = asset.OriginalFileName;
-        Detail = $"{FormatSize(asset.Length)} · SHA-256 {asset.Sha256[..Math.Min(12, asset.Sha256.Length)]}…";
+        Detail = $"SHA-256 {asset.BlobSha256[..Math.Min(12, asset.BlobSha256.Length)]}…";
     }
 
     public string Name { get; }
 
     public string Detail { get; }
 
-    private static string FormatSize(long length) => length switch
-    {
-        >= 1024L * 1024L => $"{length / (1024d * 1024d):0.0} MB",
-        >= 1024L => $"{length / 1024d:0.0} KB",
-        _ => $"{length} B"
-    };
 }
 
 public sealed record SnapshotSettingViewModel(string Name, string Value, string TechnicalName);

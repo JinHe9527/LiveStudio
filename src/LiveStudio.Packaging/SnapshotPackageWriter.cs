@@ -69,6 +69,18 @@ public sealed class SnapshotPackageWriter
             snapshot.Name,
             snapshot.CreatedAt,
             snapshot.SchemaVersion,
+            snapshot.Applications.Select(application => new SnapshotApplicationManifest(
+                application.Kind,
+                application.AdapterId,
+                application.AdapterDefinitionSha256,
+                application.StructureFingerprint,
+                application.Compatibility,
+                application.WasRunning,
+                application.FieldCoverage.Select(field => field.NativePath).ToArray())).ToArray(),
+            snapshot.Applications.SelectMany(application => application.Sources)
+                .SelectMany(source => source.Filters)
+                .SelectMany(filter => filter.Assets)
+                .ToArray(),
             entries);
         var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
         var signature = new PackageSignature(

@@ -14,7 +14,7 @@
         </Grid>
 
         <ScrollViewer Grid.Row="1">
-            <StackPanel Width="720" Margin="28,26" HorizontalAlignment="Left">
+            <StackPanel MaxWidth="860" Margin="28,26" HorizontalAlignment="Stretch">
                 <TextBlock Margin="0,0,0,10" Classes="settings-section" Text="软件更新" />
                 <Border Height="1" Background="#18FFFFFF" />
                 <Grid Height="66" ColumnDefinitions="*,Auto">

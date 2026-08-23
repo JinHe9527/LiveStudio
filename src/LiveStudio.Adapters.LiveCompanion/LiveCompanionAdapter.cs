@@ -1,11 +1,10 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using LiveStudio.Contracts;
 using LiveStudio.Core;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
-public sealed class LiveCompanionAdapter : IApplicationAdapter
+public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCatalog) : IApplicationAdapter
 {
     private readonly LiveCompanionConfigurationStore configurationStore = new();
 
@@ -29,7 +28,12 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
                 true);
         }
 
-        var liveState = await configurationStore.InspectLiveStateAsync(cancellationToken);
+        var discoveredDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+        var structureFingerprint = LiveCompanionStructureFingerprint.Compute(discoveredDocuments);
+        var match = adapterCatalog.Match(NormalizeVersion(process.Version), structureFingerprint);
+        var liveState = match.Adapter is null
+            ? new LiveCompanionLiveState(false, false)
+            : await configurationStore.InspectDefinedLiveStateAsync(match.Adapter, cancellationToken);
         return new ApplicationRuntimeStatus(
             true,
             liveState.IsLive,
@@ -41,7 +45,23 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
     public async Task<ApplicationSnapshot> CaptureAsync(CancellationToken cancellationToken)
     {
         var process = LiveCompanionProcessController.FindRunning();
-        var documents = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+        return await CaptureFromDiskAsync(
+            NormalizeVersion(process?.Version),
+            process is not null,
+            cancellationToken);
+    }
+
+    private async Task<ApplicationSnapshot> CaptureFromDiskAsync(
+        string version,
+        bool wasRunning,
+        CancellationToken cancellationToken)
+    {
+        var discoveredDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+        var structureFingerprint = LiveCompanionStructureFingerprint.Compute(discoveredDocuments);
+        var match = adapterCatalog.Match(version, structureFingerprint);
+        var documents = match.Adapter is null
+            ? discoveredDocuments
+            : await configurationStore.CaptureDefinedDocumentsAsync(match.Adapter, cancellationToken);
         if (documents.Count == 0)
         {
             throw new InvalidOperationException(
@@ -49,11 +69,28 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
         }
 
         var sources = await LiveCompanionSnapshotProjector.CreateSourcesAsync(documents, cancellationToken);
-        var fingerprintBytes = JsonSerializer.SerializeToUtf8Bytes(documents);
+        var coverage = documents.SelectMany(document => document.Values.Select(value =>
+            new CapturedParameterField(
+                $"{document.RelativePath}:{value.JsonPointer}",
+                value.Category,
+                value.Value.ValueKind.ToString(),
+                true,
+                true,
+                "NativeFieldReadback"))).ToArray();
         return new ApplicationSnapshot(
             ApplicationKind.LiveCompanion,
-            NormalizeVersion(process?.Version),
-            Convert.ToHexStringLower(SHA256.HashData(fingerprintBytes)),
+            version,
+            match.Adapter?.Definition.Id ?? "webcast-mate-json-discovery",
+            match.Adapter?.DefinitionSha256 ?? string.Empty,
+            structureFingerprint,
+            match.Level switch
+            {
+                AdapterMatchLevel.Verified => CompatibilityLevel.Verified,
+                AdapterMatchLevel.Experimental => CompatibilityLevel.Experimental,
+                _ => CompatibilityLevel.Unsupported
+            },
+            wasRunning,
+            coverage,
             sources,
             documents);
     }
@@ -74,7 +111,10 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
         await LiveCompanionProcessController.StopAsync(process.ProcessId, cancellationToken);
         try
         {
-            return await CaptureAsync(cancellationToken);
+            return await CaptureFromDiskAsync(
+                NormalizeVersion(process.Version),
+                true,
+                cancellationToken);
         }
         finally
         {
@@ -104,6 +144,39 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(context.Snapshot.AdapterId, "webcast-mate-json-discovery", StringComparison.Ordinal)
+            || context.Snapshot.Compatibility == CompatibilityLevel.Unsupported)
+        {
+            return RestorePreflightResult.Fail(
+                JobStatus.IncompatibleVersion,
+                "该直播伴侣存档来自探测扫描，没有签名适配定义，禁止写入");
+        }
+
+        var runtime = await InspectAsync(cancellationToken);
+        var discovered = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+        var targetFingerprint = LiveCompanionStructureFingerprint.Compute(discovered);
+        var targetMatch = adapterCatalog.Match(runtime.Version, targetFingerprint);
+        if (targetMatch.Adapter is null)
+        {
+            return RestorePreflightResult.Fail(
+                JobStatus.IncompatibleVersion,
+                $"目标直播伴侣没有签名适配定义: {targetMatch.Reason}");
+        }
+
+        if (!string.Equals(
+                context.Snapshot.AdapterId,
+                targetMatch.Adapter.Definition.Id,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                context.Snapshot.StructureFingerprint,
+                targetFingerprint,
+                StringComparison.Ordinal))
+        {
+            return RestorePreflightResult.Fail(
+                JobStatus.IncompatibleVersion,
+                "存档与目标直播伴侣不是同一份已签名结构定义");
+        }
+
         if (context.Snapshot.NativeDocuments.Count == 0)
         {
             return RestorePreflightResult.Fail(
@@ -111,18 +184,29 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
                 "存档中没有直播伴侣原生配置字段");
         }
 
-        var current = await configurationStore.CaptureDocumentsAsync(cancellationToken);
-        var currentByPath = current.ToDictionary(
-            document => document.RelativePath,
-            StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            LiveCompanionConfigurationStore.ValidateDefinedDocuments(
+                targetMatch.Adapter,
+                context.Snapshot.NativeDocuments);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, exception.Message);
+        }
+
+        var current = await configurationStore.CaptureDefinedDocumentsAsync(
+            targetMatch.Adapter,
+            cancellationToken);
+        var currentByStore = current.ToDictionary(document => document.StoreId, StringComparer.Ordinal);
         var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
         foreach (var document in context.Snapshot.NativeDocuments)
         {
-            if (!currentByPath.TryGetValue(document.RelativePath, out var target))
+            if (!currentByStore.TryGetValue(document.StoreId, out var target))
             {
                 return RestorePreflightResult.Fail(
                     JobStatus.IncompatibleVersion,
-                    $"目标版本缺少配置文件 {document.RelativePath}");
+                    $"目标版本缺少配置存储 {document.StoreId}");
             }
 
             var targetPointers = target.Values.Select(value => value.JsonPointer).ToHashSet(StringComparer.Ordinal);
@@ -146,15 +230,28 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
         return RestorePreflightResult.Success;
     }
 
-    public Task<IApplicationRestoreSession> BeginRestoreAsync(
+    public async Task<IApplicationRestoreSession> BeginRestoreAsync(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<IApplicationRestoreSession>(new LiveCompanionRestoreSession(
+        var originalProcess = LiveCompanionProcessController.FindRunning();
+        var restoreAdapter = adapterCatalog.GetAll().SingleOrDefault(adapter =>
+            string.Equals(adapter.Definition.Id, context.Snapshot.AdapterId, StringComparison.Ordinal)
+            && string.Equals(
+                adapter.Definition.StructureFingerprint,
+                context.Snapshot.StructureFingerprint,
+                StringComparison.Ordinal)) ?? throw new InvalidOperationException("找不到存档对应的已签名直播伴侣适配器");
+        var journal = await LiveCompanionTransactionJournal.CreateAsync(
+            context.JobId,
+            originalProcess,
+            cancellationToken);
+        return new LiveCompanionRestoreSession(
             configurationStore,
             context,
-            LiveCompanionProcessController.FindRunning()));
+            originalProcess,
+            journal,
+            restoreAdapter);
     }
 
     private static string NormalizeVersion(string? version)
@@ -172,7 +269,9 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
     private sealed class LiveCompanionRestoreSession(
         LiveCompanionConfigurationStore configurationStore,
         RestoreExecutionContext context,
-        LiveCompanionProcessInfo? originalProcess) : IApplicationRestoreSession
+        LiveCompanionProcessInfo? originalProcess,
+        LiveCompanionTransactionJournal journal,
+        VerifiedAdapterDefinition restoreAdapter) : IApplicationRestoreSession
     {
         private IReadOnlyDictionary<string, byte[]> backup = new Dictionary<string, byte[]>();
         private bool stopped;
@@ -187,19 +286,21 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
                 await LiveCompanionProcessController.StopAsync(originalProcess.ProcessId, cancellationToken);
             }
 
-            backup = await configurationStore.BackupAsync(context.Snapshot.NativeDocuments, cancellationToken);
             stopped = true;
+            backup = await configurationStore.BackupAsync(context.Snapshot.NativeDocuments, cancellationToken);
+            await journal.SaveBackupsAsync(backup, cancellationToken);
         }
 
         public Task ApplyAsync(CancellationToken cancellationToken)
         {
             EnsureStopped();
+            LiveCompanionConfigurationStore.ValidateDefinedDocuments(
+                restoreAdapter,
+                context.Snapshot.NativeDocuments);
             var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
             var assets = context.Snapshot.Sources
                 .SelectMany(source => source.Filters)
                 .SelectMany(filter => filter.Assets)
-                .GroupBy(asset => asset.Sha256, StringComparer.Ordinal)
-                .Select(group => group.First())
                 .ToArray();
             return configurationStore.ApplyAsync(
                 context.Snapshot.NativeDocuments,
@@ -212,7 +313,7 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             EnsureStopped();
-            if (originalProcess?.ExecutablePath is null)
+            if (string.IsNullOrWhiteSpace(originalProcess?.ExecutablePath))
             {
                 return;
             }
@@ -227,15 +328,15 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
             var assets = context.Snapshot.Sources
                 .SelectMany(source => source.Filters)
                 .SelectMany(filter => filter.Assets)
-                .GroupBy(asset => asset.Sha256, StringComparer.Ordinal)
-                .Select(group => group.First())
                 .ToArray();
             var expected = LiveCompanionConfigurationStore.CreateExpectedDocuments(
                 context.Snapshot.NativeDocuments,
                 mappings,
                 assets,
                 context.AssetDirectory);
-            var current = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            var current = await configurationStore.CaptureDefinedDocumentsAsync(
+                restoreAdapter,
+                cancellationToken);
             var currentByPath = current.ToDictionary(
                 document => document.RelativePath,
                 StringComparer.OrdinalIgnoreCase);
@@ -265,12 +366,12 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
             return new RestoreVerificationResult(differences.Count == 0, differences);
         }
 
-        public Task CommitAsync(CancellationToken cancellationToken)
+        public async Task CommitAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             committed = true;
             backup = new Dictionary<string, byte[]>();
-            return Task.CompletedTask;
+            await journal.CompleteAsync(cancellationToken);
         }
 
         public async Task RollbackAsync(CancellationToken cancellationToken)
@@ -287,11 +388,13 @@ public sealed class LiveCompanionAdapter : IApplicationAdapter
             }
 
             await LiveCompanionConfigurationStore.RestoreBackupAsync(backup, cancellationToken);
-            if (originalProcess?.ExecutablePath is not null)
+            if (!string.IsNullOrWhiteSpace(originalProcess?.ExecutablePath))
             {
                 await LiveCompanionProcessController.StartAsync(originalProcess.ExecutablePath, cancellationToken);
                 await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
             }
+
+            await journal.CompleteAsync(cancellationToken);
         }
 
         public ValueTask DisposeAsync()
