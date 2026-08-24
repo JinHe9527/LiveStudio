@@ -113,6 +113,11 @@
     <Style Selector="ListBox.snapshot-list ListBoxItem:selected, ListBox.mapping-list ListBoxItem:selected"><Setter Property="Background" Value="#345E8FD8" /></Style>
     <Style Selector="TextBlock.snapshot-name"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#ECECF0" /></Style>
     <Style Selector="TextBlock.snapshot-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
+    <Style Selector="TextBlock.snapshot-time"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#B6B6BC" /></Style>
+    <Style Selector="TextBlock.timeline-date"><Setter Property="FontSize" Value="10" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#70AEFF" /></Style>
+    <Style Selector="ComboBox.room-picker"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="2,3" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="TextBlock.room-picker-name"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#F0F0F3" /></Style>
+    <Style Selector="TextBlock.room-picker-count"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
     <Style Selector="TextBlock.transfer-message"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#B7B7BD" /></Style>
     <Style Selector="Border.coverage-inspector"><Setter Property="Background" Value="#1F1F21" /><Setter Property="BorderBrush" Value="#20FFFFFF" /><Setter Property="BorderThickness" Value="1,0,0,0" /></Style>
     <Style Selector="Border.coverage-notice"><Setter Property="Padding" Value="10,8" /><Setter Property="Background" Value="#0FFF9F0A" /><Setter Property="BorderBrush" Value="#7AFF9F0A" /><Setter Property="BorderThickness" Value="2,0,0,0" /></Style>

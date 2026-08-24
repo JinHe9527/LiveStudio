@@ -14,7 +14,8 @@ public partial class MainViewModel : ViewModelBase
     private readonly ISystemBrowser systemBrowser;
     private readonly SnapshotFileStore snapshotFileStore;
     private readonly ApplicationUpdateService applicationUpdateService;
-    private readonly bool supportsLocalAgent = OperatingSystem.IsWindows();
+    private readonly bool isDemoMode;
+    private readonly bool supportsLocalAgent;
     private IReadOnlyList<LocalMappingTargetItemViewModel> allMappingTargets = [];
     private IReadOnlyList<LocalOperationSummary> localOperations = [];
     private IReadOnlyList<JobSummary> cloudJobs = [];
@@ -24,6 +25,7 @@ public partial class MainViewModel : ViewModelBase
     private NativeExportReport? nativeExportBaseline;
     private CancellationTokenSource? snapshotDetailCancellation;
     private bool isLoadingCloudWorkspace;
+    private bool isRefreshingSnapshotNavigation;
     private ApplicationUpdateRelease? availableUpdate;
 
     public MainViewModel()
@@ -32,7 +34,19 @@ public partial class MainViewModel : ViewModelBase
             new DesktopCloudClient(new DesktopCredentialStore()),
             new SystemBrowser(),
             CreateSnapshotFileStore(),
-            new ApplicationUpdateService())
+            new ApplicationUpdateService(),
+            false)
+    {
+    }
+
+    public MainViewModel(bool isDemoMode)
+        : this(
+            new LocalAgentClient(),
+            new DesktopCloudClient(new DesktopCredentialStore()),
+            new SystemBrowser(),
+            CreateSnapshotFileStore(),
+            new ApplicationUpdateService(),
+            isDemoMode)
     {
     }
 
@@ -41,13 +55,16 @@ public partial class MainViewModel : ViewModelBase
         DesktopCloudClient cloudClient,
         ISystemBrowser systemBrowser,
         SnapshotFileStore snapshotFileStore,
-        ApplicationUpdateService applicationUpdateService)
+        ApplicationUpdateService applicationUpdateService,
+        bool isDemoMode = false)
     {
         this.localAgentClient = localAgentClient;
         this.cloudClient = cloudClient;
         this.systemBrowser = systemBrowser;
         this.snapshotFileStore = snapshotFileStore;
         this.applicationUpdateService = applicationUpdateService;
+        this.isDemoMode = isDemoMode;
+        supportsLocalAgent = OperatingSystem.IsWindows() || isDemoMode;
         CurrentVersionText = applicationUpdateService.CurrentVersionText;
         SelectedSection = supportsLocalAgent ? 0 : 1;
         ApplyDisconnectedState();
@@ -167,6 +184,22 @@ public partial class MainViewModel : ViewModelBase
     public partial IReadOnlyList<LocalSnapshotItemViewModel> SnapshotItems { get; set; } = [];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSnapshotRoomFilters))]
+    public partial IReadOnlyList<SnapshotRoomFilterItemViewModel> SnapshotRoomFilters { get; set; } = [];
+
+    [ObservableProperty]
+    public partial SnapshotRoomFilterItemViewModel? SelectedSnapshotRoomFilter { get; set; }
+
+    [ObservableProperty]
+    public partial IReadOnlyList<SnapshotTimelineItemViewModel> SnapshotTimelineItems { get; set; } = [];
+
+    [ObservableProperty]
+    public partial SnapshotTimelineItemViewModel? SelectedSnapshotTimelineItem { get; set; }
+
+    [ObservableProperty]
+    public partial string SnapshotTimelineSummary { get; set; } = "尚无存档";
+
+    [ObservableProperty]
     public partial LocalSnapshotItemViewModel? SelectedSnapshot { get; set; }
 
     [ObservableProperty]
@@ -245,11 +278,17 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     public partial string PendingImportMessage { get; set; } = string.Empty;
 
-    public string DeviceName { get; } = Environment.MachineName;
+    public string DeviceName => isDemoMode ? "Windows-直播机-01" : Environment.MachineName;
 
-    public string PlatformMode { get; } = OperatingSystem.IsWindows()
-        ? "Windows · 本机控制"
-        : "macOS · 存档检查";
+    public string PlatformMode => isDemoMode
+        ? "演示模式 · Windows 全功能"
+        : OperatingSystem.IsWindows()
+            ? "Windows · 本机控制"
+            : "macOS · 存档检查";
+
+    public string BrandCaption => isDemoMode ? "完整产品演示" : "画面配置中心";
+
+    public bool IsDemoMode => isDemoMode;
 
     public bool HasNativeExportAudit => !string.IsNullOrWhiteSpace(NativeExportAuditDetail);
 
@@ -257,8 +296,10 @@ public partial class MainViewModel : ViewModelBase
 
     public string CurrentVersionText { get; }
 
-    public string SnapshotsSubtitle => SupportsLocalAgent
-        ? "保存、检查并恢复 OBS 与直播伴侣联合配置"
+    public string SnapshotsSubtitle => isDemoMode
+        ? "14 个直播间·按日期查看 OBS 与直播伴侣的全部画面参数"
+        : SupportsLocalAgent
+            ? "保存、检查并恢复 OBS 与直播伴侣联合配置"
         : "打开真实 .lscfg 存档，检查设备、画面模式、色彩与滤镜";
 
     public string SnapshotEmptyDescription => SupportsLocalAgent
@@ -266,6 +307,8 @@ public partial class MainViewModel : ViewModelBase
         : "打开 Windows 执行端生成的 .lscfg 文件，即可离线查看完整参数。";
 
     public bool HasSnapshots => SnapshotItems.Count > 0;
+
+    public bool HasSnapshotRoomFilters => SnapshotRoomFilters.Count > 0;
 
     public bool SupportsLocalAgent => supportsLocalAgent;
 
@@ -306,6 +349,13 @@ public partial class MainViewModel : ViewModelBase
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        if (isDemoMode)
+        {
+            await LoadDesktopSnapshotLibraryAsync(cancellationToken);
+            ApplyDemoWorkspace();
+            return;
+        }
+
         HasGitHubUpdateToken = DesktopCredentialStore.TryLoadUpdateToken(out _);
         await LoadStateAsync(cancellationToken);
         if (!supportsLocalAgent)
@@ -346,6 +396,12 @@ public partial class MainViewModel : ViewModelBase
     {
         CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
         RestoreSnapshotCommand.NotifyCanExecuteChanged();
+        if (isDemoMode)
+        {
+            ApplyDemoRoomState(value);
+            return;
+        }
+
         EnrollAgentCommand.NotifyCanExecuteChanged();
         if (value is not null && IsCloudConnected && !isLoadingCloudWorkspace)
         {
@@ -411,8 +467,38 @@ public partial class MainViewModel : ViewModelBase
             : "正在读取存档参数…";
         if (value is not null)
         {
+            if (!isRefreshingSnapshotNavigation)
+            {
+                SelectedSnapshotTimelineItem = SnapshotTimelineItems.FirstOrDefault(item => item.Snapshot.Id == value.Id);
+            }
+
             snapshotDetailCancellation = new CancellationTokenSource();
             _ = LoadSnapshotInspectorAsync(value, snapshotDetailCancellation.Token);
+        }
+    }
+
+    partial void OnSelectedSnapshotRoomFilterChanged(SnapshotRoomFilterItemViewModel? value)
+    {
+        if (!isRefreshingSnapshotNavigation)
+        {
+            RefreshSnapshotTimeline(true);
+            if (isDemoMode && value is not null)
+            {
+                var matchingRoom = CloudRooms.FirstOrDefault(room =>
+                    string.Equals(room.Name, value.Name, StringComparison.Ordinal));
+                if (matchingRoom is not null && SelectedCloudRoom?.Id != matchingRoom.Id)
+                {
+                    SelectedCloudRoom = matchingRoom;
+                }
+            }
+        }
+    }
+
+    partial void OnSelectedSnapshotTimelineItemChanged(SnapshotTimelineItemViewModel? value)
+    {
+        if (!isRefreshingSnapshotNavigation && value is not null)
+        {
+            SelectedSnapshot = value.Snapshot;
         }
     }
 
@@ -517,6 +603,14 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task RefreshStateAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await LoadDesktopSnapshotLibraryAsync(cancellationToken);
+            ApplyDemoRoomState(SelectedCloudRoom);
+            ControlStatusDescription = "演示数据已刷新；未连接真实 Windows 执行端。";
+            return;
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             await LoadDesktopSnapshotLibraryAsync(cancellationToken);
@@ -608,6 +702,12 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task DisconnectCloudAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            CloudConnectionMessage = "演示模式保持本地连接，不会修改真实云端授权";
+            return;
+        }
+
         var credentials = cloudCredentials;
         var disconnectMessage = "已断开云端服务";
         try
@@ -648,6 +748,14 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        if (isDemoMode)
+        {
+            GitHubUpdateToken = string.Empty;
+            HasGitHubUpdateToken = true;
+            UpdateStatus = "演示模式·凭据已模拟保存，未写入系统凭据库";
+            return;
+        }
+
         DesktopCredentialStore.SaveUpdateToken(GitHubUpdateToken);
         GitHubUpdateToken = string.Empty;
         HasGitHubUpdateToken = true;
@@ -657,6 +765,12 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void DeleteGitHubUpdateToken()
     {
+        if (isDemoMode)
+        {
+            UpdateStatus = "演示模式·不会删除本机真实 GitHub 凭据";
+            return;
+        }
+
         DesktopCredentialStore.DeleteUpdateToken();
         GitHubUpdateToken = string.Empty;
         HasGitHubUpdateToken = false;
@@ -669,6 +783,14 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
     private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            LatestVersionText = CurrentVersionText;
+            UpdateStatus = "演示检查完成 · 当前已是最新版本 · SHA-256 与发布签名均通过";
+            return;
+        }
+
         if (!DesktopCredentialStore.TryLoadUpdateToken(out var token))
         {
             UpdateStatus = "请先保存 GitHub Token";
@@ -753,6 +875,16 @@ public partial class MainViewModel : ViewModelBase
 
     private async Task ConfigureAgentAutoStartAsync(bool enabled, CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            IsAgentAutoStartEnabled = enabled;
+            SettingsMessage = enabled
+                ? "演示模式·Agent 已模拟开启登录后自动启动"
+                : "演示模式·Agent 已模拟关闭自动启动";
+            return;
+        }
+
         if (!OperatingSystem.IsWindows() || !IsAgentConnected)
         {
             return;
@@ -813,6 +945,16 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanCaptureCloudSnapshot))]
     private async Task CaptureCloudSnapshotAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await RunDemoOperationAsync(
+                JobKind.Capture,
+                "正在演示联合保存：Preflight → 读取参数 → 打包 → 签名 → 上传",
+                "演示联合保存完成，OBS 与直播伴侣目标字段均已读取",
+                cancellationToken);
+            return;
+        }
+
         if (cloudCredentials is null
             || SelectedOrganization is null
             || SelectedCloudRoom?.DeviceId is not { } deviceId)
@@ -867,6 +1009,16 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanCaptureSnapshot))]
     private async Task CaptureSnapshotAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await RunDemoOperationAsync(
+                JobKind.Capture,
+                "正在演示本机联合保存：读取设备、视频模式、滤镜、美颜、曲线与素材",
+                "演示存档已通过哈希、签名和敏感字段检查",
+                cancellationToken);
+            return;
+        }
+
         IsBusy = true;
         ControlStatusTitle = "正在保存当前画面";
         ControlStatusDescription = "正在读取 OBS 与直播伴侣参数、滤镜和预览图。";
@@ -892,6 +1044,16 @@ public partial class MainViewModel : ViewModelBase
     {
         if (SelectedSnapshot is null)
         {
+            return;
+        }
+
+        if (isDemoMode)
+        {
+            await RunDemoOperationAsync(
+                JobKind.Restore,
+                "正在演示恢复事务：Preflight → 备份 → 应用 → 启动 → 逐字段回读",
+                "演示恢复完成，全部目标字段回读一致",
+                cancellationToken);
             return;
         }
 
@@ -961,6 +1123,17 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task RefreshCloudPreviewAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await RunDemoOperationAsync(
+                JobKind.RefreshPreview,
+                "正在演示回读当前参数并生成 OBS 与直播伴侣预览",
+                "演示画面与当前参数已刷新",
+                cancellationToken);
+            ApplyDemoRoomState(SelectedCloudRoom);
+            return;
+        }
+
         if (cloudCredentials is null
             || SelectedOrganization is null
             || SelectedCloudRoom?.DeviceId is not { } deviceId)
@@ -994,6 +1167,14 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanConfigureObs))]
     private async Task ConfigureObsAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            ObsPassword = string.Empty;
+            SettingsMessage = "演示模式：OBS WebSocket 地址与密码格式校验通过，未写入系统凭据库";
+            return;
+        }
+
         if (!Uri.TryCreate(ObsEndpoint.Trim(), UriKind.Absolute, out var endpoint))
         {
             SettingsMessage = "请输入有效的 OBS WebSocket 地址";
@@ -1140,6 +1321,15 @@ public partial class MainViewModel : ViewModelBase
         string path,
         CancellationToken cancellationToken = default)
     {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            LanSharedDirectory = path;
+            LanSyncStatus = "已同步";
+            LanSettingsMessage = "演示模式·共享目录已模拟保存，未访问真实网络路径";
+            return;
+        }
+
         IsBusy = true;
         LanSettingsMessage = "正在验证共享目录…";
         try
@@ -1161,6 +1351,13 @@ public partial class MainViewModel : ViewModelBase
     {
         if (SelectedSnapshot is null)
         {
+            return;
+        }
+
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            PendingImportMessage = "演示模式·已完成存档签名与 SHA-256 检查，不写出真实文件";
             return;
         }
 
@@ -1221,6 +1418,15 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanConfigureObs))]
     private async Task DisableLanDirectoryAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            LanSharedDirectory = "未配置";
+            LanSyncStatus = "已停用";
+            LanSettingsMessage = "演示模式·局域网存档同步已模拟停用";
+            return;
+        }
+
         IsBusy = true;
         try
         {
@@ -1256,6 +1462,20 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task LoadMappingContextAsync(CancellationToken cancellationToken)
     {
+        if (isDemoMode)
+        {
+            if (SelectedSnapshot is null)
+            {
+                MappingMessage = "先在画面存档中选择一份演示存档";
+                return;
+            }
+
+            var roomNumber = DemoWorkspaceData.GetRoomNumber(SelectedSnapshot.RoomName);
+            ApplyMappingContext(DemoWorkspaceData.CreateMappingContext(SelectedSnapshot.Id, roomNumber));
+            MappingMessage = "演示模式 · 已回读存档来源、目标采集卡和完整视频模式";
+            return;
+        }
+
         if (SelectedSnapshot?.IsCloud == true || !OperatingSystem.IsWindows())
         {
             await LoadCloudMappingContextAsync(cancellationToken);
@@ -1296,6 +1516,13 @@ public partial class MainViewModel : ViewModelBase
             || SelectedMappingSource is null
             || SelectedMappingTarget is null)
         {
+            return;
+        }
+
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            MappingMessage = "演示映射已通过分辨率、FPS、像素格式和色彩模式校验；未写入真实设备";
             return;
         }
 
@@ -1434,8 +1661,48 @@ public partial class MainViewModel : ViewModelBase
         MappingMessage = "设备映射已保存，恢复时仍会再次校验目标格式和滤镜能力";
     }
 
+    private async Task RunDemoOperationAsync(
+        JobKind kind,
+        string runningMessage,
+        string completedMessage,
+        CancellationToken cancellationToken)
+    {
+        var roomNumber = DemoWorkspaceData.GetRoomNumber(SelectedCloudRoom?.Name
+            ?? SelectedSnapshot?.RoomName);
+        IsBusy = true;
+        ControlStatusTitle = kind switch
+        {
+            JobKind.Capture => "正在演示联合保存",
+            JobKind.Restore => "正在演示事务恢复",
+            _ => "正在演示画面刷新"
+        };
+        ControlStatusDescription = runningMessage;
+        cloudJobs =
+        [
+            DemoWorkspaceData.CreateInteractiveJob(roomNumber, kind, JobStatus.Verifying, runningMessage),
+            .. cloudJobs
+        ];
+        RefreshActivityItems();
+        try
+        {
+            await Task.Delay(650, cancellationToken);
+            cloudJobs =
+            [
+                DemoWorkspaceData.CreateInteractiveJob(roomNumber, kind, JobStatus.Succeeded, completedMessage),
+                .. cloudJobs.Skip(1)
+            ];
+            ControlStatusTitle = completedMessage;
+            ControlStatusDescription = "这是安全的本地演示，没有连接真实 Agent，也没有改写 OBS 或直播伴侣。";
+            RefreshActivityItems();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private bool CanCaptureSnapshot() =>
-        OperatingSystem.IsWindows() && CanControlLocalApplications && !IsBusy;
+        (isDemoMode || OperatingSystem.IsWindows() && CanControlLocalApplications) && !IsBusy;
 
     private bool CanCaptureCloudSnapshot() =>
         IsCloudConnected && SelectedCloudRoom is { Online: true, DeviceId: not null } && !IsBusy;
@@ -1452,15 +1719,16 @@ public partial class MainViewModel : ViewModelBase
     private bool CanRestoreSnapshot() =>
         SelectedSnapshot is not null
         && !IsBusy
-        && (SelectedSnapshot.IsCloud
-            ? IsCloudConnected && SelectedCloudRoom is { Online: true, DeviceId: not null }
-            : !SelectedSnapshot.IsDesktopFile
-                && OperatingSystem.IsWindows()
-                && CanRestoreLocalApplications);
+        && (isDemoMode
+            || (SelectedSnapshot.IsCloud
+                ? IsCloudConnected && SelectedCloudRoom is { Online: true, DeviceId: not null }
+                : !SelectedSnapshot.IsDesktopFile
+                    && OperatingSystem.IsWindows()
+                    && CanRestoreLocalApplications));
 
-    private bool CanConfigureObs() => OperatingSystem.IsWindows() && !IsBusy;
+    private bool CanConfigureObs() => (isDemoMode || OperatingSystem.IsWindows()) && !IsBusy;
 
-    private bool CanCheckForUpdates() => HasGitHubUpdateToken && !IsBusy;
+    private bool CanCheckForUpdates() => (isDemoMode || HasGitHubUpdateToken) && !IsBusy;
 
     private bool CanInstallUpdate() =>
         OperatingSystem.IsWindows() && availableUpdate is not null && !IsBusy;
@@ -1469,7 +1737,7 @@ public partial class MainViewModel : ViewModelBase
         OperatingSystem.IsWindows() && !IsBusy && !string.IsNullOrWhiteSpace(PendingImportPath);
 
     private bool CanSaveMapping() => !IsBusy
-        && (SelectedSnapshot?.IsCloud == true ? IsCloudConnected : OperatingSystem.IsWindows())
+        && (isDemoMode || (SelectedSnapshot?.IsCloud == true ? IsCloudConnected : OperatingSystem.IsWindows()))
         && SelectedMappingSource is not null
         && SelectedMappingTarget is not null
         && SelectedMappingSource.Application == SelectedMappingTarget.Application;
@@ -1627,6 +1895,102 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    private void ApplyDemoWorkspace()
+    {
+        isLoadingCloudWorkspace = true;
+        try
+        {
+            Organizations = [DemoWorkspaceData.Organization];
+            SelectedOrganization = DemoWorkspaceData.Organization;
+            OrganizationName = DemoWorkspaceData.Organization.Name;
+            CloudRooms = DemoWorkspaceData.CreateRooms()
+                .Select(room => new CloudRoomItemViewModel(room))
+                .ToArray();
+            cloudJobs = DemoWorkspaceData.CreateJobs();
+            RefreshActivityItems();
+            SelectedCloudRoom = CloudRooms[0];
+        }
+        finally
+        {
+            isLoadingCloudWorkspace = false;
+        }
+
+        IsAgentConnected = false;
+        IsCloudConnected = true;
+        IsAgentCloudEnrolled = true;
+        CanControlLocalApplications = true;
+        CanRestoreLocalApplications = true;
+        IsAgentAutoStartEnabled = true;
+        CloudServiceUrl = "https://demo.livestudio.local";
+        CloudStatus = "演示已连接";
+        CloudConnectionMessage = "演示模式 · 14 个直播间、设备、存档和任务均来自本机，不连接真实云端";
+        ConnectionSubtitle = "LiveStudio 演示 Organization · 14 个直播间 · 本地安全演示";
+        HasGitHubUpdateToken = true;
+        LatestVersionText = CurrentVersionText;
+        UpdateStatus = "演示状态 · GitHub 私有 Release、SHA-256 和签名校验链路已配置";
+        LanSharedDirectory = @"\\演示文件服务器\LiveStudio\Snapshots";
+        LanSyncStatus = "已同步";
+        LanSettingsMessage = "演示状态 · 局域网目录与云端使用同一种不可变 .lscfg 格式";
+        ObsEndpoint = "ws://127.0.0.1:4455";
+        SettingsMessage = "演示状态 · OBS 密码只进入 Windows Credential Manager";
+        HasNativeExportBaseline = true;
+        NativeExportHasSensitivePaths = false;
+        NativeExportAuditStatus = "演示对比完成 · 4 个美颜字段发生变化";
+        NativeExportAuditDetail = "变化条目 2 个 · 新增字段 0 个 · 删除字段 0 个 · 敏感路径 0 个";
+        NativeExportChangedFields =
+        [
+            new NativeExportChangedFieldViewModel("beauty.json:/skin/smoothness"),
+            new NativeExportChangedFieldViewModel("beauty.json:/reshape/faceSlim"),
+            new NativeExportChangedFieldViewModel("beauty.json:/curves/master/points/2/y"),
+            new NativeExportChangedFieldViewModel("beauty.json:/makeup/opacity")
+        ];
+        MappingMessage = "演示模式 · 选择存档后可查看来源、采集卡和格式映射";
+        ApplyDemoRoomState(SelectedCloudRoom);
+        RefreshSnapshotNavigation(SelectedSnapshot);
+        if (SelectedSnapshot is not null)
+        {
+            ApplyMappingContext(DemoWorkspaceData.CreateMappingContext(
+                SelectedSnapshot.Id,
+                DemoWorkspaceData.GetRoomNumber(SelectedSnapshot.RoomName)));
+        }
+
+        CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
+        CaptureSnapshotCommand.NotifyCanExecuteChanged();
+        RestoreSnapshotCommand.NotifyCanExecuteChanged();
+        ConfigureObsCommand.NotifyCanExecuteChanged();
+        CheckForUpdatesCommand.NotifyCanExecuteChanged();
+        SaveMappingCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ApplyDemoRoomState(CloudRoomItemViewModel? room)
+    {
+        if (!isDemoMode || room is null)
+        {
+            return;
+        }
+
+        var roomNumber = DemoWorkspaceData.GetRoomNumber(room.Name);
+        var matchingFilter = SnapshotRoomFilters.FirstOrDefault(filter =>
+            string.Equals(filter.Name, room.Name, StringComparison.Ordinal));
+        if (matchingFilter is not null && SelectedSnapshotRoomFilter?.RoomId != matchingFilter.RoomId)
+        {
+            SelectedSnapshotRoomFilter = matchingFilter;
+        }
+
+        CurrentObsPreview = DemoWorkspaceData.CreatePreview(roomNumber, ApplicationKind.Obs);
+        CurrentLiveCompanionPreview = DemoWorkspaceData.CreatePreview(roomNumber, ApplicationKind.LiveCompanion);
+        CurrentObsPreviewUrl = $"demo://rooms/{roomNumber}/obs";
+        CurrentLiveCompanionPreviewUrl = $"demo://rooms/{roomNumber}/live-companion";
+        AgentStatus = room.Online ? "在线 · Windows 11" : "离线";
+        ObsStatus = room.Online ? "31.1.2 · 正常运行 · 未推流" : "设备离线";
+        LiveCompanionStatus = room.Online ? "8.1.0 · 正常运行 · 未开播" : "设备离线";
+        ConfigurationStatus = room.HasConfigurationDrift ? "检测到 3 项配置漂移" : "逐字段一致";
+        ControlStatusTitle = room.Name;
+        ControlStatusDescription = $"{room.Status} · {room.ConfigurationStatus} · 最近备份 {room.LastSnapshot}";
+        CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
+        RestoreSnapshotCommand.NotifyCanExecuteChanged();
+    }
+
     private void ApplyAgentState(LocalAgentState state)
     {
         IsAgentConnected = true;
@@ -1648,6 +2012,7 @@ public partial class MainViewModel : ViewModelBase
         SnapshotItems = state.Snapshots
             .Select(snapshot => new LocalSnapshotItemViewModel(snapshot))
             .ToArray();
+        RefreshSnapshotNavigation();
         localOperations = state.Operations;
         RefreshActivityItems();
         SnapshotCountText = $"{SnapshotItems.Count} 份";
@@ -1686,6 +2051,11 @@ public partial class MainViewModel : ViewModelBase
         {
             SelectedSnapshot = null;
             SnapshotItems = [];
+            SnapshotRoomFilters = [];
+            SnapshotTimelineItems = [];
+            SelectedSnapshotRoomFilter = null;
+            SelectedSnapshotTimelineItem = null;
+            SnapshotTimelineSummary = "尚无存档";
             SnapshotCountText = "0 份";
         }
         else
@@ -1731,17 +2101,88 @@ public partial class MainViewModel : ViewModelBase
             .Concat(cloudSnapshotItems)
             .ToArray();
         SnapshotCountText = $"{SnapshotItems.Count} 份";
-        if (selected is not null)
+        RefreshSnapshotNavigation(selected);
+    }
+
+    private void RefreshSnapshotNavigation(LocalSnapshotItemViewModel? preferredSnapshot = null)
+    {
+        var selectedRoomId = SelectedSnapshotRoomFilter?.RoomId;
+        var filters = SnapshotItems
+            .GroupBy(snapshot => snapshot.RoomId)
+            .Select(group =>
+            {
+                var newest = group.OrderByDescending(snapshot => snapshot.CreatedAtValue).First();
+                return new SnapshotRoomFilterItemViewModel(
+                    group.Key,
+                    newest.RoomName,
+                    group.Count(),
+                    GetRoomSortOrder(newest.RoomName));
+            })
+            .OrderBy(filter => filter.SortOrder)
+            .ThenBy(filter => filter.Name, StringComparer.CurrentCulture)
+            .ToArray();
+
+        isRefreshingSnapshotNavigation = true;
+        try
         {
-            SelectedSnapshot = SnapshotItems.FirstOrDefault(item =>
-                item.Id == selected.Id
-                && item.IsCloud == selected.IsCloud
-                && item.IsDesktopFile == selected.IsDesktopFile);
+            SnapshotRoomFilters = filters;
+            SelectedSnapshotRoomFilter = filters.FirstOrDefault(filter => filter.RoomId == selectedRoomId)
+                ?? filters.FirstOrDefault();
         }
-        else if (SnapshotItems.Count > 0 && SelectedSection == 1)
+        finally
         {
-            SelectedSnapshot = SnapshotItems[0];
+            isRefreshingSnapshotNavigation = false;
         }
+
+        RefreshSnapshotTimeline(false, preferredSnapshot);
+    }
+
+    private void RefreshSnapshotTimeline(
+        bool selectFirst,
+        LocalSnapshotItemViewModel? preferredSnapshot = null)
+    {
+        var roomFilter = SelectedSnapshotRoomFilter;
+        var filtered = roomFilter is null
+            ? Array.Empty<LocalSnapshotItemViewModel>()
+            : SnapshotItems
+                .Where(snapshot => snapshot.RoomId == roomFilter.RoomId)
+                .OrderByDescending(snapshot => snapshot.CreatedAtValue)
+                .ToArray();
+        var timeline = new List<SnapshotTimelineItemViewModel>(filtered.Length);
+        DateOnly? previousDate = null;
+        foreach (var snapshot in filtered)
+        {
+            var startsDate = previousDate != snapshot.LocalDate;
+            timeline.Add(new SnapshotTimelineItemViewModel(snapshot, startsDate));
+            previousDate = snapshot.LocalDate;
+        }
+
+        var selectedId = preferredSnapshot?.Id
+            ?? (!selectFirst ? SelectedSnapshot?.Id : null);
+        var selectedTimeline = timeline.FirstOrDefault(item => item.Snapshot.Id == selectedId)
+            ?? timeline.FirstOrDefault();
+        isRefreshingSnapshotNavigation = true;
+        try
+        {
+            SnapshotTimelineItems = timeline;
+            SelectedSnapshotTimelineItem = selectedTimeline;
+            SelectedSnapshot = selectedTimeline?.Snapshot;
+            var dayCount = filtered.Select(snapshot => snapshot.LocalDate).Distinct().Count();
+            SnapshotTimelineSummary = roomFilter is null
+                ? "尚无存档"
+                : $"{roomFilter.Name} · {dayCount} 天 · {filtered.Length} 份";
+        }
+        finally
+        {
+            isRefreshingSnapshotNavigation = false;
+        }
+
+    }
+
+    private static int GetRoomSortOrder(string roomName)
+    {
+        var digits = new string(roomName.TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var roomNumber) ? roomNumber : int.MaxValue;
     }
 
     private static SnapshotFileStore CreateSnapshotFileStore() => new(Path.Combine(

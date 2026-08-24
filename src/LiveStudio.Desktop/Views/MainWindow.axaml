@@ -29,7 +29,7 @@
                           Stretch="Uniform" Stroke="#5EA1FF" StrokeThickness="1.55" />
                     <StackPanel VerticalAlignment="Center" Spacing="1">
                         <TextBlock Classes="brand-title" Text="LiveStudio" />
-                        <TextBlock Classes="brand-caption" Text="画面配置中心" />
+                        <TextBlock Classes="brand-caption" Text="{Binding BrandCaption}" />
                     </StackPanel>
                 </StackPanel>
 

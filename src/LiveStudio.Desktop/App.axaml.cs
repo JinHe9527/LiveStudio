@@ -18,7 +18,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var viewModel = new MainViewModel();
+            var isDemoMode = desktop.Args?.Contains("--demo", StringComparer.OrdinalIgnoreCase) == true;
+            var viewModel = new MainViewModel(isDemoMode);
             viewModel.UpdateRestartRequested += (_, _) => desktop.Shutdown();
             var window = new MainWindow
             {
