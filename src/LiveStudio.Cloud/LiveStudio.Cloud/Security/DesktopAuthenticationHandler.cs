@@ -56,4 +56,22 @@ public sealed class DesktopAuthenticationHandler(
             new ClaimsPrincipal(identity),
             AuthenticationScheme));
     }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        // Browser pages accept either the Identity cookie or a desktop bearer
+        // token.  The cookie handler runs first and turns an anonymous browser
+        // request into a login redirect.  Do not overwrite that redirect with
+        // this secondary scheme's default 401 challenge.  API requests never
+        // receive a Location header, so they remain a plain 401 response.
+        if (Response.StatusCode is >= StatusCodes.Status300MultipleChoices
+                and < StatusCodes.Status400BadRequest
+            && Response.Headers.Location.Count > 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return Task.CompletedTask;
+    }
 }

@@ -71,6 +71,8 @@ public interface IApplicationRestoreSession : IAsyncDisposable
 
     Task CommitAsync(CancellationToken cancellationToken);
 
+    Task CompleteAsync(CancellationToken cancellationToken);
+
     Task RollbackAsync(CancellationToken cancellationToken);
 }
 

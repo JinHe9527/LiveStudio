@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 using LiveStudio.Contracts;
 
 namespace LiveStudio.Desktop.Services;
@@ -144,6 +145,22 @@ public sealed class DesktopCloudClient(
             ?? throw new InvalidOperationException("云端没有返回设备注册码");
     }
 
+    public async Task<LiveRoomSummary> CreateRoomAsync(
+        DesktopCloudCredentials credentials,
+        Guid organizationId,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateClient(credentials.ServiceUri, credentials.AccessToken);
+        using var response = await client.PostAsJsonAsync(
+            $"api/v1/organizations/{organizationId}/rooms",
+            new CreateRoomRequest(name.Trim()),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<LiveRoomSummary>(cancellationToken)
+            ?? throw new InvalidOperationException("云端没有返回新建直播间");
+    }
+
     public async Task<IReadOnlyList<DeviceMapping>> GetMappingsAsync(
         DesktopCloudCredentials credentials,
         Guid organizationId,
@@ -185,6 +202,95 @@ public sealed class DesktopCloudClient(
             ?? throw new InvalidOperationException("云端没有返回存档详情");
     }
 
+    public async Task RenameSnapshotAsync(
+        DesktopCloudCredentials credentials,
+        Guid organizationId,
+        Guid snapshotId,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateClient(credentials.ServiceUri, credentials.AccessToken);
+        using var response = await client.PutAsJsonAsync(
+            $"api/v1/organizations/{organizationId}/snapshots/{snapshotId}/name",
+            new RenameCloudSnapshotRequest(name.Trim()),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteSnapshotAsync(
+        DesktopCloudCredentials credentials,
+        Guid organizationId,
+        Guid snapshotId,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateClient(credentials.ServiceUri, credentials.AccessToken);
+        using var response = await client.DeleteAsync(
+            $"api/v1/organizations/{organizationId}/snapshots/{snapshotId}",
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DownloadSnapshotAsync(
+        DesktopCloudCredentials credentials,
+        Guid organizationId,
+        SnapshotSummary snapshot,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateClient(credentials.ServiceUri, credentials.AccessToken);
+        var download = await GetAsync<SnapshotDownloadResponse>(
+                client,
+                $"api/v1/organizations/{organizationId}/snapshots/{snapshot.Id}/download",
+                cancellationToken)
+            ?? throw new InvalidOperationException("云端没有返回存档下载地址");
+        var fullDestinationPath = Path.GetFullPath(destinationPath);
+        var directory = Path.GetDirectoryName(fullDestinationPath)
+            ?? throw new InvalidOperationException("无法确定导出目录");
+        Directory.CreateDirectory(directory);
+        var partialPath = $"{fullDestinationPath}.partial-{Guid.NewGuid():N}";
+        try
+        {
+            using var downloadClient = messageHandler is null
+                ? new HttpClient()
+                : new HttpClient(messageHandler, disposeHandler: false);
+            await using (var source = await downloadClient.GetStreamAsync(download.DownloadUri, cancellationToken))
+            await using (var destination = new FileStream(
+                partialPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                131_072,
+                FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                await source.CopyToAsync(destination, cancellationToken);
+            }
+
+            var info = new FileInfo(partialPath);
+            if (info.Length != snapshot.PackageLength)
+            {
+                throw new InvalidDataException("下载的云存档长度不一致");
+            }
+
+            await using (var package = File.OpenRead(partialPath))
+            {
+                var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(package, cancellationToken));
+                if (!string.Equals(hash, snapshot.PackageSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("下载的云存档 SHA-256 不一致");
+                }
+            }
+
+            File.Move(partialPath, fullDestinationPath, true);
+        }
+        finally
+        {
+            if (File.Exists(partialPath))
+            {
+                File.Delete(partialPath);
+            }
+        }
+    }
+
     public async Task<byte[]> DownloadPreviewAsync(Uri previewUri, CancellationToken cancellationToken)
     {
         using var client = messageHandler is null
@@ -206,6 +312,22 @@ public sealed class DesktopCloudClient(
             request,
             cancellationToken);
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<CreateBatchCaptureJobsResponse> CreateBatchCaptureJobsAsync(
+        DesktopCloudCredentials credentials,
+        Guid organizationId,
+        CreateBatchCaptureJobsRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var client = CreateClient(credentials.ServiceUri, credentials.AccessToken);
+        using var response = await client.PostAsJsonAsync(
+            $"api/v1/organizations/{organizationId}/capture-jobs/batch",
+            request,
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<CreateBatchCaptureJobsResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("云端没有返回批量保存结果");
     }
 
     public async Task CreateRestoreJobAsync(

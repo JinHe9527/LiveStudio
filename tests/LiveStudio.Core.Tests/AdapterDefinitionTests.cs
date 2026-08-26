@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using LiveStudio.Adapters.LiveCompanion;
+using LiveStudio.Contracts;
 
 namespace LiveStudio.Core.Tests;
 
@@ -88,6 +89,122 @@ public sealed class AdapterDefinitionTests
         }
     }
 
+    [Fact]
+    public void RequiredShapeMatchAllowsMissingApplicationManagedOptionalFields()
+    {
+        var baseDefinition = CreateDefinition();
+        var definition = baseDefinition with
+        {
+            Stores = [new ConfigurationStoreDefinition(
+                "main",
+                ConfigurationStorageKind.JsonFile,
+                "config.json",
+                null,
+                true)],
+            Fields = baseDefinition.Fields.Append(new FieldMappingDefinition(
+                "runtime-cache",
+                UnifiedFieldKind.NativeField,
+                "main",
+                "/runtime/generatedId",
+                "string",
+                false,
+                false,
+                ControlKind: "ApplicationManaged")).ToArray()
+        };
+
+        Assert.True(LiveCompanionAdapterCatalog.MatchesRequiredShape(
+            definition,
+            [CreateDiscoveredDocument(definition.Fields.Where(field => field.Required))]));
+    }
+
+    [Fact]
+    public void RequiredShapeMatchRejectsMissingOrWrongTypeRequiredFields()
+    {
+        var baseDefinition = CreateDefinition();
+        var definition = baseDefinition with
+        {
+            Stores = [new ConfigurationStoreDefinition(
+                "main",
+                ConfigurationStorageKind.JsonFile,
+                "config.json",
+                null,
+                true)]
+        };
+        var missingWidth = definition.Fields.Where(field => field.Id != "width");
+        var wrongWidth = definition.Fields.Select(field => field.Id == "width"
+            ? field with { ValueType = "string" }
+            : field);
+
+        Assert.False(LiveCompanionAdapterCatalog.MatchesRequiredShape(
+            definition,
+            [CreateDiscoveredDocument(missingWidth)]));
+        Assert.False(LiveCompanionAdapterCatalog.MatchesRequiredShape(
+            definition,
+            [CreateDiscoveredDocument(wrongWidth)]));
+    }
+
+    [Fact]
+    public void BundledCurrentMachineAdapterIsSignedCompleteAndExactlyMatched()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(
+            repositoryRoot,
+            "src",
+            "LiveStudio.Agent",
+            "Adapters"));
+
+        var match = catalog.Match(
+            "12.8.1.454484231",
+            "68ba3cc2b53cc19deaff9633f7d2e1ab1dbd36345ae44ef6e234b830c25816b1");
+        var snapshotMatch = catalog.MatchSnapshot(
+            "12.8.1.454484231",
+            "webcast-mate-12.8.1.454484231-68ba3cc2-v2",
+            match.Adapter!.DefinitionSha256,
+            "68ba3cc2b53cc19deaff9633f7d2e1ab1dbd36345ae44ef6e234b830c25816b1");
+        var alteredSnapshot = catalog.MatchSnapshot(
+            "12.8.1.454484231",
+            "webcast-mate-12.8.1.454484231-68ba3cc2-v2",
+            new string('0', 64),
+            "68ba3cc2b53cc19deaff9633f7d2e1ab1dbd36345ae44ef6e234b830c25816b1");
+
+        Assert.Equal(AdapterMatchLevel.Verified, match.Level);
+        Assert.Equal(AdapterMatchLevel.Verified, snapshotMatch.Level);
+        Assert.Equal(AdapterMatchLevel.Incompatible, alteredSnapshot.Level);
+        var definition = Assert.IsType<LiveCompanionAdapterDefinition>(match.Adapter?.Definition);
+        Assert.Equal("webcast-mate-12.8.1.454484231-68ba3cc2-v2", definition.Id);
+        Assert.Equal(4, definition.Stores.Count);
+        Assert.Equal(1028, definition.Fields.Count);
+        Assert.Equal(1018, definition.Fields.Count(field => field.Writable));
+        Assert.Equal(10, definition.Fields.Count(field => !field.Writable));
+        Assert.Equal(966, definition.Fields.Count(LiveCompanionConfigurationStore.IsRestorableField));
+        var activityCapabilityInventory = definition.Fields.Where(field =>
+            string.Equals(field.StoreId, "effect-store", StringComparison.Ordinal)
+            && field.NativePath.StartsWith(
+                "/effectStore/carnivalInfo/sourceLink/",
+                StringComparison.Ordinal)).ToArray();
+        Assert.Equal(52, activityCapabilityInventory.Length);
+        Assert.All(activityCapabilityInventory, field =>
+            Assert.False(LiveCompanionConfigurationStore.IsRestorableField(field)));
+        Assert.All(
+            definition.Fields.Where(field =>
+                field.Required
+                && field.Writable
+                && !activityCapabilityInventory.Contains(field)),
+            field => Assert.True(LiveCompanionConfigurationStore.IsRestorableField(field)));
+        Assert.All(
+            definition.Fields.Where(field =>
+                string.Equals(field.StoreId, "effect-store", StringComparison.Ordinal)
+                && field.NativePath is "/effectStore/carnivalInfo/isOn"
+                    or "/effectStore/carnivalInfo/using"),
+            field => Assert.True(LiveCompanionConfigurationStore.IsRestorableField(field)));
+        Assert.All(definition.Fields.Where(field => field.Writable), field => Assert.True(field.Required));
+        Assert.All(definition.Fields.Where(field => !field.Writable), field => Assert.False(field.Required));
+        Assert.All(definition.Fields, field => Assert.Equal(FieldEvidenceStatus.Mapped, field.EvidenceStatus));
+        Assert.All(
+            definition.Fields.Where(field => !field.Writable),
+            field => Assert.Equal("ApplicationManaged", field.ControlKind));
+    }
+
     private static LiveCompanionAdapterDefinition CreateDefinition()
     {
         var fields = new[]
@@ -117,6 +234,28 @@ public sealed class AdapterDefinitionTests
         string path,
         string valueType) => new(id, kind, "main", path, valueType, true, true);
 
+    private static NativeConfigurationDocument CreateDiscoveredDocument(
+        IEnumerable<FieldMappingDefinition> fields) => new(
+        "webcast_mate",
+        "JsonFile",
+        "json-v1",
+        "config.json",
+        "config.json",
+        new string('0', 64),
+        Guid.NewGuid(),
+        fields.Select(field => new NativeConfigurationValue(
+            field.NativePath,
+            NativeParameterCategories.Filter,
+            field.ValueType switch
+            {
+                "string" => JsonSerializer.SerializeToElement("value"),
+                "bool" or "boolean" => JsonSerializer.SerializeToElement(true),
+                "object" => JsonSerializer.SerializeToElement(new { value = 1 }),
+                "array" => JsonSerializer.SerializeToElement(new List<int> { 1 }),
+                "null" => JsonSerializer.SerializeToElement<object?>(null),
+                _ => JsonSerializer.SerializeToElement(1)
+            })).ToArray());
+
     private static (byte[] Definition, byte[] Signature) Sign(
         LiveCompanionAdapterDefinition definition,
         ECDsa key)
@@ -136,5 +275,21 @@ public sealed class AdapterDefinitionTests
         var key = ECDsa.Create();
         key.ImportSubjectPublicKeyInfo(source.ExportSubjectPublicKeyInfo(), out _);
         return key;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "LiveStudio.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("找不到 LiveStudio 仓库根目录");
     }
 }

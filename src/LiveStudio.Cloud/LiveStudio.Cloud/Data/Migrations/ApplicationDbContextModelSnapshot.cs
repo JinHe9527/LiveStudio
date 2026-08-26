@@ -572,12 +572,17 @@ namespace LiveStudio.Cloud.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("RoomId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("RoomId");
+
+                    b.HasIndex("OrganizationId", "RevokedAt");
 
                     b.HasIndex("OrganizationId", "RoomId");
 

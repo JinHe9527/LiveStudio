@@ -41,16 +41,23 @@ builder.Services.AddSingleton<IDeviceCredentialStore>(credentialStore);
 builder.Services.AddHostedService<TrayIconService>();
 builder.Services.AddSingleton<LocalSnapshotIndex>();
 builder.Services.AddSingleton<AgentObsConfigurationStore>();
+builder.Services.AddSingleton<ObsAutomaticConnectionService>();
 builder.Services.AddSingleton<LanSnapshotConfigurationStore>();
 builder.Services.AddSingleton<IObsConnectionOptionsProvider>(services =>
     services.GetRequiredService<AgentObsConfigurationStore>());
 builder.Services.AddSingleton<IObsCredentialProvider>(services =>
     services.GetRequiredService<AgentObsConfigurationStore>());
 builder.Services.AddSingleton<IObsDeviceCatalog, AgentObsDeviceCatalog>();
+builder.Services.AddSingleton<BuiltInColorCardCatalog>();
+builder.Services.AddSingleton<IObsAssetPathResolver>(services =>
+    services.GetRequiredService<BuiltInColorCardCatalog>());
 builder.Services.AddSingleton<IApplicationAdapter, ObsAdapter>();
 builder.Services.AddSingleton<LiveCompanionAdapterCatalog>();
 builder.Services.AddSingleton<IApplicationAdapter, LiveCompanionAdapter>();
+builder.Services.AddSingleton<ApplicationOperationGate>();
 builder.Services.AddSingleton<SnapshotCaptureService>();
+builder.Services.AddSingleton<IRestoreFaultInjector>(_ =>
+    EnvironmentRestoreFaultInjector.FromEnvironment());
 builder.Services.AddSingleton<RestoreCoordinator>();
 builder.Services.AddSingleton<LocalRestoreService>();
 builder.Services.AddSingleton<SnapshotTransferService>();
@@ -63,6 +70,14 @@ builder.Services.AddSingleton<CloudAgentRuntime>();
 builder.Services.AddHostedService<LocalControlServer>();
 builder.Services.AddHostedService(services => services.GetRequiredService<LanSnapshotWorker>());
 builder.Services.AddHostedService(services => services.GetRequiredService<CloudAgentRuntime>());
+using var host = builder.Build();
+await host.Services.GetRequiredService<BuiltInColorCardCatalog>()
+    .EnsureIntegrityAsync(CancellationToken.None);
+var obsAdapter = host.Services.GetServices<IApplicationAdapter>()
+    .OfType<ObsAdapter>()
+    .Single();
+await ObsRecovery.RecoverPendingAsync(obsAdapter, CancellationToken.None);
 await LiveCompanionRecovery.RecoverPendingAsync(CancellationToken.None);
-await builder.Build().RunAsync();
+await RestoreTransactionJournal.CompleteAllAsync(CancellationToken.None);
+await host.RunAsync();
 return 0;

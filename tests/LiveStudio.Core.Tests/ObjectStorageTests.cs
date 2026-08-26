@@ -20,6 +20,30 @@ public sealed class ObjectStorageTests
     }
 
     [Fact]
+    public async Task ClientUrisUsePublicEndpointWhileServerOperationsStayInternal()
+    {
+        var handler = new RecordingHandler();
+        var storage = CreateStorage(handler, new Uri("https://111.229.162.72:8443"));
+
+        var uploadUri = storage.CreateUploadUri(
+            "organization/uploads/package.lscfg",
+            TimeSpan.FromMinutes(5));
+        var downloadUri = storage.CreateDownloadUri(
+            "organization/snapshots/package.lscfg",
+            TimeSpan.FromMinutes(5));
+        await storage.UploadAsync(
+            "organization/internal/preview.jpg",
+            new byte[] { 1, 2, 3 },
+            "image/jpeg",
+            CancellationToken.None);
+
+        Assert.Equal("https://111.229.162.72:8443", uploadUri.GetLeftPart(UriPartial.Authority));
+        Assert.Equal("https://111.229.162.72:8443", downloadUri.GetLeftPart(UriPartial.Authority));
+        Assert.Equal("minio", handler.RequestUri?.Host);
+        Assert.Equal(9000, handler.RequestUri?.Port);
+    }
+
+    [Fact]
     public async Task CopySignsAndSendsCopySourceHeader()
     {
         var handler = new RecordingHandler();
@@ -76,11 +100,14 @@ public sealed class ObjectStorageTests
             < completionContent.IndexOf("etag-2", StringComparison.Ordinal));
     }
 
-    private static S3ObjectStorage CreateStorage(HttpMessageHandler handler) => new(
+    private static S3ObjectStorage CreateStorage(
+        HttpMessageHandler handler,
+        Uri? publicServiceUrl = null) => new(
         new HttpClient(handler),
         Options.Create(new ObjectStorageOptions
         {
             ServiceUrl = new Uri("http://minio:9000"),
+            PublicServiceUrl = publicServiceUrl,
             Region = "us-east-1",
             Bucket = "livestudio",
             AccessKey = "access-key",

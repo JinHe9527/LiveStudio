@@ -26,7 +26,7 @@ public sealed class NativeExportInspectorTests
             Assert.Contains(entry.Fields, field => field.JsonPointer == "/beauty/smooth");
             Assert.Contains(entry.Fields, field => field.JsonPointer == "/beauty/curve/master/1/y");
             Assert.Contains("config.json:/auth/token", report.SensitivePaths);
-            var serialized = JsonSerializer.Serialize(report);
+            var serialized = JsonSerializer.Serialize(report with { InspectedAt = DateTimeOffset.UnixEpoch });
             Assert.DoesNotContain("private-token", serialized, StringComparison.Ordinal);
             Assert.DoesNotContain("0.62", serialized, StringComparison.Ordinal);
         }

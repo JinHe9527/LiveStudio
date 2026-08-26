@@ -3,28 +3,38 @@
 @inject HttpClient Http
 @inject OrganizationSession Session
 
-<PageTitle>Organization · LiveStudio</PageTitle>
+<PageTitle>服务器管理 · LiveStudio</PageTitle>
 
-<div class="page-header"><div><h1>Organization</h1><p>选择管理空间，创建直播间并管理成员角色。</p></div></div>
+<div class="page-header"><div><h1>服务器管理</h1><p>统一管理当前服务器上的直播间和管理员账户。</p></div></div>
 <div class="content-grid">
     <section class="card section-card">
-        <div class="section-heading"><h2>管理空间</h2></div>
-        <div class="form-field"><label>当前 Organization</label><select class="form-select" value="@Session.SelectedOrganizationId" @onchange="SelectOrganizationAsync">@foreach (var organization in Session.Organizations) { <option value="@organization.Id">@organization.Name</option> }</select></div>
-        <div class="form-field mt-4"><label>新 Organization 名称</label><input class="form-control" @bind="organizationName" /></div>
-        <button class="button primary mt-3" @onclick="CreateOrganizationAsync">创建</button>
+        <div class="section-heading"><h2>直播管理空间</h2></div>
+        @if (Session.Organizations.Count > 0)
+        {
+            <div class="form-field"><label>当前空间</label><select class="form-select" value="@Session.SelectedOrganizationId" @onchange="SelectOrganizationAsync">@foreach (var organization in Session.Organizations) { <option value="@organization.Id">@organization.Name</option> }</select></div>
+        }
+        else
+        {
+            <div class="empty-state compact">当前账户没有可管理的直播空间。</div>
+        }
 
         <div class="section-heading mt-5"><h2>直播间</h2></div>
-        <ul class="list">@foreach (var room in rooms) { <li class="list-row"><span class="status-dot @(room.Online ? "online" : null)"></span><div class="list-main"><strong>@room.Name</strong><small>@(room.DeviceId is null ? "尚未绑定设备" : room.DeviceId)</small></div></li> }</ul>
-        <div class="form-field mt-3"><label>新直播间名称</label><input class="form-control" @bind="roomName" /></div>
-        <button class="button mt-3" @onclick="CreateRoomAsync">创建直播间</button>
+        @if (rooms.Count == 0)
+        {
+            <div class="empty-state compact">尚未创建直播间。</div>
+        }
+        else
+        {
+            <ul class="list">@foreach (var room in rooms) { <li class="list-row"><span class="status-dot @(room.Online ? "online" : null)"></span><div class="list-main"><strong>@room.Name</strong><small>@RoomConnectionText(room)</small></div></li> }</ul>
+        }
+        <div class="form-field mt-3"><label>新直播间名称</label><input class="form-control" placeholder="例如：1 号直播间" @bind="roomName" /></div>
+        <button class="button mt-3" disabled="@(Session.SelectedOrganizationId is null || string.IsNullOrWhiteSpace(roomName))" @onclick="CreateRoomAsync">创建直播间</button>
     </section>
 
     <section class="card section-card">
-        <div class="section-heading"><h2>成员与角色</h2></div>
-        <ul class="list">@foreach (var member in members) { <li class="list-row"><span class="avatar-inline">@member.Email[0].ToString().ToUpperInvariant()</span><div class="list-main"><strong>@member.Email</strong><small>@member.Role</small></div></li> }</ul>
-        <div class="form-field mt-3"><label>已注册用户邮箱</label><input class="form-control" type="email" @bind="memberEmail" /></div>
-        <div class="form-field mt-3"><label>角色</label><select class="form-select" @bind="memberRole"><option value="Admin">Admin</option><option value="Operator">Operator</option><option value="Viewer">Viewer</option></select></div>
-        <button class="button mt-3" @onclick="AddMemberAsync">添加成员</button>
+        <div class="section-heading"><h2>管理员账户</h2></div>
+        <ul class="list">@foreach (var member in members) { <li class="list-row"><span class="avatar-inline">@member.Email[0].ToString().ToUpperInvariant()</span><div class="list-main"><strong>@member.Email</strong><small>@RoleName(member.Role)</small></div></li> }</ul>
+        <p class="muted mt-3">此服务器采用单管理员模式。最多 15 台直播电脑都使用这个账户完成浏览器授权；桌面端不会保存密码或 Cookie。</p>
         @if (message is not null) { <p class="muted mt-3">@message</p> }
     </section>
 </div>
@@ -48,7 +58,7 @@
                             <td>@audit.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td><strong>@AuditActionName(audit.Action)</strong></td>
                             <td><code>@ShortIdentifier(audit.ActorId)</code></td>
-                            <td>@audit.TargetType · <code>@ShortIdentifier(audit.TargetId)</code></td>
+                            <td>@TargetTypeName(audit.TargetType) · <code>@ShortIdentifier(audit.TargetId)</code></td>
                         </tr>
                     }
                 </tbody>
@@ -61,10 +71,7 @@
     private IReadOnlyList<LiveRoomSummary> rooms = [];
     private IReadOnlyList<MembershipSummary> members = [];
     private IReadOnlyList<AuditEventSummary> auditEvents = [];
-    private string organizationName = string.Empty;
     private string roomName = string.Empty;
-    private string memberEmail = string.Empty;
-    private string memberRole = nameof(OrganizationRole.Viewer);
     private string? message;
     private bool canViewAudit;
 
@@ -103,13 +110,6 @@
         }
     }
 
-    private async Task CreateOrganizationAsync()
-    {
-        var response = await Http.PostAsJsonAsync("/api/v1/organizations/", new CreateOrganizationRequest(organizationName));
-        message = response.IsSuccessStatusCode ? "Organization 已创建。" : "创建失败。";
-        if (response.IsSuccessStatusCode) { organizationName = string.Empty; await Session.ReloadAsync(); await ReloadResourcesAsync(); }
-    }
-
     private async Task CreateRoomAsync()
     {
         if (Session.SelectedOrganizationId is not { } organizationId) return;
@@ -118,17 +118,9 @@
         if (response.IsSuccessStatusCode) { roomName = string.Empty; await ReloadResourcesAsync(); }
     }
 
-    private async Task AddMemberAsync()
-    {
-        if (Session.SelectedOrganizationId is not { } organizationId || !Enum.TryParse<OrganizationRole>(memberRole, out var role)) return;
-        var response = await Http.PostAsJsonAsync($"/api/v1/organizations/{organizationId}/members", new AddMembershipRequest(memberEmail, role));
-        message = response.IsSuccessStatusCode ? "成员已添加。" : "添加失败：用户未注册或权限不足。";
-        if (response.IsSuccessStatusCode) { memberEmail = string.Empty; await ReloadResourcesAsync(); }
-    }
-
     private static string AuditActionName(string action) => action switch
     {
-        "organization.create" => "创建 Organization",
+        "organization.create" => "创建直播管理空间",
         "room.created" => "创建直播间",
         "membership.saved" => "保存成员角色",
         "device-mapping.saved" => "保存设备映射",
@@ -149,4 +141,30 @@
     private static string ShortIdentifier(string value) => value.Length <= 24
         ? value
         : $"{value[..10]}…{value[^8..]}";
+
+    private static string RoleName(OrganizationRole role) => role switch
+    {
+        OrganizationRole.Owner => "所有者",
+        OrganizationRole.Admin => "管理员",
+        OrganizationRole.Operator => "操作员",
+        OrganizationRole.Viewer => "只读查看",
+        _ => role.ToString()
+    };
+
+    private static string RoomConnectionText(LiveRoomSummary room) => room.DeviceId is null
+        ? "尚未绑定直播电脑"
+        : room.Online
+            ? "直播电脑在线"
+            : "直播电脑离线";
+
+    private static string TargetTypeName(string targetType) => targetType switch
+    {
+        "organization" => "直播管理空间",
+        "LiveRoom" => "直播间",
+        "Membership" => "成员",
+        "ManagedDevice" => "直播电脑",
+        "Snapshot" => "画面存档",
+        "RemoteJob" => "远程任务",
+        _ => targetType
+    };
 }

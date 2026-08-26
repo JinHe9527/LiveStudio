@@ -3,10 +3,11 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Win32;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
-internal sealed class LiveCompanionProcessController
+public sealed class LiveCompanionProcessController
 {
     private delegate bool EnumWindowsCallback(nint windowHandle, nint parameter);
 
@@ -17,29 +18,223 @@ internal sealed class LiveCompanionProcessController
 
     public static LiveCompanionProcessInfo? FindRunning()
     {
+        LiveCompanionProcessInfo? fallback = null;
         foreach (var processName in ProcessNames)
         {
-            using var process = Process.GetProcessesByName(processName).FirstOrDefault();
-            if (process is null)
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var executablePath = process.MainModule?.FileName;
+                        var version = ResolveVersion(
+                            executablePath,
+                            process.MainModule?.FileVersionInfo.ProductVersion,
+                            process.MainModule?.FileVersionInfo.FileVersion);
+                        var candidate = new LiveCompanionProcessInfo(process.Id, executablePath, version);
+                        if (process.MainWindowHandle != nint.Zero)
+                        {
+                            return candidate;
+                        }
+
+                        fallback ??= candidate;
+                    }
+                    catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                    {
+                        fallback ??= new LiveCompanionProcessInfo(process.Id, null, "unknown");
+                    }
+                }
+            }
+        }
+
+        return fallback;
+    }
+
+    internal static string ResolveVersion(
+        string? executablePath,
+        string? productVersion,
+        string? fileVersion)
+    {
+        var versionDirectory = executablePath is null
+            ? null
+            : Directory.GetParent(executablePath)?.Name;
+        if (versionDirectory is not null
+            && Version.TryParse(versionDirectory, out _))
+        {
+            return versionDirectory;
+        }
+
+        return productVersion ?? fileVersion ?? "unknown";
+    }
+
+    internal static string ResolveInstalledVersion(string executablePath)
+    {
+        var versionInfo = FileVersionInfo.GetVersionInfo(executablePath);
+        return ResolveVersion(
+            executablePath,
+            versionInfo.ProductVersion,
+            versionInfo.FileVersion);
+    }
+
+    public static string? FindInstalledExecutable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+            using var uninstall = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall");
+            if (uninstall is null)
             {
                 continue;
             }
 
-            try
+            foreach (var subKeyName in uninstall.GetSubKeyNames())
             {
-                var executablePath = process.MainModule?.FileName;
-                var version = process.MainModule?.FileVersionInfo.ProductVersion
-                    ?? process.MainModule?.FileVersionInfo.FileVersion
-                    ?? "unknown";
-                return new LiveCompanionProcessInfo(process.Id, executablePath, version);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
-            {
-                return new LiveCompanionProcessInfo(process.Id, null, "unknown");
+                using var entry = uninstall.OpenSubKey(subKeyName);
+                var displayName = entry?.GetValue("DisplayName") as string;
+                if (string.IsNullOrWhiteSpace(displayName)
+                    || !IsLiveCompanionDisplayName(displayName))
+                {
+                    continue;
+                }
+
+                var displayIcon = NormalizeExecutablePath(entry?.GetValue("DisplayIcon") as string);
+                if (displayIcon is not null)
+                {
+                    return displayIcon;
+                }
+
+                if (entry?.GetValue("InstallLocation") is not string installLocation
+                    || string.IsNullOrWhiteSpace(installLocation))
+                {
+                    continue;
+                }
+
+                foreach (var processName in ProcessNames)
+                {
+                    var candidate = Path.Combine(installLocation, $"{processName}.exe");
+                    if (File.Exists(candidate))
+                    {
+                        return Path.GetFullPath(candidate);
+                    }
+                }
             }
         }
 
-        return null;
+        return FindVersionedInstallation();
+    }
+
+    private static string? FindVersionedInstallation()
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (drive.IsReady)
+                {
+                    roots.Add(Path.Combine(drive.RootDirectory.FullName, "webcast_mate"));
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        roots.Add(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs",
+            "webcast_mate"));
+        roots.Add(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "webcast_mate"));
+        roots.Add(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "webcast_mate"));
+
+        var candidates = new List<(Version Version, string Path)>();
+        foreach (var root in roots)
+        {
+            try
+            {
+                if (!Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                foreach (var directory in Directory.EnumerateDirectories(root))
+                {
+                    if (!Version.TryParse(Path.GetFileName(directory), out var version))
+                    {
+                        continue;
+                    }
+
+                    foreach (var executableName in new[]
+                             {
+                                 "直播伴侣.exe",
+                                 "StreamingTool.exe",
+                                 "douyin-live-companion.exe"
+                             })
+                    {
+                        var candidate = Path.Combine(directory, executableName);
+                        if (File.Exists(candidate))
+                        {
+                            candidates.Add((version, Path.GetFullPath(candidate)));
+                        }
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return candidates
+            .OrderByDescending(candidate => candidate.Version)
+            .Select(candidate => candidate.Path)
+            .FirstOrDefault();
+    }
+
+    private static bool IsLiveCompanionDisplayName(string value) =>
+        value.Contains("抖音直播伴侣", StringComparison.OrdinalIgnoreCase)
+        || value.Contains("Douyin Live Companion", StringComparison.OrdinalIgnoreCase)
+        || value.Contains("TikTok LIVE Studio", StringComparison.OrdinalIgnoreCase);
+
+    private static string? NormalizeExecutablePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var path = value.Trim();
+        if (path.StartsWith('"'))
+        {
+            var closingQuote = path.IndexOf('"', 1);
+            path = closingQuote > 1 ? path[1..closingQuote] : path.Trim('"');
+        }
+        else
+        {
+            var argumentSeparator = path.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            if (argumentSeparator >= 0)
+            {
+                path = path[..(argumentSeparator + 4)];
+            }
+        }
+
+        return File.Exists(path) ? Path.GetFullPath(path) : null;
     }
 
     public static async Task StopAsync(int processId, CancellationToken cancellationToken)
@@ -50,20 +245,121 @@ internal sealed class LiveCompanionProcessController
             return;
         }
 
-        if (!process.CloseMainWindow())
+        var executablePath = process.MainModule?.FileName;
+        if (string.IsNullOrWhiteSpace(executablePath))
         {
-            throw new InvalidOperationException("直播伴侣不接受正常关闭请求");
+            throw new InvalidOperationException("无法确认直播伴侣进程路径，未修改任何配置");
         }
 
-        try
+        RequestNormalClose(executablePath);
+        if (await WaitUntilStoppedAsync(executablePath, TimeSpan.FromSeconds(8), cancellationToken))
         {
-            await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+            return;
         }
-        catch (TimeoutException exception)
+
+        ForceTerminate(executablePath);
+        if (!await WaitUntilStoppedAsync(executablePath, TimeSpan.FromSeconds(12), cancellationToken))
         {
-            throw new InvalidOperationException("直播伴侣关闭超时，未修改任何配置", exception);
+            throw new InvalidOperationException("直播伴侣仍有同版本配置进程未退出，未修改任何配置");
         }
     }
+
+    private static void RequestNormalClose(string executablePath)
+    {
+        foreach (var process in FindProcesses(executablePath))
+        {
+            using (process)
+            {
+                if (!process.HasExited && process.MainWindowHandle != nint.Zero)
+                {
+                    _ = process.CloseMainWindow();
+                }
+            }
+        }
+    }
+
+    private static void ForceTerminate(string executablePath)
+    {
+        foreach (var process in FindProcesses(executablePath))
+        {
+            using (process)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // 进程在枚举和终止之间已经退出。
+                }
+            }
+        }
+    }
+
+    private static async Task<bool> WaitUntilStoppedAsync(
+        string executablePath,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var processes = FindProcesses(executablePath);
+            if (processes.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (var process in processes)
+            {
+                process.Dispose();
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private static List<Process> FindProcesses(string executablePath)
+    {
+        var result = new List<Process>();
+        foreach (var processName in ProcessNames)
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    if (MatchesExecutablePath(process.MainModule?.FileName, executablePath))
+                    {
+                        result.Add(process);
+                    }
+                    else
+                    {
+                        process.Dispose();
+                    }
+                }
+                catch (Exception exception) when (
+                    exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    process.Dispose();
+                }
+            }
+        }
+
+        return result;
+    }
+
+    internal static bool MatchesExecutablePath(string? candidatePath, string expectedPath) =>
+        !string.IsNullOrWhiteSpace(candidatePath)
+        && string.Equals(
+            Path.GetFullPath(candidatePath),
+            Path.GetFullPath(expectedPath),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     public static Task StartAsync(string executablePath, CancellationToken cancellationToken)
     {
@@ -233,4 +529,4 @@ internal sealed class LiveCompanionProcessController
     }
 }
 
-internal sealed record LiveCompanionProcessInfo(int ProcessId, string? ExecutablePath, string Version);
+public sealed record LiveCompanionProcessInfo(int ProcessId, string? ExecutablePath, string Version);

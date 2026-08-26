@@ -19,6 +19,7 @@ public sealed class AgentWorker(
     LocalRestoreService restoreService,
     CurrentStatePublisher currentStatePublisher,
     IEnumerable<IApplicationAdapter> applicationAdapters,
+    ApplicationOperationGate operationGate,
     ILogger<AgentWorker> logger) : BackgroundService
 {
     private static readonly Action<ILogger, Exception?> LogHeartbeatFailure = LoggerMessage.Define(
@@ -201,7 +202,7 @@ public sealed class AgentWorker(
             switch (job.Kind)
             {
                 case JobKind.Capture:
-                    await ReportAsync(JobStatus.Preflight, "正在检查 OBS、直播伴侣和直播状态");
+                    await ReportAsync(JobStatus.Preflight, "正在检查 OBS、直播伴侣和恢复条件");
                     await ReportAsync(JobStatus.Capturing, "正在读取设备、视频格式、滤镜和预览图");
                     var snapshot = await captureService.CaptureAsync(job.Name, cancellationToken);
                     await ReportAsync(JobStatus.Packaging, "联合存档已写入本机并完成签名校验");
@@ -267,12 +268,7 @@ public sealed class AgentWorker(
         }
         catch (SnapshotCaptureException exception)
         {
-            var status = exception.Message.Contains("直播", StringComparison.Ordinal)
-                || exception.Message.Contains("推流", StringComparison.Ordinal)
-                || exception.Message.Contains("录制", StringComparison.Ordinal)
-                ? JobStatus.BlockedByLiveSession
-                : JobStatus.IncompatibleVersion;
-            await ReportAsync(status, exception.Message, exception.GetType().Name);
+            await ReportAsync(JobStatus.IncompatibleVersion, exception.Message, exception.GetType().Name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -314,6 +310,7 @@ public sealed class AgentWorker(
     private async Task<(HeartbeatRequest Heartbeat, CurrentParameterState? CurrentState)> CaptureTelemetryAsync(
         CancellationToken cancellationToken)
     {
+        using var operationLease = await operationGate.EnterAsync(cancellationToken);
         var applications = new List<ApplicationSnapshot>();
         foreach (var adapter in adapters)
         {

@@ -14,6 +14,12 @@ public sealed class ObjectStorageOptions
 
     public required Uri ServiceUrl { get; set; }
 
+    /// <summary>
+    /// 客户端可访问的对象存储入口。服务器内部操作始终使用 <see cref="ServiceUrl"/>，
+    /// 只有返回给桌面端的预签名地址使用此入口。
+    /// </summary>
+    public Uri? PublicServiceUrl { get; set; }
+
     public required string Region { get; set; }
 
     public required string Bucket { get; set; }
@@ -79,7 +85,7 @@ public sealed class S3ObjectStorage(
     private readonly ObjectStorageOptions _options = optionsAccessor.Value;
 
     public Uri CreateUploadUri(string objectKey, TimeSpan lifetime) =>
-        CreatePresignedUri(HttpMethod.Put, objectKey, lifetime);
+        CreatePresignedUri(HttpMethod.Put, objectKey, lifetime, serviceUri: ClientServiceUrl);
 
     public async Task<string> CreateMultipartUploadAsync(
         string objectKey,
@@ -126,7 +132,8 @@ public sealed class S3ObjectStorage(
             {
                 ["partNumber"] = partNumber.ToString(CultureInfo.InvariantCulture),
                 ["uploadId"] = uploadId
-            });
+            },
+            serviceUri: ClientServiceUrl);
     }
 
     public async Task CompleteMultipartUploadAsync(
@@ -206,7 +213,7 @@ public sealed class S3ObjectStorage(
     }
 
     public Uri CreateDownloadUri(string objectKey, TimeSpan lifetime) =>
-        CreatePresignedUri(HttpMethod.Get, objectKey, lifetime);
+        CreatePresignedUri(HttpMethod.Get, objectKey, lifetime, serviceUri: ClientServiceUrl);
 
     public async Task<ObjectMetadata?> GetMetadataAsync(
         string objectKey,
@@ -289,7 +296,8 @@ public sealed class S3ObjectStorage(
         string objectKey,
         TimeSpan lifetime,
         IReadOnlyDictionary<string, string>? additionalHeaders = null,
-        IReadOnlyDictionary<string, string>? additionalQuery = null)
+        IReadOnlyDictionary<string, string>? additionalQuery = null,
+        Uri? serviceUri = null)
     {
         ValidateObjectKey(objectKey);
         if (lifetime <= TimeSpan.Zero || lifetime > TimeSpan.FromDays(7))
@@ -300,7 +308,7 @@ public sealed class S3ObjectStorage(
         var now = DateTimeOffset.UtcNow;
         var date = now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
         var timestamp = now.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
-        var serviceUri = _options.ServiceUrl;
+        serviceUri ??= _options.ServiceUrl;
         var host = _options.UsePathStyle
             ? serviceUri.Authority
             : $"{_options.Bucket}.{serviceUri.Authority}";
@@ -363,6 +371,8 @@ public sealed class S3ObjectStorage(
         var scheme = serviceUri.Scheme;
         return new Uri($"{scheme}://{host}{canonicalUri}?{canonicalQuery}&X-Amz-Signature={signature}");
     }
+
+    private Uri ClientServiceUrl => _options.PublicServiceUrl ?? _options.ServiceUrl;
 
     private byte[] SignString(string stringToSign, string date)
     {

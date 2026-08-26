@@ -7,16 +7,86 @@
     <Grid RowDefinitions="72,*">
         <Grid Margin="28,0" Classes="toolbar">
             <StackPanel VerticalAlignment="Center" Spacing="3">
-                <TextBlock Classes="page-title" Text="连接与设置" />
-                <TextBlock Classes="page-subtitle" Text="连接服务并管理这台设备" />
+                <TextBlock Classes="page-title" Text="设置" />
+                <TextBlock Classes="page-subtitle" Text="常用功能开箱即用，需要时再展开高级选项" />
             </StackPanel>
-            <Border Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+            <Border Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
         <ScrollViewer Grid.Row="1">
             <StackPanel MaxWidth="860" Margin="28,26" HorizontalAlignment="Stretch">
-                <TextBlock Margin="0,0,0,10" Classes="settings-section" Text="软件更新" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <TextBlock Margin="0,0,0,10" Classes="settings-section" Text="常用" />
+                <Border Classes="settings-card">
+                    <StackPanel>
+                        <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                <TextBlock Classes="settings-title" Text="外观" />
+                                <TextBlock Classes="settings-copy" Text="选择跟随 Windows，或固定使用浅色、深色界面" />
+                            </StackPanel>
+                            <ComboBox Grid.Column="1" Width="150" VerticalAlignment="Center"
+                                      Classes="mapping-picker" ItemsSource="{Binding ThemeModes}"
+                                      SelectedItem="{Binding SelectedThemeMode}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ThemeModeOptionViewModel">
+                                        <TextBlock Classes="settings-title" Text="{Binding Name}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
+                        <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid MinHeight="88" ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                            <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="4">
+                                <TextBlock Classes="settings-title" Text="本机检查与修复" />
+                                <TextBlock MaxWidth="560" Classes="settings-copy" Text="无需管理员账号；修复 Agent、自启动和应用连接，同步待上传存档，并从云端下载一份存档核对哈希。不会执行画面恢复。" TextWrapping="Wrap" />
+                                <TextBlock MaxWidth="560" Classes="settings-copy" Text="{Binding LocalCheckStatus}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="standard accent" VerticalAlignment="Center"
+                                    Command="{Binding RunLocalCheckAndRepairCommand}">检查并修复</Button>
+                        </Grid>
+                        <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid MinHeight="82" ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                <TextBlock Classes="settings-title" Text="本机控制" />
+                                <TextBlock Classes="settings-copy" Text="自动连接这台电脑上的 LiveStudio 执行端，不需要填写地址" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="12">
+                                <TextBlock Classes="settings-value" VerticalAlignment="Center" Text="{Binding AgentStatus}" />
+                                <Button Classes="standard accent" Command="{Binding AutoConfigureObsCommand}">一键连接两款应用</Button>
+                                <Button Classes="standard" Command="{Binding RefreshStateCommand}">重新检测</Button>
+                            </StackPanel>
+                        </Grid>
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid MinHeight="96" ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                <TextBlock Classes="settings-title" Text="软件更新" />
+                                <TextBlock Classes="settings-copy" Text="自动使用这台电脑已登录的 GitHub 账号，无需填写凭据" />
+                                <TextBlock MaxWidth="520" Classes="settings-copy" Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                    <TextBlock Classes="settings-value" Text="{Binding CurrentVersionText}" />
+                                    <TextBlock Classes="settings-copy" Text="→" />
+                                    <TextBlock Classes="settings-value" Text="{Binding LatestVersionText}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                    <Button Classes="standard" Command="{Binding CheckForUpdatesCommand}">检查更新</Button>
+                                    <Button Classes="standard accent" Command="{Binding InstallUpdateCommand}">安装更新</Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Expander Margin="0,22,0,0" Classes="settings-expander">
+                    <Expander.Header>
+                        <StackPanel Spacing="3">
+                            <TextBlock Classes="settings-title" Text="高级设置" />
+                            <TextBlock Classes="settings-copy" Text="多电脑同步、备用更新授权、OBS 连接和验证工具" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Margin="0,14,0,0">
+                <TextBlock Margin="0,0,0,10" Classes="settings-section" Text="更新授权" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid Height="66" ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="当前版本" />
@@ -28,11 +98,11 @@
                         <TextBlock Classes="settings-value" Text="{Binding LatestVersionText}" />
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="3">
-                        <TextBlock Classes="settings-title" Text="GitHub 更新凭据" />
-                        <TextBlock Classes="settings-copy" Text="只需要该私有仓库的 Contents 只读权限，凭据不会写入配置或存档" />
+                        <TextBlock Classes="settings-title" Text="备用更新授权" />
+                        <TextBlock Classes="settings-copy" Text="只有自动检查提示未登录时才需要；凭据仅保存在 Windows 系统凭据库" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
                         <TextBox Width="250" Classes="settings-input" PasswordChar="●"
@@ -47,7 +117,7 @@
                                 Command="{Binding DeleteGitHubUpdateTokenCommand}">移除</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
                                Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
@@ -56,10 +126,10 @@
                         <Button Classes="standard accent" Command="{Binding InstallUpdateCommand}">下载、安装并重启</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
 
                 <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="连接" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid Height="66" ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="云端服务" />
@@ -67,26 +137,32 @@
                     </StackPanel>
                     <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding CloudStatus}" />
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="服务地址" />
-                        <TextBlock Classes="settings-copy" Text="使用浏览器确认授权，不向客户端提供账号密码或 Cookie" />
+                        <TextBlock Classes="settings-copy" Text="固定连接你的腾讯云服务器；使用浏览器确认授权" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
-                        <TextBox Width="250" Classes="settings-input" IsEnabled="{Binding !IsCloudConnected}"
-                                 Text="{Binding CloudServiceUrl}" />
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center" Text="{Binding CloudServiceUrl}" />
                         <Button Classes="standard accent" IsVisible="{Binding !IsCloudConnected}"
-                                Command="{Binding ConnectCloudCommand}">连接…</Button>
+                                Command="{Binding ConnectCloudCommand}" Content="{Binding CloudConnectButtonText}" />
                         <Button Classes="toolbar-action" IsVisible="{Binding IsCloudConnected}"
                                 Command="{Binding DisconnectCloudCommand}">断开</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="3">
+                        <TextBlock Classes="settings-title" Text="固定 IP 私有证书" />
+                        <TextBlock Classes="settings-copy" Text="{Binding CloudCertificateStatus}" />
+                    </StackPanel>
+                </Grid>
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto" IsVisible="{Binding IsCloudConnected}">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
-                        <TextBlock Classes="settings-title" Text="Organization" />
-                        <TextBlock Classes="settings-copy" Text="选择要管理的直播间与设备空间" />
+                        <TextBlock Classes="settings-title" Text="直播管理空间" />
+                        <TextBlock Classes="settings-copy" Text="选择要统一管理的直播间" />
                     </StackPanel>
                     <ComboBox Grid.Column="1" Width="250" Classes="mapping-picker"
                               VerticalAlignment="Center"
@@ -99,7 +175,7 @@
                         </ComboBox.ItemTemplate>
                     </ComboBox>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" IsVisible="{Binding IsCloudConnected}" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" IsVisible="{Binding IsCloudConnected}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto" IsVisible="{Binding SupportsLocalAgent}">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="Windows 执行端" />
@@ -111,7 +187,7 @@
                                 Command="{Binding EnrollAgentCommand}">注册到所选直播间</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" IsVisible="{Binding SupportsLocalAgent}" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" IsVisible="{Binding SupportsLocalAgent}" />
                 <Grid MinHeight="58" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
                                Text="{Binding CloudConnectionMessage}" TextWrapping="Wrap" />
@@ -119,7 +195,7 @@
                                IsVisible="{Binding HasCloudAuthorizationCode}"
                                VerticalAlignment="Center" Text="{Binding CloudAuthorizationCode}" />
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid Height="66" ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="设备名称" />
@@ -127,11 +203,11 @@
                     </StackPanel>
                     <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding DeviceName}" />
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
 
                 <StackPanel IsVisible="{Binding SupportsLocalAgent}">
                 <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="局域网存档" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <StackPanel Margin="0,12" VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="共享目录" />
@@ -144,19 +220,19 @@
                                 Click="ChooseLanDirectoryClicked">选择…</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="58" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <TextBlock Margin="0,10" Classes="settings-copy" VerticalAlignment="Center"
                                Text="{Binding LanSettingsMessage}" TextWrapping="Wrap" />
                     <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center"
                                Text="{Binding LanSyncStatus}" />
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 </StackPanel>
 
                 <StackPanel IsVisible="{Binding SupportsLocalAgent}">
                 <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="直播伴侣原生导出验证" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="76" ColumnDefinitions="*,Auto" ColumnSpacing="18">
                     <StackPanel Margin="0,12" VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="单参数差异实验" />
@@ -170,18 +246,18 @@
                                 Click="ChooseNativeExportAfterClicked">选择修改后 ZIP 并对比…</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <StackPanel Margin="0,12" Spacing="7">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                        <Ellipse Width="7" Height="7" Fill="#FF453A" VerticalAlignment="Center"
+                        <Ellipse Width="7" Height="7" Fill="{DynamicResource DangerBrush}" VerticalAlignment="Center"
                                  IsVisible="{Binding NativeExportHasSensitivePaths}" />
-                        <Ellipse Width="7" Height="7" Fill="#30D158" VerticalAlignment="Center"
+                        <Ellipse Width="7" Height="7" Fill="{DynamicResource SuccessBrush}" VerticalAlignment="Center"
                                  IsVisible="{Binding !NativeExportHasSensitivePaths}" />
                         <TextBlock Grid.Column="1" Classes="settings-title" Text="{Binding NativeExportAuditStatus}" />
                     </Grid>
                     <TextBlock Classes="settings-copy" Text="{Binding NativeExportAuditDetail}"
                                TextWrapping="Wrap" />
-                    <TextBlock Classes="settings-copy" Foreground="#FF9F0A"
+                    <TextBlock Classes="settings-copy" Foreground="{DynamicResource WarningAccentBrush}"
                                IsVisible="{Binding NativeExportHasSensitivePaths}"
                                Text="原生 ZIP 包含敏感路径，不得加入存档或上传云端。" />
                     <ItemsControl IsVisible="{Binding HasNativeExportChangedFields}"
@@ -189,7 +265,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:NativeExportChangedFieldViewModel">
                                 <Grid MinHeight="28" ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                                    <Ellipse Width="5" Height="5" Fill="#0A84FF" VerticalAlignment="Center" />
+                                    <Ellipse Width="5" Height="5" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
                                     <TextBlock Grid.Column="1" Classes="technical-heading" VerticalAlignment="Center"
                                                Text="{Binding Path}" TextWrapping="Wrap" />
                                 </Grid>
@@ -197,41 +273,50 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 </StackPanel>
 
-                <StackPanel IsVisible="{Binding SupportsLocalAgent}">
-                <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="OBS WEBSOCKET" />
-                <Border Height="1" Background="#18FFFFFF" />
-                <Grid Height="66" ColumnDefinitions="*,Auto">
-                    <StackPanel VerticalAlignment="Center" Spacing="3">
-                        <TextBlock Classes="settings-title" Text="本机地址" />
-                        <TextBlock Classes="settings-copy" Text="只允许连接当前电脑的 ws:// 或 wss:// 地址" />
+                <Expander Margin="0,24,0,0" IsVisible="{Binding SupportsLocalAgent}"
+                          Classes="technical-expander">
+                    <Expander.Header>
+                        <StackPanel Spacing="3">
+                            <TextBlock Classes="settings-title" Text="高级连接设置" />
+                            <TextBlock Classes="settings-copy"
+                                       Text="一般无需修改；仅在自动检测 OBS 失败时手动设置 WebSocket。" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel Margin="0,12,0,0">
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid Height="66" ColumnDefinitions="*,Auto">
+                            <StackPanel VerticalAlignment="Center" Spacing="3">
+                                <TextBlock Classes="settings-title" Text="本机地址" />
+                                <TextBlock Classes="settings-copy" Text="只允许连接当前电脑的 ws:// 或 wss:// 地址" />
+                            </StackPanel>
+                            <TextBox Grid.Column="1" Width="250" Classes="settings-input"
+                                     VerticalAlignment="Center" Text="{Binding ObsEndpoint}" />
+                        </Grid>
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid Height="66" ColumnDefinitions="*,Auto">
+                            <StackPanel VerticalAlignment="Center" Spacing="3">
+                                <TextBlock Classes="settings-title" Text="连接密码" />
+                                <TextBlock Classes="settings-copy" Text="密码只写入 Windows Credential Manager" />
+                            </StackPanel>
+                            <TextBox Grid.Column="1" Width="250" Classes="settings-input"
+                                     VerticalAlignment="Center" PasswordChar="●" Text="{Binding ObsPassword}" />
+                        </Grid>
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <Grid Height="58" ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="{Binding SettingsMessage}" />
+                            <Button Grid.Column="1" Classes="standard accent" VerticalAlignment="Center"
+                                    Command="{Binding ConfigureObsCommand}">保存并重新检测</Button>
+                        </Grid>
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     </StackPanel>
-                    <TextBox Grid.Column="1" Width="250" Classes="settings-input"
-                             VerticalAlignment="Center" Text="{Binding ObsEndpoint}" />
-                </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
-                <Grid Height="66" ColumnDefinitions="*,Auto">
-                    <StackPanel VerticalAlignment="Center" Spacing="3">
-                        <TextBlock Classes="settings-title" Text="连接密码" />
-                        <TextBlock Classes="settings-copy" Text="密码只写入 Windows Credential Manager" />
-                    </StackPanel>
-                    <TextBox Grid.Column="1" Width="250" Classes="settings-input"
-                             VerticalAlignment="Center" PasswordChar="●" Text="{Binding ObsPassword}" />
-                </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
-                <Grid Height="58" ColumnDefinitions="*,Auto">
-                    <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="{Binding SettingsMessage}" />
-                    <Button Grid.Column="1" Classes="standard accent" VerticalAlignment="Center"
-                            Command="{Binding ConfigureObsCommand}">保存并重新检测</Button>
-                </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
-                </StackPanel>
+                </Expander>
 
                 <StackPanel IsVisible="{Binding SupportsLocalAgent}">
                 <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="后台运行" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid MinHeight="66" ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="登录后自动启动 Agent" />
@@ -248,11 +333,11 @@
                                 Command="{Binding EnableAgentAutoStartCommand}">启用</Button>
                     </StackPanel>
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 </StackPanel>
 
                 <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="运行模式" />
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 <Grid Height="66" ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center" Spacing="3">
                         <TextBlock Classes="settings-title" Text="当前平台" />
@@ -260,7 +345,9 @@
                     </StackPanel>
                     <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center" Text="{Binding PlatformMode}" />
                 </Grid>
-                <Border Height="1" Background="#18FFFFFF" />
+                <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                    </StackPanel>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
     </Grid>

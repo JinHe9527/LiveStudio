@@ -1,7 +1,56 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="LiveStudio.Desktop.App"
-             RequestedThemeVariant="Dark">
+             RequestedThemeVariant="Default">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppWindowBrush" Color="#F5F5F7" />
+                    <SolidColorBrush x:Key="AppSidebarBrush" Color="#ECECEF" />
+                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#F2F2F4" />
+                    <SolidColorBrush x:Key="ArchiveContentBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#F7F7F9" />
+                    <SolidColorBrush x:Key="ArchiveHoverBrush" Color="#E8E8EC" />
+                    <SolidColorBrush x:Key="ArchiveSelectionBrush" Color="#DCEBFA" />
+                    <SolidColorBrush x:Key="ArchiveSeparatorBrush" Color="#D7D7DB" />
+                    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#1D1D1F" />
+                    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#5F5F64" />
+                    <SolidColorBrush x:Key="TertiaryTextBrush" Color="#7E7E84" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#007AFF" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#006EE6" />
+                    <SolidColorBrush x:Key="WarningBackgroundBrush" Color="#FFF4D9" />
+                    <SolidColorBrush x:Key="WarningTextBrush" Color="#6B4B00" />
+                    <SolidColorBrush x:Key="TechnicalPanelBrush" Color="#F8F8FA" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#C9342F" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#248A3D" />
+                    <SolidColorBrush x:Key="WarningAccentBrush" Color="#A05A00" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppWindowBrush" Color="#1C1C1E" />
+                    <SolidColorBrush x:Key="AppSidebarBrush" Color="#222326" />
+                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#202022" />
+                    <SolidColorBrush x:Key="ArchiveContentBrush" Color="#18181A" />
+                    <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#242426" />
+                    <SolidColorBrush x:Key="ArchiveHoverBrush" Color="#303034" />
+                    <SolidColorBrush x:Key="ArchiveSelectionBrush" Color="#243E5A" />
+                    <SolidColorBrush x:Key="ArchiveSeparatorBrush" Color="#3A3A3E" />
+                    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F5F5F7" />
+                    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B0B0B6" />
+                    <SolidColorBrush x:Key="TertiaryTextBrush" Color="#919197" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#0A84FF" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#3698FF" />
+                    <SolidColorBrush x:Key="WarningBackgroundBrush" Color="#3B3119" />
+                    <SolidColorBrush x:Key="WarningTextBrush" Color="#FFD77A" />
+                    <SolidColorBrush x:Key="TechnicalPanelBrush" Color="#242426" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#FF453A" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#30D158" />
+                    <SolidColorBrush x:Key="WarningAccentBrush" Color="#FF9F0A" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />

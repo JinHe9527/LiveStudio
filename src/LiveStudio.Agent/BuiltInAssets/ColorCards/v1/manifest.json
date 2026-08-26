@@ -1,0 +1,439 @@
+{
+  "schemaVersion": 1,
+  "bundleId": "color-cards-v1",
+  "sourceArchiveSha256": "2f06cd00ee745207ca5b352bf4edbe3f8c738d2d11e04a3f46a730ee1bd3cf33",
+  "assets": [
+    {
+      "id": "color-card-v1-eabfd64a267d44ad",
+      "name": "001.cube",
+      "relativePath": "cube/001.cube",
+      "mediaType": "application/x-cube",
+      "length": 437644,
+      "sha256": "c78cfcfcfd1e8a22d31133b31672f6a8b09154114b41b65be4c6671f740f80e5"
+    },
+    {
+      "id": "color-card-v1-17da0e3004894663",
+      "name": "002.cube",
+      "relativePath": "cube/002.cube",
+      "mediaType": "application/x-cube",
+      "length": 885046,
+      "sha256": "2e078824fb8123ceea1eda576a5cd465a50a6c3fbd6f3ed783d3c77794df0709"
+    },
+    {
+      "id": "color-card-v1-eced11e3e47a00d3",
+      "name": "003.cube",
+      "relativePath": "cube/003.cube",
+      "mediaType": "application/x-cube",
+      "length": 6813944,
+      "sha256": "4d520b865e9942b24cdef9c503c26d445b3c67fdac948c5e2b1b34a8d59a31a9"
+    },
+    {
+      "id": "color-card-v1-4289224ea4bc488b",
+      "name": "004.cube",
+      "relativePath": "cube/004.cube",
+      "mediaType": "application/x-cube",
+      "length": 932776,
+      "sha256": "9dd862aeb19b32e387fcc8534506c3a8846abbd8dcc4ea4e125f7323392819cc"
+    },
+    {
+      "id": "color-card-v1-a1a5473a422f0dd3",
+      "name": "006.cube",
+      "relativePath": "cube/006.cube",
+      "mediaType": "application/x-cube",
+      "length": 114704,
+      "sha256": "b720d60b4cc5de423e007d8ee5bbfee9e7b776e7f226fe727a65229db950c2bf"
+    },
+    {
+      "id": "color-card-v1-f4e5bcb576761466",
+      "name": "1.增透美白.cube",
+      "relativePath": "cube/1.增透美白.cube",
+      "mediaType": "application/x-cube",
+      "length": 6344656,
+      "sha256": "6931e385975aab1270e878dcfad7485c321efe71a9318275cec15995486b92a1"
+    },
+    {
+      "id": "color-card-v1-3a5c98f6485804a6",
+      "name": "2.肤色均匀.cube",
+      "relativePath": "cube/2.肤色均匀.cube",
+      "mediaType": "application/x-cube",
+      "length": 437644,
+      "sha256": "c78cfcfcfd1e8a22d31133b31672f6a8b09154114b41b65be4c6671f740f80e5"
+    },
+    {
+      "id": "color-card-v1-b3de66bfc50226c8",
+      "name": "4.去雾.cube",
+      "relativePath": "cube/4.去雾.cube",
+      "mediaType": "application/x-cube",
+      "length": 103239,
+      "sha256": "a03a9ca495e30b3e48f7c6107488f4f134cf578f33a859613df2afa546c15143"
+    },
+    {
+      "id": "color-card-v1-91b9dc63824e0072",
+      "name": "高光.cube",
+      "relativePath": "cube/高光.cube",
+      "mediaType": "application/x-cube",
+      "length": 114704,
+      "sha256": "b720d60b4cc5de423e007d8ee5bbfee9e7b776e7f226fe727a65229db950c2bf"
+    },
+    {
+      "id": "color-card-v1-0d1e35c7ac7cbd3e",
+      "name": "减龄色调.cube",
+      "relativePath": "cube/减龄色调.cube",
+      "mediaType": "application/x-cube",
+      "length": 944303,
+      "sha256": "7e5e4941996964c5fb2ed78f8e725a10acbe6554caeb7db4af2779a20786d8ef"
+    },
+    {
+      "id": "color-card-v1-3a4cd219152aa488",
+      "name": "去黄红润LUT.cube",
+      "relativePath": "cube/去黄红润LUT.cube",
+      "mediaType": "application/x-cube",
+      "length": 437644,
+      "sha256": "c78cfcfcfd1e8a22d31133b31672f6a8b09154114b41b65be4c6671f740f80e5"
+    },
+    {
+      "id": "color-card-v1-5b5bb5ffc1106bc8",
+      "name": "去灰.cube",
+      "relativePath": "cube/去灰.cube",
+      "mediaType": "application/x-cube",
+      "length": 6875353,
+      "sha256": "4760ea60be70ff7b978e8f5bf1adb387e36375a683379e8d1a6544e6b9094a3e"
+    },
+    {
+      "id": "color-card-v1-b4f9d7dac120efad",
+      "name": "柔滑嫩白LUT.cube",
+      "relativePath": "cube/柔滑嫩白LUT.cube",
+      "mediaType": "application/x-cube",
+      "length": 884993,
+      "sha256": "614acd5634f4e4ddd0b3e6db720b2e3b207cbc6a7e575dadc786ade815051c60"
+    },
+    {
+      "id": "color-card-v1-90ce61ccb201d8c8",
+      "name": "通透、.cube",
+      "relativePath": "cube/通透、.cube",
+      "mediaType": "application/x-cube",
+      "length": 885046,
+      "sha256": "2e078824fb8123ceea1eda576a5cd465a50a6c3fbd6f3ed783d3c77794df0709"
+    },
+    {
+      "id": "color-card-v1-8a35830b844b198a",
+      "name": "slog3-ARRI-709.cube",
+      "relativePath": "cube/slog3-ARRI-709.cube",
+      "mediaType": "application/x-cube",
+      "length": 5182801,
+      "sha256": "b00f7c98cb2a02b0af64d925c2497131706430e699352304731fd4faa0cb629b"
+    },
+    {
+      "id": "color-card-v1-aef1abf36087803c",
+      "name": "slog3-cine.cube",
+      "relativePath": "cube/slog3-cine.cube",
+      "mediaType": "application/x-cube",
+      "length": 4908626,
+      "sha256": "10b51d297da85665c1e112aa349371ffb82e27be67c6444b15d4d2d8ceb4eaa7"
+    },
+    {
+      "id": "color-card-v1-c42a12844678568d",
+      "name": "Sony+S-Log3.cube",
+      "relativePath": "cube/Sony+S-Log3.cube",
+      "mediaType": "application/x-cube",
+      "length": 1019424,
+      "sha256": "54c4fb06b9fd270e24fac3a8019b2dcac23ce9313857334b883be6da61a0516e"
+    },
+    {
+      "id": "color-card-v1-7fd74883f8ae3fcd",
+      "name": "1.png",
+      "relativePath": "png/1.png",
+      "mediaType": "image/png",
+      "length": 250515,
+      "sha256": "efd3a05fc7662b6279eeeb33ef2de33b7ac48579324afbacf8be8e4f53229e05"
+    },
+    {
+      "id": "color-card-v1-012f4b537a5d892a",
+      "name": "2.png",
+      "relativePath": "png/2.png",
+      "mediaType": "image/png",
+      "length": 263312,
+      "sha256": "2d171c08be4fe1d097e00d99c0feba49dde1bda989df2234de1ce5ec42ebb5f0"
+    },
+    {
+      "id": "color-card-v1-96557523316a3ada",
+      "name": "白皙.png",
+      "relativePath": "png/白皙.png",
+      "mediaType": "image/png",
+      "length": 169592,
+      "sha256": "7f237d08bbdabd9b7aba84f1a1340b419c5f1a7756d34d2a9f83ebe56fcb490d"
+    },
+    {
+      "id": "color-card-v1-225725d26ecaac26",
+      "name": "初恋.png",
+      "relativePath": "png/初恋.png",
+      "mediaType": "image/png",
+      "length": 275253,
+      "sha256": "e0b8438e3da30af038b1e4bad77f3cc26a7d195e50811134d4883b01c8571f05"
+    },
+    {
+      "id": "color-card-v1-9bd997aac375582c",
+      "name": "发灰提亮.png",
+      "relativePath": "png/发灰提亮.png",
+      "mediaType": "image/png",
+      "length": 2575,
+      "sha256": "18936080468a761c5d729aa2d3151651f70d0791502edac885abd3e290613051"
+    },
+    {
+      "id": "color-card-v1-01f014c31120684b",
+      "name": "防过曝.png",
+      "relativePath": "png/防过曝.png",
+      "mediaType": "image/png",
+      "length": 280532,
+      "sha256": "fb00763de30aa6c0374420071224e8a33e986bbbaaf712a29b34d2e1ef331d72"
+    },
+    {
+      "id": "color-card-v1-e253976d2f8d76f6",
+      "name": "非凡.png",
+      "relativePath": "png/非凡.png",
+      "mediaType": "image/png",
+      "length": 279255,
+      "sha256": "6db3031fb53e7b63994c95e06937198eb1ab1a647d59ebc14be2137f90afcedf"
+    },
+    {
+      "id": "color-card-v1-34b769fabef95fd4",
+      "name": "肤色红润.png",
+      "relativePath": "png/肤色红润.png",
+      "mediaType": "image/png",
+      "length": 245793,
+      "sha256": "a9b482b5d1e97095e260fe7de0f003e4c0214b7310997f1db2b62a5254eaae83"
+    },
+    {
+      "id": "color-card-v1-dcd36071a3b15350",
+      "name": "高清.png",
+      "relativePath": "png/高清.png",
+      "mediaType": "image/png",
+      "length": 191244,
+      "sha256": "4dc48e3f802589073edc702d691c694a2be4cf73b0ec5246cb783f3efe2e048f"
+    },
+    {
+      "id": "color-card-v1-137d7b09955f1c6b",
+      "name": "高清色彩.png",
+      "relativePath": "png/高清色彩.png",
+      "mediaType": "image/png",
+      "length": 191244,
+      "sha256": "4dc48e3f802589073edc702d691c694a2be4cf73b0ec5246cb783f3efe2e048f"
+    },
+    {
+      "id": "color-card-v1-c78cd573bb603ac4",
+      "name": "告白.png",
+      "relativePath": "png/告白.png",
+      "mediaType": "image/png",
+      "length": 266104,
+      "sha256": "e5ad6ef9356ff2230051a8ac89c2004e8af27046c7a38b4a54ffdecda206c94e"
+    },
+    {
+      "id": "color-card-v1-319ec35276a69303",
+      "name": "黑白.png",
+      "relativePath": "png/黑白.png",
+      "mediaType": "image/png",
+      "length": 7330,
+      "sha256": "880dd49da658b23e9fc5ecadbdc722c0dfd776992d02aeeef965f2428dd8b127"
+    },
+    {
+      "id": "color-card-v1-605f8f0114fa9a12",
+      "name": "黄色.png",
+      "relativePath": "png/黄色.png",
+      "mediaType": "image/png",
+      "length": 235772,
+      "sha256": "796303bef026be42309cb1a69d10d753e3704b303a003b16234969b07826fcc8"
+    },
+    {
+      "id": "color-card-v1-0f242f3ffb021f07",
+      "name": "活泼.png",
+      "relativePath": "png/活泼.png",
+      "mediaType": "image/png",
+      "length": 252678,
+      "sha256": "f09205eeaecb755bcda870748b475099e7a04330e4f8446fafc4e7600aa700d1"
+    },
+    {
+      "id": "color-card-v1-ed7134898c301872",
+      "name": "加红光.png",
+      "relativePath": "png/加红光.png",
+      "mediaType": "image/png",
+      "length": 245793,
+      "sha256": "a9b482b5d1e97095e260fe7de0f003e4c0214b7310997f1db2b62a5254eaae83"
+    },
+    {
+      "id": "color-card-v1-8f53430e896f3adc",
+      "name": "加深颜色-浅.png",
+      "relativePath": "png/加深颜色-浅.png",
+      "mediaType": "image/png",
+      "length": 122028,
+      "sha256": "6cd482e2ce9bc04e268b019f5c2141bc3b275877ef11fcf7d8abb618861bdf40"
+    },
+    {
+      "id": "color-card-v1-b6da6b96c904fe8a",
+      "name": "加深颜色-深.png",
+      "relativePath": "png/加深颜色-深.png",
+      "mediaType": "image/png",
+      "length": 2600,
+      "sha256": "d7404a9583ded0e1626a8e60473ee948a58af1c5687d31e54f221597e3a1876a"
+    },
+    {
+      "id": "color-card-v1-c85e75e3b5faabb8",
+      "name": "减高光.png",
+      "relativePath": "png/减高光.png",
+      "mediaType": "image/png",
+      "length": 280532,
+      "sha256": "fb00763de30aa6c0374420071224e8a33e986bbbaaf712a29b34d2e1ef331d72"
+    },
+    {
+      "id": "color-card-v1-e8ee396adc596e79",
+      "name": "减红.png",
+      "relativePath": "png/减红.png",
+      "mediaType": "image/png",
+      "length": 37837,
+      "sha256": "0f61a28519ca90d111ae056f0605f5055e25f58395c6a33f0d8a24b9f0d672f7"
+    },
+    {
+      "id": "color-card-v1-d6586b58f09aab19",
+      "name": "减红2.png",
+      "relativePath": "png/减红2.png",
+      "mediaType": "image/png",
+      "length": 37837,
+      "sha256": "0f61a28519ca90d111ae056f0605f5055e25f58395c6a33f0d8a24b9f0d672f7"
+    },
+    {
+      "id": "color-card-v1-9582f0fc5357c39b",
+      "name": "减黄.png",
+      "relativePath": "png/减黄.png",
+      "mediaType": "image/png",
+      "length": 35580,
+      "sha256": "317dd7410a4edf23ba08a1f57b30babacb86b5765618121c4d647ecc245724ff"
+    },
+    {
+      "id": "color-card-v1-030a7722ac623537",
+      "name": "蓝调.png",
+      "relativePath": "png/蓝调.png",
+      "mediaType": "image/png",
+      "length": 213592,
+      "sha256": "abb4c26a54195b61ab26cc0395a71ad65365c855ffbe3f0e59ad248569d8c353"
+    },
+    {
+      "id": "color-card-v1-63c28a77492fbcca",
+      "name": "冷调.png",
+      "relativePath": "png/冷调.png",
+      "mediaType": "image/png",
+      "length": 788300,
+      "sha256": "19ee650f7cdb865c055782bd3a21366050c6054e82098aca8a7398d6f7a8aa66"
+    },
+    {
+      "id": "color-card-v1-ff29a58e4e347480",
+      "name": "美白-低.png",
+      "relativePath": "png/美白-低.png",
+      "mediaType": "image/png",
+      "length": 250515,
+      "sha256": "efd3a05fc7662b6279eeeb33ef2de33b7ac48579324afbacf8be8e4f53229e05"
+    },
+    {
+      "id": "color-card-v1-b76682865e3f1a78",
+      "name": "美白-高.png",
+      "relativePath": "png/美白-高.png",
+      "mediaType": "image/png",
+      "length": 263312,
+      "sha256": "2d171c08be4fe1d097e00d99c0feba49dde1bda989df2234de1ce5ec42ebb5f0"
+    },
+    {
+      "id": "color-card-v1-b4e13cdd4ed98251",
+      "name": "慕斯.png",
+      "relativePath": "png/慕斯.png",
+      "mediaType": "image/png",
+      "length": 223639,
+      "sha256": "daf92955838b080f8d12b4dbc8e99dfc8e8e47360dfd2df98856869c0d86eb32"
+    },
+    {
+      "id": "color-card-v1-49b13b9853ecdcdd",
+      "name": "奶杏.png",
+      "relativePath": "png/奶杏.png",
+      "mediaType": "image/png",
+      "length": 363005,
+      "sha256": "91c9629f4f29cd5fc058f592e15187e6b0eae47c91370e762f8929abb6160127"
+    },
+    {
+      "id": "color-card-v1-1f3cde107b8d7cf7",
+      "name": "奶杏肤色.png",
+      "relativePath": "png/奶杏肤色.png",
+      "mediaType": "image/png",
+      "length": 363005,
+      "sha256": "91c9629f4f29cd5fc058f592e15187e6b0eae47c91370e762f8929abb6160127"
+    },
+    {
+      "id": "color-card-v1-a87c43723e9289d7",
+      "name": "嫩白.png",
+      "relativePath": "png/嫩白.png",
+      "mediaType": "image/png",
+      "length": 788300,
+      "sha256": "bd1078c6deacfe1f00635285817d7b35c4514a57989f71c61d6a7e592de1d030"
+    },
+    {
+      "id": "color-card-v1-afcc23eb33a4a846",
+      "name": "偏红校正-绿.png",
+      "relativePath": "png/偏红校正-绿.png",
+      "mediaType": "image/png",
+      "length": 280218,
+      "sha256": "4e0681dcf3e03adf84890b7735c32141a90250bf7e12c0b8f1b69387c34fdfd0"
+    },
+    {
+      "id": "color-card-v1-9ae3815467ed353a",
+      "name": "偏黄校正-白.png",
+      "relativePath": "png/偏黄校正-白.png",
+      "mediaType": "image/png",
+      "length": 277481,
+      "sha256": "2a0eaf24e6b43a4c86a9f045b4fc051d77d04ce6d100fe7b3dab62671c53cba8"
+    },
+    {
+      "id": "color-card-v1-902f58001612d81b",
+      "name": "偏蓝校正-黄.png",
+      "relativePath": "png/偏蓝校正-黄.png",
+      "mediaType": "image/png",
+      "length": 273371,
+      "sha256": "efbf736ca6301d0130668aa848ae24adb419e897d196434a227332f178f77e20"
+    },
+    {
+      "id": "color-card-v1-f85f0b0f2caee22d",
+      "name": "偏绿校正-红.png",
+      "relativePath": "png/偏绿校正-红.png",
+      "mediaType": "image/png",
+      "length": 269031,
+      "sha256": "ad60024e5648dd2e6e1ee7cbd9a1bf8a6aec2dc1844f13dec0ae374e99b4d427"
+    },
+    {
+      "id": "color-card-v1-658f0357fb31947e",
+      "name": "轻氧.png",
+      "relativePath": "png/轻氧.png",
+      "mediaType": "image/png",
+      "length": 325917,
+      "sha256": "395ae544b62187296daad3ccb0f350f752e20ef907a6f6fa1c0385c9978eb693"
+    },
+    {
+      "id": "color-card-v1-3e034e3aa62db203",
+      "name": "去灰提亮.png",
+      "relativePath": "png/去灰提亮.png",
+      "mediaType": "image/png",
+      "length": 269558,
+      "sha256": "d47c65138178d96797d573f3019d7fb5266a60e20789075f4cdefa2d5decb1ab"
+    },
+    {
+      "id": "color-card-v1-127ab0dcfd2a0b9f",
+      "name": "素净.png",
+      "relativePath": "png/素净.png",
+      "mediaType": "image/png",
+      "length": 281960,
+      "sha256": "6a4b97bf2ce9bd6e158f8440ee291fe75236fb1c9d0d59f844966963028dba37"
+    },
+    {
+      "id": "color-card-v1-b5793b8b63f58aa2",
+      "name": "正常.png",
+      "relativePath": "png/正常.png",
+      "mediaType": "image/png",
+      "length": 461835,
+      "sha256": "5058b32f12f584152c1a5984767415bdeb128e0ea78c858f3529ba596ba06d3a"
+    }
+  ]
+}

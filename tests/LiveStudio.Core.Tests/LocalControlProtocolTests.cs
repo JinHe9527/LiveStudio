@@ -27,14 +27,14 @@ public sealed class LocalControlProtocolTests
     {
         var response = LocalControlProtocol.CreateFailure(
             Guid.NewGuid(),
-            "BlockedByLiveSession",
-            "开播期间禁止恢复");
+            "MissingAsset",
+            "目标素材缺失");
 
         var exception = Assert.Throws<LocalControlException>(() =>
             LocalControlProtocol.DeserializeResult<LocalAgentState>(response));
 
-        Assert.Equal("BlockedByLiveSession", exception.ErrorCode);
-        Assert.Equal("开播期间禁止恢复", exception.Message);
+        Assert.Equal("MissingAsset", exception.ErrorCode);
+        Assert.Equal("目标素材缺失", exception.Message);
     }
 
     [Fact]
@@ -108,5 +108,32 @@ public sealed class LocalControlProtocolTests
 
         Assert.Equal(LocalControlMethod.GetSnapshotDetail, actual.Method);
         Assert.Equal(snapshotId, payload.SnapshotId);
+    }
+
+    [Fact]
+    public void OperationProgressResponsePreservesBusyStateAndChineseStage()
+    {
+        var response = LocalControlProtocol.CreateSuccess(
+            Guid.NewGuid(),
+            new LocalOperationProgress(true, "正在创建目标电脑事务快照"));
+
+        var progress = LocalControlProtocol.DeserializeResult<LocalOperationProgress>(response);
+
+        Assert.True(progress.IsBusy);
+        Assert.Equal("正在创建目标电脑事务快照", progress.Message);
+    }
+
+    [Fact]
+    public void SnapshotSyncResponsePreservesUploadedAndRemainingCounts()
+    {
+        var response = LocalControlProtocol.CreateSuccess(
+            Guid.NewGuid(),
+            new SnapshotSyncResult(3, 1, "已同步 3 份，剩余 1 份"));
+
+        var result = LocalControlProtocol.DeserializeResult<SnapshotSyncResult>(response);
+
+        Assert.Equal(3, result.UploadedCount);
+        Assert.Equal(1, result.RemainingCount);
+        Assert.Equal("已同步 3 份，剩余 1 份", result.Message);
     }
 }

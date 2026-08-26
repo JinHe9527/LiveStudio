@@ -3,9 +3,9 @@ using Microsoft.Win32;
 
 namespace LiveStudio.Adapters.Obs;
 
-internal sealed record ObsProcessInfo(int ProcessId, string ExecutablePath);
+public sealed record ObsProcessInfo(int ProcessId, string ExecutablePath);
 
-internal static class ObsProcessController
+public static class ObsProcessController
 {
     public static ObsProcessInfo? FindRunning()
     {

@@ -2,12 +2,40 @@ using LiveStudio.Contracts;
 
 namespace LiveStudio.Core;
 
-public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters)
+public sealed class RestoreCoordinator(
+    IEnumerable<IApplicationAdapter> adapters,
+    IRestoreFaultInjector? faultInjector = null,
+    ApplicationOperationGate? operationGate = null) : IDisposable
 {
     private readonly Dictionary<ApplicationKind, IApplicationAdapter> _adapters = adapters
         .ToDictionary(adapter => adapter.Kind);
+    private readonly IRestoreFaultInjector _faultInjector = faultInjector ?? new NoOpRestoreFaultInjector();
+    private readonly ApplicationOperationGate _operationGate = operationGate ?? new ApplicationOperationGate();
+    private readonly bool _ownsOperationGate = operationGate is null;
 
     public async Task<RestoreExecutionResult> ExecuteAsync(
+        Guid jobId,
+        CombinedSnapshot snapshot,
+        IReadOnlyList<DeviceMapping> mappings,
+        bool isUnattended,
+        string assetDirectory,
+        Func<CancellationToken, Task> prepareAssets,
+        Func<JobStatus, string, CancellationToken, Task> reportProgress,
+        CancellationToken cancellationToken)
+    {
+        using var operationLease = await _operationGate.EnterAsync(cancellationToken);
+        return await ExecuteCoreAsync(
+            jobId,
+            snapshot,
+            mappings,
+            isUnattended,
+            assetDirectory,
+            prepareAssets,
+            reportProgress,
+            cancellationToken);
+    }
+
+    private async Task<RestoreExecutionResult> ExecuteCoreAsync(
         Guid jobId,
         CombinedSnapshot snapshot,
         IReadOnlyList<DeviceMapping> mappings,
@@ -23,7 +51,15 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
         ArgumentNullException.ThrowIfNull(prepareAssets);
         ArgumentNullException.ThrowIfNull(reportProgress);
 
-        await reportProgress(JobStatus.Preflight, "正在检查直播状态、设备映射和版本兼容性", cancellationToken);
+        if (snapshot.SchemaVersion < 3)
+        {
+            return new RestoreExecutionResult(
+                JobStatus.IncompatibleVersion,
+                "历史存档缺少完整字段树和证据状态，只允许查看，禁止恢复",
+                []);
+        }
+
+        await reportProgress(JobStatus.Preflight, "正在检查设备映射和版本兼容性", cancellationToken);
 
         var contexts = new List<(IApplicationAdapter Adapter, RestoreExecutionContext Context)>();
         foreach (var application in snapshot.Applications)
@@ -42,23 +78,6 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
                 mappings.Where(mapping => mapping.Application == application.Kind).ToArray(),
                 isUnattended,
                 assetDirectory);
-            var status = await adapter.InspectAsync(cancellationToken);
-            if ((status.IsStreaming || status.IsRecording) && status.CanDetermineLiveState)
-            {
-                return new RestoreExecutionResult(
-                    JobStatus.BlockedByLiveSession,
-                    $"{application.Kind} 正在推流或录制",
-                    []);
-            }
-
-            if (isUnattended && !status.CanDetermineLiveState)
-            {
-                return new RestoreExecutionResult(
-                    JobStatus.IncompatibleVersion,
-                    $"无法确认 {application.Kind} 是否正在直播，禁止无人值守恢复",
-                    []);
-            }
-
             var preflight = await adapter.PreflightAsync(context, cancellationToken);
             if (!preflight.CanProceed)
             {
@@ -68,21 +87,9 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
             contexts.Add((adapter, context));
         }
 
-        try
-        {
-            await prepareAssets(cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            await reportProgress(
-                JobStatus.FailedRolledBack,
-                "预检失败，未修改任何应用配置",
-                CancellationToken.None);
-            return new RestoreExecutionResult(JobStatus.FailedRolledBack, exception.Message, []);
-        }
-
         var sessions = new List<IApplicationRestoreSession>();
         IReadOnlyList<string> verificationDifferences = [];
+        var durablyCommitted = false;
         try
         {
             await reportProgress(JobStatus.BackingUp, "正在创建目标电脑事务快照", cancellationToken);
@@ -90,24 +97,33 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
             {
                 sessions.Add(await item.Adapter.BeginRestoreAsync(item.Context, cancellationToken));
             }
+            await RestoreTransactionJournal.PrepareAsync(jobId, cancellationToken);
+            await _faultInjector.InjectAsync(RestoreFaultPoint.SessionsCreated, cancellationToken);
 
             await reportProgress(JobStatus.StoppingApplications, "正在停止应用并等待配置落盘", cancellationToken);
             foreach (var session in sessions)
             {
                 await session.StopAsync(cancellationToken);
             }
+            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStopped, cancellationToken);
+
+            await reportProgress(JobStatus.Applying, "正在校验并物化滤镜和美颜素材", cancellationToken);
+            await prepareAssets(cancellationToken);
+            await _faultInjector.InjectAsync(RestoreFaultPoint.AssetsPrepared, cancellationToken);
 
             await reportProgress(JobStatus.Applying, "正在应用设备、画面格式和视频滤镜", cancellationToken);
             foreach (var session in sessions)
             {
                 await session.ApplyAsync(cancellationToken);
             }
+            await _faultInjector.InjectAsync(RestoreFaultPoint.SettingsApplied, cancellationToken);
 
             await reportProgress(JobStatus.StartingApplications, "正在恢复应用运行状态", cancellationToken);
             foreach (var session in sessions)
             {
                 await session.StartAsync(cancellationToken);
             }
+            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStarted, cancellationToken);
 
             await reportProgress(JobStatus.Verifying, "正在逐项回读恢复结果", cancellationToken);
             var differences = new List<string>();
@@ -125,17 +141,54 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
                 verificationDifferences = differences;
                 throw new InvalidOperationException("恢复后的参数与存档不一致");
             }
+            await _faultInjector.InjectAsync(RestoreFaultPoint.VerificationPassed, cancellationToken);
 
             foreach (var session in sessions)
             {
                 await session.CommitAsync(cancellationToken);
             }
+            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsCommitted, cancellationToken);
 
-            await reportProgress(JobStatus.Succeeded, "恢复完成并通过逐项验证", cancellationToken);
+            // This is the transaction's point of no return. Until this durable marker exists,
+            // every application journal must remain available for startup rollback.
+            await RestoreTransactionJournal.MarkCommittedAsync(jobId, cancellationToken);
+            durablyCommitted = true;
+            await _faultInjector.InjectAsync(RestoreFaultPoint.DurableCommitRecorded, cancellationToken);
+            var cleanupFailed = false;
+            foreach (var session in sessions)
+            {
+                try
+                {
+                    await session.CompleteAsync(CancellationToken.None);
+                }
+                catch
+                {
+                    // The committed marker deliberately remains on disk. Startup recovery will
+                    // keep the verified target state and retry journal cleanup.
+                    cleanupFailed = true;
+                }
+            }
+
+            if (!cleanupFailed)
+            {
+                await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
+            }
+
+            await reportProgress(JobStatus.Succeeded, "恢复完成并通过逐项验证", CancellationToken.None);
             return new RestoreExecutionResult(JobStatus.Succeeded, "恢复完成", []);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        // 事务会话创建后，取消同样可能发生在停止、写入、启动或回读中途。
+        // 此时绝不能直接释放会话；必须使用不可取消令牌完成全量回滚。
+        catch (Exception exception)
         {
+            if (durablyCommitted)
+            {
+                // Application state was fully verified and durably committed. A later status
+                // reporting or cleanup error must never turn a successful restore into a partial
+                // rollback. Remaining journals are finalized on the next Agent start.
+                return new RestoreExecutionResult(JobStatus.Succeeded, "恢复完成", []);
+            }
+
             var rollbackFailures = new List<string>();
             for (var index = sessions.Count - 1; index >= 0; index--)
             {
@@ -155,6 +208,8 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
                 return new RestoreExecutionResult(JobStatus.RollbackFailed, exception.Message, rollbackFailures);
             }
 
+            await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
+
             await reportProgress(JobStatus.FailedRolledBack, "恢复失败，已还原目标电脑原状态", CancellationToken.None);
             return new RestoreExecutionResult(JobStatus.FailedRolledBack, exception.Message, verificationDifferences);
         }
@@ -164,6 +219,14 @@ public sealed class RestoreCoordinator(IEnumerable<IApplicationAdapter> adapters
             {
                 await sessions[index].DisposeAsync();
             }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_ownsOperationGate)
+        {
+            _operationGate.Dispose();
         }
     }
 }

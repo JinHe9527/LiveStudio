@@ -1,11 +1,16 @@
+using LiveStudio.Contracts;
+
 namespace LiveStudio.Adapters.LiveCompanion;
 
 public enum ConfigurationStorageKind
 {
     JsonFile,
+    BinaryFile,
     Registry,
     Sqlite,
-    LevelDb
+    LevelDb,
+    NativeExport,
+    Ipc
 }
 
 public enum UnifiedFieldKind
@@ -21,8 +26,16 @@ public enum UnifiedFieldKind
     FilterEnabled,
     FilterOrder,
     FilterSetting,
-    FilterAsset
+    FilterAsset,
+    NativeField
 }
+
+public sealed record UiSectionDefinition(
+    string Id,
+    string NativeName,
+    string UiPath,
+    int Order,
+    string? ParentId = null);
 
 public sealed record ConfigurationStoreDefinition(
     string Id,
@@ -38,7 +51,18 @@ public sealed record FieldMappingDefinition(
     string NativePath,
     string ValueType,
     bool Required,
-    bool Writable);
+    bool Writable,
+    string NativeName = "",
+    string UiPath = "",
+    int Order = 0,
+    string ControlKind = "Unknown",
+    string? DefaultValueJson = null,
+    string? Minimum = null,
+    string? Maximum = null,
+    string? Step = null,
+    IReadOnlyList<string>? Options = null,
+    string? InternalIdPath = null,
+    FieldEvidenceStatus EvidenceStatus = FieldEvidenceStatus.Mapped);
 
 public sealed record LiveStateRuleDefinition(
     string StoreId,
@@ -56,7 +80,9 @@ public sealed record LiveCompanionAdapterDefinition(
     IReadOnlyList<FieldMappingDefinition> Fields,
     IReadOnlyList<string> ExcludedNativePaths,
     LiveStateRuleDefinition LiveStateRule,
-    ScreenshotRuleDefinition ScreenshotRule);
+    ScreenshotRuleDefinition ScreenshotRule,
+    IReadOnlyList<UiSectionDefinition>? UiSections = null,
+    string OnlineCaptureStrategy = "DoubleReadHash");
 
 public sealed record AdapterDefinitionSignature(
     string Algorithm,

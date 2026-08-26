@@ -11,7 +11,8 @@ public sealed class SnapshotCaptureException(string message) : Exception(message
 public sealed class SnapshotCaptureService(
     IEnumerable<IApplicationAdapter> adapters,
     IDeviceCredentialStore credentialStore,
-    LocalSnapshotIndex snapshotIndex)
+    LocalSnapshotIndex snapshotIndex,
+    ApplicationOperationGate operationGate)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -19,30 +20,40 @@ public sealed class SnapshotCaptureService(
     };
     private readonly IReadOnlyList<IApplicationAdapter> adapters = adapters.ToArray();
 
-    public async Task<LocalSnapshotRecord> CaptureAsync(string name, CancellationToken cancellationToken)
+    public Task<LocalSnapshotRecord> CaptureAsync(string name, CancellationToken cancellationToken) =>
+        CaptureAsync(name, null, cancellationToken);
+
+    public async Task<LocalSnapshotRecord> CaptureAsync(
+        string name,
+        IReadOnlyList<CameraStationSnapshot>? cameraStations,
+        CancellationToken cancellationToken)
+    {
+        using var operationLease = await operationGate.EnterAsync(cancellationToken);
+        return await CaptureCoreAsync(name, NormalizeCameraStations(cameraStations), cancellationToken);
+    }
+
+    private async Task<LocalSnapshotRecord> CaptureCoreAsync(
+        string name,
+        IReadOnlyList<CameraStationSnapshot> cameraStations,
+        CancellationToken cancellationToken)
     {
         var credentials = credentialStore.Load();
         EnsureAdapterSet();
-        var statuses = await Task.WhenAll(adapters.Select(adapter => adapter.InspectAsync(cancellationToken)));
-        if (statuses.Any(status => !status.CanDetermineLiveState))
+        var snapshots = await Task.WhenAll(adapters.Select(adapter => adapter.CaptureAsync(cancellationToken)));
+        var inconsistent = snapshots.FirstOrDefault(snapshot => snapshot.CaptureConsistency?.IsConsistent != true);
+        if (inconsistent is not null)
         {
-            throw new SnapshotCaptureException("无法确定应用是否正在直播，不会关闭应用或保存存档");
+            throw new SnapshotCaptureException(
+                $"{inconsistent.Kind} 未获得前后哈希一致的在线快照，未生成半份存档");
         }
 
-        if (statuses.Any(status => status.IsStreaming || status.IsRecording))
-        {
-            throw new SnapshotCaptureException("开播、推流或录制期间禁止联合保存");
-        }
-
-        var snapshots = await Task.WhenAll(adapters.Select(adapter => adapter.CaptureStableAsync(cancellationToken)));
-        var previews = (await Task.WhenAll(adapters.Select(adapter => adapter.CapturePreviewAsync(cancellationToken))))
+        var previews = (await Task.WhenAll(adapters.Select(adapter => CapturePreviewSafelyAsync(
+                adapter,
+                cancellationToken))))
             .Where(preview => preview is not null)
             .Select(preview => preview!)
             .ToArray();
-        var assetBindings = snapshots.SelectMany(application => application.Sources)
-            .SelectMany(source => source.Filters)
-            .SelectMany(filter => filter.Assets)
-            .ToArray();
+        var assetBindings = SnapshotAssetBindings.Collect(snapshots);
         var assets = assetBindings
             .GroupBy(asset => asset.BlobSha256, StringComparer.Ordinal)
             .Select(group =>
@@ -68,10 +79,11 @@ public sealed class SnapshotCaptureService(
             credentials.RoomId,
             name.Trim(),
             DateTimeOffset.UtcNow,
-            2,
+            3,
             snapshots,
             assets,
-            previewReferences);
+            previewReferences,
+            cameraStations);
         var files = new List<PackageFile>();
         foreach (var application in snapshots)
         {
@@ -122,10 +134,26 @@ public sealed class SnapshotCaptureService(
             info.Length,
             combined.CreatedAt,
             false,
-            true);
+            credentials.IsCloudEnrolled,
+            credentials.IsCloudEnrolled ? credentials.RoomId : null);
         await snapshotIndex.SaveAsync(record, cancellationToken);
         await SaveLocalIdentityMappingsAsync(snapshots, credentials, cancellationToken);
         return record;
+    }
+
+    private static async Task<PreviewCapture?> CapturePreviewSafelyAsync(
+        IApplicationAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await adapter.CapturePreviewAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _ = exception;
+            return null;
+        }
     }
 
     private static string PreviewExtension(string mediaType) => mediaType.ToLowerInvariant() switch
@@ -202,4 +230,67 @@ public sealed class SnapshotCaptureService(
         ".webp" => "image/webp",
         _ => "application/octet-stream"
     };
+
+    internal static IReadOnlyList<CameraStationSnapshot> NormalizeCameraStations(
+        IReadOnlyList<CameraStationSnapshot>? stations)
+    {
+        var normalized = stations is { Count: > 0 }
+            ? stations.OrderBy(station => station.Slot).ToArray()
+            : DefaultCameraStations();
+        if (normalized.Length != 3
+            || normalized.Select(station => station.Slot).Distinct().Count() != 3
+            || normalized.Any(station => station.Slot is < 0 or > 2))
+        {
+            throw new SnapshotCaptureException("相机参数必须完整包含主机、游机、侧机三个机位");
+        }
+
+        foreach (var station in normalized)
+        {
+            if (string.IsNullOrWhiteSpace(station.Name)
+                || station.Name.Trim().Length > 80
+                || string.IsNullOrWhiteSpace(station.Aperture)
+                || string.IsNullOrWhiteSpace(station.ShutterSpeed)
+                || string.IsNullOrWhiteSpace(station.Iso)
+                || string.IsNullOrWhiteSpace(station.CreativeLook)
+                || !IsCreativeLookValid(station.CreativeLookSettings))
+            {
+                throw new SnapshotCaptureException($"{station.Slot + 1} 号机位参数不完整或超出范围");
+            }
+        }
+
+        return normalized.Select(station => station with
+        {
+            Name = station.Name.Trim(),
+            Aperture = station.Aperture.Trim(),
+            ShutterSpeed = station.ShutterSpeed.Trim(),
+            Iso = station.Iso.Trim(),
+            CreativeLook = station.CreativeLook.Trim().ToUpperInvariant()
+        }).ToArray();
+    }
+
+    private static bool IsCreativeLookValid(CameraCreativeLookSnapshot settings) =>
+        settings.Contrast is >= -9 and <= 9
+        && settings.Highlights is >= -9 and <= 9
+        && settings.Shadows is >= -9 and <= 9
+        && settings.Fade is >= 0 and <= 9
+        && settings.Saturation is >= -9 and <= 9
+        && settings.Sharpness is >= 0 and <= 9
+        && settings.SharpnessRange is >= 0 and <= 5
+        && settings.Clarity is >= 0 and <= 9;
+
+    private static CameraStationSnapshot[] DefaultCameraStations() =>
+    [
+        CreateDefaultCameraStation(0, "主机"),
+        CreateDefaultCameraStation(1, "游机"),
+        CreateDefaultCameraStation(2, "侧机")
+    ];
+
+    private static CameraStationSnapshot CreateDefaultCameraStation(int slot, string name) => new(
+        slot,
+        name,
+        "F4",
+        "1/125",
+        "640",
+        "ST",
+        new CameraCreativeLookSnapshot(0, 0, 0, 0, 0, 0, 0, 0));
 }

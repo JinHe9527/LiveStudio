@@ -74,6 +74,8 @@ public sealed record CompleteSnapshotUploadResponse(Guid SnapshotId);
 
 public sealed record SnapshotDownloadResponse(Uri DownloadUri, DateTimeOffset ExpiresAt);
 
+public sealed record RenameCloudSnapshotRequest(string Name);
+
 public sealed record SnapshotSummary(
     Guid Id,
     Guid RoomId,
@@ -85,7 +87,8 @@ public sealed record SnapshotSummary(
 public sealed record SnapshotDetail(
     SnapshotSummary Summary,
     IReadOnlyList<ApplicationSnapshot> Applications,
-    IReadOnlyDictionary<ApplicationKind, Uri> PreviewUrls);
+    IReadOnlyDictionary<ApplicationKind, Uri> PreviewUrls,
+    IReadOnlyList<CameraStationSnapshot>? CameraStations = null);
 
 public sealed record CreateRestoreJobRequest(
     Guid RoomId,
@@ -93,6 +96,25 @@ public sealed record CreateRestoreJobRequest(
     Guid SnapshotId);
 
 public sealed record CreateCaptureJobRequest(Guid RoomId, Guid DeviceId, string Name);
+
+public sealed record CreateBatchCaptureJobsRequest(
+    IReadOnlyList<Guid> RoomIds,
+    string Name);
+
+public sealed record BatchCaptureJobResult(
+    Guid RoomId,
+    string RoomName,
+    Guid? DeviceId,
+    Guid? JobId,
+    bool Accepted,
+    string Code,
+    string Message);
+
+public sealed record CreateBatchCaptureJobsResponse(
+    int Requested,
+    int Accepted,
+    int Rejected,
+    IReadOnlyList<BatchCaptureJobResult> Results);
 
 public sealed record CreateRefreshPreviewJobRequest(Guid RoomId, Guid DeviceId);
 

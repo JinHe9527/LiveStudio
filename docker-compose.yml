@@ -59,6 +59,7 @@ services:
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
       ConnectionStrings__DefaultConnection: Host=postgres;Database=livestudio;Username=livestudio;Password=${POSTGRES_PASSWORD}
       ObjectStorage__ServiceUrl: http://minio:9000
+      ObjectStorage__PublicServiceUrl: https://${LIVESTUDIO_DOMAIN:?LIVESTUDIO_DOMAIN is required}
       ObjectStorage__Region: us-east-1
       ObjectStorage__Bucket: livestudio
       ObjectStorage__AccessKey: ${MINIO_ROOT_USER}

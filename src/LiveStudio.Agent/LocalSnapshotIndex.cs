@@ -11,7 +11,8 @@ public sealed record LocalSnapshotRecord(
     long Length,
     DateTimeOffset CreatedAt,
     bool Uploaded,
-    bool UploadEligible);
+    bool UploadEligible,
+    Guid? RoomId = null);
 
 public sealed record TrustedPackageSigner(
     string KeyId,
@@ -76,7 +77,8 @@ public sealed class LocalSnapshotIndex
                 length INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 uploaded INTEGER NOT NULL CHECK (uploaded IN (0, 1)),
-                upload_eligible INTEGER NOT NULL DEFAULT 1 CHECK (upload_eligible IN (0, 1))
+                upload_eligible INTEGER NOT NULL DEFAULT 1 CHECK (upload_eligible IN (0, 1)),
+                room_id TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_snapshots_uploaded_created_at
                 ON snapshots(uploaded, created_at);
@@ -127,6 +129,7 @@ public sealed class LocalSnapshotIndex
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureUploadEligibleColumnAsync(connection, cancellationToken);
+        await EnsureRoomIdColumnAsync(connection, cancellationToken);
         var interrupted = connection.CreateCommand();
         interrupted.CommandText = """
             UPDATE local_operations
@@ -277,15 +280,16 @@ public sealed class LocalSnapshotIndex
         await connection.OpenAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO snapshots(id, name, package_path, sha256, length, created_at, uploaded, upload_eligible)
-            VALUES ($id, $name, $path, $sha256, $length, $createdAt, $uploaded, $uploadEligible)
+            INSERT INTO snapshots(id, name, package_path, sha256, length, created_at, uploaded, upload_eligible, room_id)
+            VALUES ($id, $name, $path, $sha256, $length, $createdAt, $uploaded, $uploadEligible, $roomId)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 package_path = excluded.package_path,
                 sha256 = excluded.sha256,
                 length = excluded.length,
                 uploaded = excluded.uploaded,
-                upload_eligible = excluded.upload_eligible;
+                upload_eligible = excluded.upload_eligible,
+                room_id = excluded.room_id;
             """;
         command.Parameters.AddWithValue("$id", snapshot.Id.ToString("N"));
         command.Parameters.AddWithValue("$name", snapshot.Name);
@@ -295,6 +299,9 @@ public sealed class LocalSnapshotIndex
         command.Parameters.AddWithValue("$createdAt", snapshot.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$uploaded", snapshot.Uploaded ? 1 : 0);
         command.Parameters.AddWithValue("$uploadEligible", snapshot.UploadEligible ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "$roomId",
+            snapshot.RoomId is { } roomId ? roomId.ToString("N") : DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -302,7 +309,7 @@ public sealed class LocalSnapshotIndex
     {
         return await QueryAsync(
             """
-            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible
+            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible, room_id
             FROM snapshots
             WHERE uploaded = 0 AND upload_eligible = 1
             ORDER BY created_at
@@ -315,7 +322,7 @@ public sealed class LocalSnapshotIndex
     {
         return await QueryAsync(
             """
-            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible
+            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible, room_id
             FROM snapshots
             ORDER BY created_at DESC;
             """,
@@ -328,13 +335,46 @@ public sealed class LocalSnapshotIndex
         await connection.OpenAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible
+            SELECT id, name, package_path, sha256, length, created_at, uploaded, upload_eligible, room_id
             FROM snapshots
             WHERE id = $id;
             """;
         command.Parameters.AddWithValue("$id", snapshotId.ToString("N"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadRecord(reader) : null;
+    }
+
+    public async Task<bool> DeleteAsync(Guid snapshotId, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM snapshots WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", snapshotId.ToString("N"));
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    public async Task<bool> RenameAsync(
+        Guid snapshotId,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "UPDATE snapshots SET name = $name WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", snapshotId.ToString("N"));
+        command.Parameters.AddWithValue("$name", name);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    public async Task<int> DeleteAllAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM snapshots;";
+        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<IReadOnlyList<LocalSnapshotRecord>> QueryAsync(
@@ -363,7 +403,8 @@ public sealed class LocalSnapshotIndex
         reader.GetInt64(4),
         DateTimeOffset.Parse(reader.GetString(5), System.Globalization.CultureInfo.InvariantCulture),
         reader.GetInt64(6) == 1,
-        reader.GetInt64(7) == 1);
+        reader.GetInt64(7) == 1,
+        reader.IsDBNull(8) ? null : Guid.ParseExact(reader.GetString(8), "N"));
 
     public async Task MarkUploadedAsync(Guid snapshotId, CancellationToken cancellationToken)
     {
@@ -522,5 +563,41 @@ public sealed class LocalSnapshotIndex
         var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE snapshots ADD COLUMN upload_eligible INTEGER NOT NULL DEFAULT 1;";
         await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureRoomIdColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inspect = connection.CreateCommand();
+        inspect.CommandText = "PRAGMA table_info(snapshots);";
+        await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                columns.Add(reader.GetString(1));
+            }
+        }
+
+        if (!columns.Contains("room_id"))
+        {
+            var migrate = connection.CreateCommand();
+            migrate.CommandText = "ALTER TABLE snapshots ADD COLUMN room_id TEXT NULL;";
+            try
+            {
+                await migrate.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException exception) when (
+                exception.SqliteErrorCode == 1
+                && exception.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // 多个后台服务可能同时首次初始化同一个索引；另一方已完成迁移即可继续。
+            }
+        }
+
+        var normalize = connection.CreateCommand();
+        normalize.CommandText = "UPDATE snapshots SET upload_eligible = 0 WHERE room_id IS NULL;";
+        await normalize.ExecuteNonQueryAsync(cancellationToken);
     }
 }

@@ -9,6 +9,14 @@
 <div class="page-header">
     <div><h1>存档库</h1><p>所有存档都已经 SHA-256 校验和设备签名验证。</p></div>
     <div class="page-actions">
+        <select class="form-select" aria-label="按直播间筛选" @bind="selectedRoomFilter">
+            <option value="">全部直播间</option>
+            @foreach (var room in rooms.OrderBy(room => room.Name))
+            {
+                <option value="@room.Id">@room.Name</option>
+            }
+        </select>
+        <input class="form-input" aria-label="搜索存档" placeholder="搜索名称" @bind="searchText" @bind:event="oninput" />
         <button class="button quiet" disabled="@(comparisonSelection.Count == 0)" @onclick="ClearComparison">清除对比</button>
         <button class="button primary" disabled="@(comparisonSelection.Count != 2 || busy)" @onclick="CompareAsync">对比所选</button>
     </div>
@@ -16,13 +24,13 @@
 @if (message is not null) { <p class="status-badge info">@message</p> }
 <section class="card section-card table-wrap">
     @if (loading) { <div class="loading-state">正在加载存档…</div> }
-    else if (snapshots.Count == 0) { <div class="empty-state">尚无可用存档。</div> }
+    else if (FilteredSnapshots.Count == 0) { <div class="empty-state">当前筛选下没有存档。</div> }
     else
     {
         <table class="data-table">
-            <thead><tr><th class="selection-column">对比</th><th>名称</th><th>创建时间</th><th>大小</th><th>SHA-256</th><th></th></tr></thead>
+            <thead><tr><th class="selection-column">对比</th><th>名称</th><th>直播间</th><th>创建时间</th><th>大小</th><th></th></tr></thead>
             <tbody>
-                @foreach (var snapshot in snapshots)
+                @foreach (var snapshot in FilteredSnapshots)
                 {
                     var room = rooms.FirstOrDefault(value => value.Id == snapshot.RoomId);
                     <tr>
@@ -33,10 +41,10 @@
                                    disabled="@(comparisonSelection.Count == 2 && !comparisonSelection.Contains(snapshot.Id))"
                                    @onchange="eventArgs => ToggleComparison(snapshot.Id, eventArgs.Value is true)" />
                         </td>
-                        <td><strong>@snapshot.Name</strong><br /><span class="muted">@(room?.Name ?? snapshot.RoomId.ToString())</span></td>
+                        <td><strong>@snapshot.Name</strong></td>
+                        <td>@(room?.Name ?? "未知直播间")</td>
                         <td>@snapshot.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                         <td>@FormatBytes(snapshot.PackageLength)</td>
-                        <td><code>@snapshot.PackageSha256[..12]</code></td>
                         <td>
                             <div class="page-actions">
                                 <button class="button quiet" @onclick="() => ShowDetailAsync(snapshot)">查看</button>
@@ -106,7 +114,7 @@
         <div>
             <span class="section-kicker">恢复目标</span>
             <h2>将“@pendingRestoreSnapshot.Name”应用到</h2>
-            <p class="muted">可以选择同一 Organization 下的另一台 Windows 直播电脑；执行端会使用设备映射并逐项回读验证。</p>
+            <p class="muted">可以选择同一直播管理空间下的另一台 Windows 直播电脑；执行端会使用设备映射并逐项回读验证。</p>
         </div>
         <select class="form-select" @bind="restoreTargetRoomId">
             <option value="">选择在线直播间</option>
@@ -160,23 +168,23 @@
                         <dl class="parameter-grid">
                             @foreach (var setting in SnapshotParameterPresentation.PresentSourceSettings(source.Settings))
                             {
-                                <div><dt>@setting.Name <small>@setting.TechnicalName</small></dt><dd>@setting.Value</dd></div>
+                                <div><dt>@setting.Name</dt><dd>@setting.Value</dd></div>
                             }
                         </dl>
                         @if (source.Filters.Count > 0)
                         {
                             <div class="filter-list">
-                                @foreach (var filter in source.Filters.OrderBy(filter => filter.Order))
+                                @foreach (var filter in source.Filters.Where(filter => filter.Enabled).OrderBy(filter => filter.Order))
                                 {
                                     <div class="filter-row">
                                         <div class="filter-heading">
-                                            <span><strong>@filter.Name</strong><small>@SnapshotParameterPresentation.FilterKindName(filter.Kind) · @filter.Kind</small></span>
-                                            <span class="status-label">#@(filter.Order + 1) · @(filter.Enabled ? "启用" : "停用")</span>
+                                            <span><strong>@filter.Name</strong><small>@SnapshotParameterPresentation.FilterKindName(filter.Kind)</small></span>
+                                            <span class="status-label">#@(filter.Order + 1)</span>
                                         </div>
                                         <dl class="parameter-grid filter-settings">
                                             @foreach (var setting in SnapshotParameterPresentation.PresentFilterSettings(filter.Settings))
                                             {
-                                                <div><dt>@setting.Name <small>@setting.TechnicalName</small></dt><dd>@setting.Value</dd></div>
+                                                <div><dt>@setting.Name</dt><dd>@setting.Value</dd></div>
                                             }
                                         </dl>
                                         @if (filter.Assets.Count > 0)
@@ -213,6 +221,16 @@
     private readonly List<Guid> comparisonSelection = [];
     private SnapshotSummary? pendingRestoreSnapshot;
     private string restoreTargetRoomId = string.Empty;
+    private string selectedRoomFilter = string.Empty;
+    private string searchText = string.Empty;
+
+    private IReadOnlyList<SnapshotSummary> FilteredSnapshots => snapshots
+        .Where(snapshot => !Guid.TryParse(selectedRoomFilter, out var roomId) || snapshot.RoomId == roomId)
+        .Where(snapshot => string.IsNullOrWhiteSpace(searchText)
+            || snapshot.Name.Contains(searchText.Trim(), StringComparison.CurrentCultureIgnoreCase)
+            || rooms.FirstOrDefault(room => room.Id == snapshot.RoomId)?.Name.Contains(
+                searchText.Trim(), StringComparison.CurrentCultureIgnoreCase) == true)
+        .ToArray();
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 

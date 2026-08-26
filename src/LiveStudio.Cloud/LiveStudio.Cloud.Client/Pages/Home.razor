@@ -19,7 +19,7 @@
 
 @if (loading)
 {
-    <div class="loading-state">正在加载 Organization 数据…</div>
+    <div class="loading-state">正在加载直播管理空间…</div>
 }
 else if (errorMessage is not null)
 {
@@ -28,7 +28,7 @@ else if (errorMessage is not null)
 else if (Session.SelectedOrganizationId is null)
 {
     <div class="empty-state">
-        <div><strong>尚未创建 Organization</strong><br /><span class="muted">先在 Organization 页面创建管理空间。</span></div>
+        <div><strong>尚未加入直播管理空间</strong><br /><span class="muted">请让管理员在“团队与权限”中添加你的账户。</span></div>
     </div>
 }
 else

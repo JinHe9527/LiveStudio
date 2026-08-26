@@ -37,9 +37,9 @@ public sealed class DeviceAuthenticationHandler(
         var device = await dbContext.Devices
             .AsNoTracking()
             .SingleOrDefaultAsync(value => value.Id == deviceId, Context.RequestAborted);
-        if (device is null)
+        if (device is null || device.RevokedAt is not null)
         {
-            return AuthenticateResult.Fail("设备不存在");
+            return AuthenticateResult.Fail("设备不存在或已被解除");
         }
 
         var providedHash = SHA256.HashData(Encoding.UTF8.GetBytes(parts[1]));

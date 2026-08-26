@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text.Json;
 using LiveStudio.Contracts;
 using LiveStudio.Core;
@@ -8,7 +9,8 @@ namespace LiveStudio.Adapters.Obs;
 public sealed class ObsAdapter(
     IObsConnectionOptionsProvider optionsProvider,
     IObsCredentialProvider credentialProvider,
-    IObsDeviceCatalog deviceCatalog) : IApplicationAdapter
+    IObsDeviceCatalog deviceCatalog,
+    IObsAssetPathResolver? assetPathResolver = null) : IApplicationAdapter
 {
     public ApplicationKind Kind => ApplicationKind.Obs;
 
@@ -36,11 +38,42 @@ public sealed class ObsAdapter(
 
     public async Task<ApplicationSnapshot> CaptureAsync(CancellationToken cancellationToken)
     {
-        await using var client = await CreateClientAsync(cancellationToken);
-        return await ObsSnapshotMapper.CaptureAsync(
-            client,
-            cancellationToken);
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var first = await CaptureOnceAsync(cancellationToken);
+            var second = await CaptureOnceAsync(cancellationToken);
+            var firstHash = ComputeCaptureHash(first);
+            var secondHash = ComputeCaptureHash(second);
+            if (string.Equals(firstHash, secondHash, StringComparison.Ordinal))
+            {
+                return second with
+                {
+                    CaptureConsistency = new CaptureConsistency(
+                        "ObsWebSocketDoubleRead",
+                        firstHash,
+                        secondHash,
+                        attempt,
+                        true)
+                };
+            }
+        }
+
+        throw new InvalidOperationException("OBS 配置在读取过程中持续变化，未生成不一致的半份存档");
     }
+
+    private async Task<ApplicationSnapshot> CaptureOnceAsync(CancellationToken cancellationToken)
+    {
+        await using var client = await CreateClientAsync(cancellationToken);
+        return await ObsSnapshotMapper.CaptureAsync(client, assetPathResolver, cancellationToken);
+    }
+
+    private static string ComputeCaptureHash(ApplicationSnapshot snapshot) => Convert.ToHexStringLower(
+        SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            snapshot.Version,
+            snapshot.StructureFingerprint,
+            snapshot.Sources
+        })));
 
     public async Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken)
     {
@@ -141,7 +174,39 @@ public sealed class ObsAdapter(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
+        if (context.Snapshot.ConfigurationTree is not
+            {
+                HasCompleteUiInventory: true,
+                HasCompleteNativeInventory: true,
+                UnknownCount: 0,
+                EvidenceOnlyCount: 0
+            })
+        {
+            return RestorePreflightResult.Fail(
+                JobStatus.IncompatibleVersion,
+                "OBS 来源类型、属性 UI 与原生 inputSettings 的覆盖矩阵尚未双向闭合，禁止写入");
+        }
+
+        await using var client = await CreateClientAsync(cancellationToken);
+        var inputs = await client.CallAsync("GetInputList", null, cancellationToken);
+        var inputNames = inputs.GetProperty("inputs")
+            .EnumerateArray()
+            .Select(input => input.GetProperty("inputName").GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.Ordinal);
+        var scenes = await client.CallAsync("GetSceneList", null, cancellationToken);
+        var sceneNames = scenes.GetProperty("scenes")
+            .EnumerateArray()
+            .Select(scene => scene.GetProperty("sceneName").GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.Ordinal);
+        var currentScene = await client.CallAsync("GetCurrentProgramScene", null, cancellationToken);
+        var currentSceneName = currentScene.GetProperty("currentProgramSceneName").GetString() ?? string.Empty;
+        var filterKindsResponse = await client.CallAsync("GetSourceFilterKindList", null, cancellationToken);
+        var availableFilterKinds = filterKindsResponse.GetProperty("sourceFilterKinds")
+            .EnumerateArray()
+            .Select(kind => kind.GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var mappings = CreateEffectiveMappings(context.Snapshot, context.Mappings, currentSceneName);
         foreach (var source in context.Snapshot.Sources)
         {
             if (!mappings.TryGetValue(source.LogicalId, out var mapping))
@@ -164,24 +229,6 @@ public sealed class ObsAdapter(
             }
 
         }
-
-        await using var client = await CreateClientAsync(cancellationToken);
-        var inputs = await client.CallAsync("GetInputList", null, cancellationToken);
-        var inputNames = inputs.GetProperty("inputs")
-            .EnumerateArray()
-            .Select(input => input.GetProperty("inputName").GetString() ?? string.Empty)
-            .ToHashSet(StringComparer.Ordinal);
-        var scenes = await client.CallAsync("GetSceneList", null, cancellationToken);
-        var sceneNames = scenes.GetProperty("scenes")
-            .EnumerateArray()
-            .Select(scene => scene.GetProperty("sceneName").GetString() ?? string.Empty)
-            .ToHashSet(StringComparer.Ordinal);
-        var filterKindsResponse = await client.CallAsync("GetSourceFilterKindList", null, cancellationToken);
-        var availableFilterKinds = filterKindsResponse.GetProperty("sourceFilterKinds")
-            .EnumerateArray()
-            .Select(kind => kind.GetString() ?? string.Empty)
-            .ToHashSet(StringComparer.Ordinal);
-
         foreach (var source in context.Snapshot.Sources)
         {
             var mapping = mappings[source.LogicalId];
@@ -202,6 +249,19 @@ public sealed class ObsAdapter(
                     JobStatus.MissingFilter,
                     $"OBS 缺少滤镜类型 {missingFilter.Kind}");
             }
+
+            var missingAsset = source.Filters
+                .SelectMany(filter => ObsFilterAssetMapper.FindUnresolvedAssetPaths(
+                    filter.Settings,
+                    filter.Assets,
+                    assetPathResolver))
+                .FirstOrDefault();
+            if (missingAsset is not null)
+            {
+                return RestorePreflightResult.Fail(
+                    JobStatus.MissingAsset,
+                    $"OBS 滤镜素材不存在，且内置色卡中没有同名文件: {Path.GetFileName(missingAsset)}");
+            }
         }
 
         return RestorePreflightResult.Success;
@@ -217,7 +277,20 @@ public sealed class ObsAdapter(
         {
             await WaitUntilConnectedAsync(cancellationToken);
             var rollbackSnapshot = await CaptureAsync(cancellationToken);
-            return new ObsRestoreSession(this, context, rollbackSnapshot, temporary);
+            var existingInputNames = await GetInputNamesAsync(cancellationToken);
+            var effectiveMappings = CreateEffectiveMappings(context.Snapshot, context.Mappings, string.Empty);
+            var plannedCreatedSources = context.Snapshot.Sources
+                .Select(source => effectiveMappings[source.LogicalId].TargetSourceName)
+                .Where(name => !existingInputNames.Contains(name))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var journal = await ObsTransactionJournal.CreateAsync(
+                context.JobId,
+                rollbackSnapshot,
+                original is not null,
+                plannedCreatedSources,
+                cancellationToken);
+            return new ObsRestoreSession(this, context, rollbackSnapshot, temporary, journal);
         }
         catch
         {
@@ -237,8 +310,10 @@ public sealed class ObsAdapter(
         List<string> createdSources,
         CancellationToken cancellationToken)
     {
-        var mappingBySource = mappings.ToDictionary(mapping => mapping.SourceLogicalId);
         await using var client = await CreateClientAsync(cancellationToken);
+        var currentScene = await client.CallAsync("GetCurrentProgramScene", null, cancellationToken);
+        var currentSceneName = currentScene.GetProperty("currentProgramSceneName").GetString() ?? string.Empty;
+        var mappingBySource = CreateEffectiveMappings(snapshot, mappings, currentSceneName);
         var inputResponse = await client.CallAsync("GetInputList", null, cancellationToken);
         var existingInputs = inputResponse.GetProperty("inputs")
             .EnumerateArray()
@@ -267,13 +342,20 @@ public sealed class ObsAdapter(
             }
             else
             {
+                var currentSettingsResponse = await client.CallAsync(
+                    "GetInputSettings",
+                    new { inputName = mapping.TargetSourceName },
+                    cancellationToken);
+                var completeSettings = ObsSnapshotMapper.PreserveExcludedAudioSettings(
+                    targetSettings,
+                    currentSettingsResponse.GetProperty("inputSettings"));
                 await client.CallAsync(
                     "SetInputSettings",
                     new
                     {
                         inputName = mapping.TargetSourceName,
-                        inputSettings = targetSettings,
-                        overlay = true
+                        inputSettings = completeSettings,
+                        overlay = false
                     },
                     cancellationToken);
             }
@@ -341,7 +423,7 @@ public sealed class ObsAdapter(
     {
         var current = await CaptureAsync(cancellationToken);
         var currentByName = current.Sources.ToDictionary(source => source.Name, StringComparer.Ordinal);
-        var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
+        var mappings = CreateEffectiveMappings(context.Snapshot, context.Mappings, string.Empty);
         var differences = new List<string>();
         foreach (var expectedSource in context.Snapshot.Sources)
         {
@@ -353,13 +435,9 @@ public sealed class ObsAdapter(
             }
 
             var expectedSettings = ObsSnapshotMapper.CreateTargetSettings(expectedSource, mapping);
-            foreach (var expected in expectedSettings)
+            if (!SettingsEqual(expectedSettings, currentSource.Settings))
             {
-                if (!currentSource.Settings.TryGetValue(expected.Key, out var actual)
-                    || !JsonElement.DeepEquals(expected.Value, actual))
-                {
-                    differences.Add($"{mapping.TargetSourceName}.{expected.Key} 不一致");
-                }
+                differences.Add($"{mapping.TargetSourceName}.inputSettings 不一致");
             }
 
             var expectedFilters = expectedSource.Filters.OrderBy(filter => filter.Order).ToArray();
@@ -394,15 +472,72 @@ public sealed class ObsAdapter(
         return new RestoreVerificationResult(differences.Count == 0, differences);
     }
 
+    internal static Dictionary<Guid, DeviceMapping> CreateEffectiveMappings(
+        ApplicationSnapshot snapshot,
+        IReadOnlyList<DeviceMapping> mappings,
+        string currentSceneName)
+    {
+        var result = mappings.ToDictionary(mapping => mapping.SourceLogicalId);
+        foreach (var source in snapshot.Sources)
+        {
+            if (result.TryGetValue(source.LogicalId, out var existing))
+            {
+                if (string.IsNullOrWhiteSpace(existing.TargetSceneName)
+                    && !string.IsNullOrWhiteSpace(currentSceneName))
+                {
+                    result[source.LogicalId] = existing with
+                    {
+                        TargetSceneName = currentSceneName,
+                        CreateSourceWhenMissing = true
+                    };
+                }
+
+                continue;
+            }
+
+            var targetDeviceId = source.Settings.TryGetValue("video_device_id", out var deviceId)
+                                 && deviceId.ValueKind == JsonValueKind.String
+                ? deviceId.GetString() ?? string.Empty
+                : string.Empty;
+            result[source.LogicalId] = new DeviceMapping(
+                Guid.Empty,
+                Guid.Empty,
+                Guid.Empty,
+                source.LogicalId,
+                ApplicationKind.Obs,
+                targetDeviceId,
+                source.Name,
+                currentSceneName,
+                !string.IsNullOrWhiteSpace(currentSceneName));
+        }
+
+        return result;
+    }
+
     internal async Task RemoveInputsAsync(
         IEnumerable<string> inputNames,
         CancellationToken cancellationToken)
     {
         await using var client = await CreateClientAsync(cancellationToken);
-        foreach (var inputName in inputNames)
+        var existing = (await client.CallAsync("GetInputList", null, cancellationToken))
+            .GetProperty("inputs")
+            .EnumerateArray()
+            .Select(input => input.GetProperty("inputName").GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var inputName in inputNames.Where(existing.Contains))
         {
             await client.CallAsync("RemoveInput", new { inputName }, cancellationToken);
         }
+    }
+
+    internal async Task<HashSet<string>> GetInputNamesAsync(CancellationToken cancellationToken)
+    {
+        await using var client = await CreateClientAsync(cancellationToken);
+        return (await client.CallAsync("GetInputList", null, cancellationToken))
+            .GetProperty("inputs")
+            .EnumerateArray()
+            .Select(input => input.GetProperty("inputName").GetString() ?? string.Empty)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private async Task<ObsWebSocketClient> CreateClientAsync(CancellationToken cancellationToken)
@@ -441,11 +576,18 @@ public sealed class ObsAdapter(
         throw new InvalidOperationException("OBS 已启动，但 obs-websocket 在 15 秒内没有就绪", lastError);
     }
 
-    private static Dictionary<string, JsonElement> MaterializeFilterSettings(
+    internal Task WaitUntilConnectedForRecoveryAsync(CancellationToken cancellationToken) =>
+        WaitUntilConnectedAsync(cancellationToken);
+
+    private Dictionary<string, JsonElement> MaterializeFilterSettings(
         VideoFilter filter,
         string assetDirectory)
     {
-        return ObsFilterAssetMapper.Materialize(filter.Settings, filter.Assets, assetDirectory);
+        return ObsFilterAssetMapper.Materialize(
+            filter.Settings,
+            filter.Assets,
+            assetDirectory,
+            assetPathResolver);
     }
 
     private static bool SettingsEqual(
@@ -459,10 +601,10 @@ public sealed class ObsAdapter(
         ObsAdapter adapter,
         RestoreExecutionContext context,
         ApplicationSnapshot rollbackSnapshot,
-        ObsProcessInfo? temporaryProcess) : IApplicationRestoreSession
+        ObsProcessInfo? temporaryProcess,
+        ObsTransactionJournal journal) : IApplicationRestoreSession
     {
         private readonly List<string> _createdSources = [];
-        private bool _committed;
 
         public ApplicationKind Kind => ApplicationKind.Obs;
 
@@ -480,43 +622,39 @@ public sealed class ObsAdapter(
         public Task<RestoreVerificationResult> VerifyAsync(CancellationToken cancellationToken) =>
             adapter.VerifyAsync(context, cancellationToken);
 
-        public Task CommitAsync(CancellationToken cancellationToken)
+        public async Task CommitAsync(CancellationToken cancellationToken)
         {
-            _committed = true;
-            return temporaryProcess is null
-                ? Task.CompletedTask
-                : ObsProcessController.StopAsync(temporaryProcess.ProcessId, cancellationToken);
+            if (temporaryProcess is not null)
+            {
+                await ObsProcessController.StopAsync(temporaryProcess.ProcessId, cancellationToken);
+            }
+
+            // 协调器可能在另一应用提交时失败；回滚快照一直保留到 DisposeAsync，
+            // 不能仅因本应用先完成提交就拒绝全局回滚。
         }
+
+        public Task CompleteAsync(CancellationToken cancellationToken) =>
+            journal.CompleteAsync(cancellationToken);
 
         public async Task RollbackAsync(CancellationToken cancellationToken)
         {
-            if (_committed)
-            {
-                return;
-            }
-
-            await adapter.RemoveInputsAsync(_createdSources, cancellationToken);
-            var rollbackMappings = rollbackSnapshot.Sources.Select(source => new DeviceMapping(
-                Guid.NewGuid(),
-                Guid.Empty,
-                Guid.Empty,
-                source.LogicalId,
-                ApplicationKind.Obs,
-                source.Settings.TryGetValue("video_device_id", out var deviceId) ? deviceId.GetString() ?? string.Empty : string.Empty,
-                source.Name,
-                string.Empty,
-                false)).ToArray();
+            await adapter.RemoveInputsAsync(
+                _createdSources.Concat(journal.CreatedSourceNames).Distinct(StringComparer.Ordinal),
+                cancellationToken);
+            var rollbackMappings = ObsTransactionJournal.CreateRollbackMappings(rollbackSnapshot);
             var unusedCreatedSources = new List<string>();
             await adapter.ApplySnapshotAsync(
                 rollbackSnapshot,
                 rollbackMappings,
-                context.AssetDirectory,
+                journal.AssetDirectory,
                 unusedCreatedSources,
                 cancellationToken);
             if (temporaryProcess is not null)
             {
                 await ObsProcessController.StopAsync(temporaryProcess.ProcessId, cancellationToken);
             }
+
+            await journal.CompleteAsync(cancellationToken);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text.Json;
+using LiveStudio.Contracts;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
@@ -21,7 +23,98 @@ public sealed class LiveCompanionAdapterCatalog
     public AdapterMatchResult Match(string applicationVersion, string structureFingerprint) =>
         CompatibilityMatcher.Match(applicationVersion, structureFingerprint, adapters.Value);
 
+    public AdapterMatchResult Match(
+        string applicationVersion,
+        string structureFingerprint,
+        IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
+    {
+        var exact = Match(applicationVersion, structureFingerprint);
+        if (exact.Adapter is not null)
+        {
+            return exact;
+        }
+
+        var requiredShapeMatches = adapters.Value
+            .Where(adapter => MatchesRequiredShape(adapter.Definition, discoveredDocuments))
+            .ToArray();
+        return CompatibilityMatcher.MatchCandidates(
+            applicationVersion,
+            requiredShapeMatches,
+            "签名定义的必需字段结构");
+    }
+
+    public AdapterMatchResult MatchSnapshot(
+        string applicationVersion,
+        string adapterId,
+        string definitionSha256,
+        string structureFingerprint)
+    {
+        var candidates = adapters.Value.Where(adapter =>
+            string.Equals(adapter.Definition.Id, adapterId, StringComparison.Ordinal)
+            && string.Equals(adapter.DefinitionSha256, definitionSha256, StringComparison.Ordinal)
+            && string.Equals(
+                adapter.Definition.StructureFingerprint,
+                structureFingerprint,
+                StringComparison.Ordinal)).ToArray();
+        return CompatibilityMatcher.MatchCandidates(
+            applicationVersion,
+            candidates,
+            "存档签名定义");
+    }
+
     public IReadOnlyList<VerifiedAdapterDefinition> GetAll() => adapters.Value;
+
+    internal static bool MatchesRequiredShape(
+        LiveCompanionAdapterDefinition definition,
+        IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
+    {
+        var runtimeBinding = LiveCompanionRuntimeBinding.TryCreate(
+            definition,
+            discoveredDocuments);
+        if (runtimeBinding is null)
+        {
+            return false;
+        }
+
+        var documentsByLocation = discoveredDocuments
+            .GroupBy(document => NormalizeLocation(document.RelativePath), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var stores = definition.Stores.ToDictionary(store => store.Id, StringComparer.Ordinal);
+        foreach (var field in definition.Fields.Where(LiveCompanionConfigurationStore.IsRestorableField))
+        {
+            if (!stores.TryGetValue(field.StoreId, out var store)
+                || !documentsByLocation.TryGetValue(NormalizeLocation(store.Location), out var document))
+            {
+                return false;
+            }
+
+            var runtimePath = runtimeBinding.ToRuntimePointer(field.NativePath);
+            var value = document.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.JsonPointer, runtimePath, StringComparison.Ordinal));
+            if (value is null || !MatchesValueType(field.ValueType, value.Value.ValueKind))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string NormalizeLocation(string location) => location
+        .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+        .TrimStart(Path.DirectorySeparatorChar);
+
+    private static bool MatchesValueType(string valueType, JsonValueKind valueKind) =>
+        valueType.Trim().ToLowerInvariant() switch
+        {
+            "string" => valueKind == JsonValueKind.String,
+            "int" or "integer" or "number" or "double" => valueKind == JsonValueKind.Number,
+            "bool" or "boolean" => valueKind is JsonValueKind.True or JsonValueKind.False,
+            "object" => valueKind == JsonValueKind.Object,
+            "array" => valueKind == JsonValueKind.Array,
+            "null" => valueKind == JsonValueKind.Null,
+            _ => false
+        };
 
     private List<VerifiedAdapterDefinition> Load()
     {

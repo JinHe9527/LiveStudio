@@ -13,68 +13,69 @@
         Height="780"
         MinWidth="760"
         MinHeight="560"
-        Background="#1C1C1E"
+        Background="{DynamicResource AppWindowBrush}"
         Title="LiveStudio">
 
     <Design.DataContext>
         <vm:MainViewModel />
     </Design.DataContext>
 
-    <Grid ColumnDefinitions="200,*">
+    <Grid ColumnDefinitions="216,*">
         <Border Grid.Column="0" Classes="sidebar">
             <Grid RowDefinitions="Auto,*,Auto">
-                <StackPanel Margin="18,22,14,24" Orientation="Horizontal" Spacing="10">
-                    <Path Width="22" Height="22" VerticalAlignment="Center"
-                          Data="M3,6.5 A2.5,2.5 0 0 1 5.5,4 L18.5,4 A2.5,2.5 0 0 1 21,6.5 L21,17.5 A2.5,2.5 0 0 1 18.5,20 L5.5,20 A2.5,2.5 0 0 1 3,17.5 Z M7,15 L10,12 L12.5,14.5 L17,9.5"
-                          Stretch="Uniform" Stroke="#5EA1FF" StrokeThickness="1.55" />
-                    <StackPanel VerticalAlignment="Center" Spacing="1">
-                        <TextBlock Classes="brand-title" Text="LiveStudio" />
-                        <TextBlock Classes="brand-caption" Text="{Binding BrandCaption}" />
-                    </StackPanel>
+                <StackPanel Margin="18,17,14,23" Orientation="Horizontal" Spacing="9">
+                    <Border Classes="brand-mark">
+                        <Path Width="15" Height="15" VerticalAlignment="Center" HorizontalAlignment="Center"
+                              Data="M3,6.5 A2.5,2.5 0 0 1 5.5,4 L18.5,4 A2.5,2.5 0 0 1 21,6.5 L21,17.5 A2.5,2.5 0 0 1 18.5,20 L5.5,20 A2.5,2.5 0 0 1 3,17.5 Z M7,15 L10,12 L12.5,14.5 L17,9.5"
+                              Stretch="Uniform" Stroke="#FFFFFF" StrokeThickness="1.65" />
+                    </Border>
+                    <TextBlock Classes="brand-title" VerticalAlignment="Center" Text="LiveStudio" />
                 </StackPanel>
 
-                <StackPanel Grid.Row="1" Margin="9,0" Spacing="1">
+                <StackPanel Grid.Row="1" Margin="10,0" Spacing="2">
+                    <TextBlock Classes="nav-section-label" Text="工作区" />
                     <Button Classes="nav" Classes.active="{Binding IsControlVisible}"
                             Command="{Binding SelectSectionCommand}" CommandParameter="0">
-                        <Grid ColumnDefinitions="20,*" ColumnSpacing="9">
+                        <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
                             <Path Classes="nav-icon" Data="M3,13.5 L3,7.5 A3.5,3.5 0 0 1 6.5,4 L17.5,4 A3.5,3.5 0 0 1 21,7.5 L21,14.5 A3.5,3.5 0 0 1 17.5,18 L6.5,18 A3.5,3.5 0 0 1 3,14.5 Z M7,13 L9.5,10 L12,12.4 L16,8" />
-                            <TextBlock Grid.Column="1" Text="控制室" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="当前画面" />
                         </Grid>
                     </Button>
                     <Button Classes="nav" Classes.active="{Binding IsSnapshotsVisible}"
                             Command="{Binding SelectSectionCommand}" CommandParameter="1">
-                        <Grid ColumnDefinitions="20,*" ColumnSpacing="9">
+                        <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
                             <Path Classes="nav-icon" Data="M5,6 L19,6 L19,19 L5,19 Z M8,3 L16,3 M8,11 L16,11 M8,15 L13,15" />
-                            <TextBlock Grid.Column="1" Text="画面存档" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="画面存档" />
                         </Grid>
                     </Button>
-                    <Button Classes="nav" Classes.active="{Binding IsMappingsVisible}"
-                            Command="{Binding SelectSectionCommand}" CommandParameter="2">
-                        <Grid ColumnDefinitions="20,*" ColumnSpacing="9">
-                            <Path Classes="nav-icon" Data="M6,7 A2,2 0 1 0 6,3 A2,2 0 0 0 6,7 M18,21 A2,2 0 1 0 18,17 A2,2 0 0 0 18,21 M8,5 L11,5 A3,3 0 0 1 14,8 L14,16 A3,3 0 0 0 17,19 M6,7 L6,19 L16,19" />
-                            <TextBlock Grid.Column="1" Text="设备映射" />
+                    <Button Classes="nav" Classes.active="{Binding IsCloudWorkspaceVisible}"
+                            Command="{Binding OpenCloudWorkspaceCommand}">
+                        <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
+                            <Path Classes="nav-icon" Data="M4,8 L12,3 L20,8 L20,19 L4,19 Z M8,19 L8,12 L16,12 L16,19 M12,3 L12,8" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="直播间管理" />
                         </Grid>
                     </Button>
                     <Button Classes="nav" Classes.active="{Binding IsActivityVisible}"
-                            Command="{Binding SelectSectionCommand}" CommandParameter="3">
-                        <Grid ColumnDefinitions="20,*" ColumnSpacing="9">
+                            Command="{Binding SelectSectionCommand}" CommandParameter="2">
+                        <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
                             <Path Classes="nav-icon" Data="M12,21 A9,9 0 1 0 12,3 A9,9 0 0 0 12,21 M12,7 L12,12 L15,14" />
-                            <TextBlock Grid.Column="1" Text="操作记录" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="操作记录" />
                         </Grid>
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Row="2" Margin="9,8,9,6" Spacing="4">
+                <StackPanel Grid.Row="2" Margin="10,8,10,12" Spacing="4">
+                    <Border Classes="sidebar-separator" />
                     <Button Classes="nav" Classes.active="{Binding IsSettingsVisible}"
-                            Command="{Binding SelectSectionCommand}" CommandParameter="4">
-                        <Grid ColumnDefinitions="20,*" ColumnSpacing="9">
+                            Command="{Binding SelectSectionCommand}" CommandParameter="3">
+                        <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
                             <Path Classes="nav-icon" Data="M12,8 A4,4 0 1 0 12,16 A4,4 0 0 0 12,8 M4,12 L2,12 M22,12 L20,12 M12,4 L12,2 M12,22 L12,20 M5.6,5.6 L4.2,4.2 M19.8,19.8 L18.4,18.4 M18.4,5.6 L19.8,4.2 M4.2,19.8 L5.6,18.4" />
-                            <TextBlock Grid.Column="1" Text="设置" />
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="设置" />
                         </Grid>
                     </Button>
-                    <Border Margin="3,2,3,0" Padding="8,12" BorderBrush="#18FFFFFF" BorderThickness="0,1,0,0">
-                        <Grid ColumnDefinitions="8,*" ColumnSpacing="10">
-                            <Ellipse Width="7" Height="7" Fill="#73767D" VerticalAlignment="Center" />
+                    <Border Classes="device-card">
+                        <Grid ColumnDefinitions="8,*" ColumnSpacing="8">
+                            <Border Width="6" Height="6" Classes="device-status-dot" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                 <TextBlock Classes="device-name" Text="{Binding DeviceName}" />
                                 <TextBlock Classes="device-mode" Text="{Binding PlatformMode}" />
@@ -85,10 +86,9 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1" Background="#1C1C1E">
+        <Grid Grid.Column="1" Background="{DynamicResource AppWindowBrush}">
             <views:ControlRoomView IsVisible="{Binding IsControlVisible}" />
             <views:SnapshotsView IsVisible="{Binding IsSnapshotsVisible}" />
-            <views:MappingsView IsVisible="{Binding IsMappingsVisible}" />
             <views:ActivityView IsVisible="{Binding IsActivityVisible}" />
             <views:SettingsView IsVisible="{Binding IsSettingsVisible}" />
         </Grid>

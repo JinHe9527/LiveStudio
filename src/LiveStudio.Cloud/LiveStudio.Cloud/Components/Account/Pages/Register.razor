@@ -6,6 +6,8 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using LiveStudio.Cloud.Data
+@using LiveStudio.Cloud.Features.Organizations
+@using LiveStudio.Cloud.Security
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -14,12 +16,21 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject FirstWorkspaceBootstrapper WorkspaceBootstrapper
+@inject InitialAccountRegistrationService RegistrationService
 
 <PageTitle>创建账户 · LiveStudio</PageTitle>
 
 <div class="account-card card">
         <h1>创建账户</h1>
-        <p class="muted">创建账户后即可建立 Organization 和直播间。</p>
+        @if (registrationClosed)
+        {
+            <p class="muted">管理员账户已经建立。其他直播电脑无需重复注册，使用管理员账户授权桌面端即可。</p>
+            <a class="w-100 button primary" href="Account/Login">返回登录</a>
+        }
+        else
+        {
+            <p class="muted">这是服务器的一次性初始化。首个管理员账户会自动获得默认直播管理空间和直播间。</p>
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
@@ -41,10 +52,12 @@
             </div>
             <button type="submit" class="w-100 button primary">创建账户</button>
         </EditForm>
+        }
 </div>
 
 @code {
     private IEnumerable<IdentityError>? identityErrors;
+    private bool registrationClosed;
 
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = default!;
@@ -54,9 +67,10 @@
 
     private string? Message => identityErrors is null ? null : $"创建账户失败：{string.Join("，", identityErrors.Select(error => error.Description))}";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         Input ??= new();
+        registrationClosed = !await RegistrationService.IsRegistrationOpenAsync();
     }
 
     public async Task RegisterUser(EditContext editContext)
@@ -66,10 +80,12 @@
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         var emailStore = GetEmailStore();
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
-        var result = await UserManager.CreateAsync(user, Input.Password);
+        var registration = await RegistrationService.RegisterAsync(user, Input.Password);
+        var result = registration.IdentityResult;
 
         if (!result.Succeeded)
         {
+            registrationClosed = registration.RegistrationClosed;
             identityErrors = result.Errors;
             return;
         }
@@ -77,6 +93,15 @@
         Logger.LogInformation("User created a new account with password.");
 
         var userId = await UserManager.GetUserIdAsync(user);
+        try
+        {
+            await WorkspaceBootstrapper.EnsureForFirstAccountAsync(userId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Unable to create the initial LiveStudio workspace for account {UserId}.", userId);
+        }
+
         var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
         code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
         var callbackUrl = NavigationManager.GetUriWithQueryParameters(

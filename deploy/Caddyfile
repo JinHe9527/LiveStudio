@@ -1,4 +1,10 @@
 {$LIVESTUDIO_DOMAIN:localhost} {
     encode zstd gzip
-    reverse_proxy cloud:8080
+    @objects path /livestudio/*
+    handle @objects {
+        reverse_proxy minio:9000
+    }
+    handle {
+        reverse_proxy cloud:8080
+    }
 }

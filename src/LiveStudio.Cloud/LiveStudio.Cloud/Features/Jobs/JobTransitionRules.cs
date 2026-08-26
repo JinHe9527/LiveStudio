@@ -14,16 +14,15 @@ public static class JobTransitionRules
                 JobStatus.BackingUp,
                 JobStatus.Capturing,
                 JobStatus.RefreshingPreview,
-                JobStatus.BlockedByLiveSession,
                 JobStatus.MappingRequired,
                 JobStatus.UnsupportedDeviceMode,
                 JobStatus.MissingFilter,
+                JobStatus.MissingAsset,
                 JobStatus.IncompatibleVersion
             },
             [JobStatus.Capturing] = new HashSet<JobStatus>
             {
                 JobStatus.Packaging,
-                JobStatus.BlockedByLiveSession,
                 JobStatus.IncompatibleVersion,
                 JobStatus.FailedRolledBack
             },
@@ -84,6 +83,7 @@ public static class JobTransitionRules
         or JobStatus.MappingRequired
         or JobStatus.UnsupportedDeviceMode
         or JobStatus.MissingFilter
+        or JobStatus.MissingAsset
         or JobStatus.IncompatibleVersion
         or JobStatus.FailedRolledBack
         or JobStatus.RollbackFailed;

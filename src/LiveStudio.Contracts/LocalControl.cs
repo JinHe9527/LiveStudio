@@ -10,15 +10,23 @@ public enum LocalControlMethod
     CaptureSnapshot,
     RestoreSnapshot,
     ConfigureObs,
+    AutoConfigureObs,
     ConfigureLanDirectory,
     ConfigureAutoStart,
     EnrollDevice,
     GetMappingContext,
     GetSnapshotDetail,
+    GetSnapshotPreview,
     SaveDeviceMapping,
     InspectSnapshotFile,
     ImportSnapshotFile,
-    ExportSnapshotFile
+    ExportSnapshotFile,
+    RenameSnapshot,
+    DeleteSnapshot,
+    DeleteAllSnapshots,
+    SyncPendingSnapshots,
+    GetOperationProgress,
+    UpdateSnapshotCameraStations
 }
 
 public sealed record LocalControlRequest(
@@ -49,7 +57,8 @@ public sealed record LocalSnapshotSummary(
     DateTimeOffset CreatedAt,
     long Length,
     bool Uploaded,
-    bool UploadEligible);
+    bool UploadEligible,
+    Guid? RoomId = null);
 
 public enum LocalOperationKind
 {
@@ -76,6 +85,8 @@ public sealed record LocalOperationSummary(
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt);
 
+public sealed record LocalOperationProgress(bool IsBusy, string Message);
+
 public sealed record LocalAgentState(
     string MachineName,
     bool IsCloudEnrolled,
@@ -90,9 +101,19 @@ public sealed record LocalAgentState(
     IReadOnlyList<LocalSnapshotSummary> Snapshots,
     IReadOnlyList<LocalOperationSummary> Operations);
 
-public sealed record CaptureLocalSnapshotRequest(string Name);
+public sealed record CaptureLocalSnapshotRequest(
+    string Name,
+    IReadOnlyList<CameraStationSnapshot>? CameraStations = null);
+
+public sealed record UpdateSnapshotCameraStationsRequest(
+    Guid SnapshotId,
+    IReadOnlyList<CameraStationSnapshot> CameraStations);
 
 public sealed record RestoreLocalSnapshotRequest(Guid SnapshotId);
+
+public sealed record DeleteLocalSnapshotRequest(Guid SnapshotId);
+
+public sealed record RenameLocalSnapshotRequest(Guid SnapshotId, string Name);
 
 public sealed record ConfigureObsRequest(Uri Endpoint, string Password);
 
@@ -105,6 +126,13 @@ public sealed record EnrollLocalDeviceRequest(Uri ServiceUri, string EnrollmentT
 public sealed record GetLocalMappingContextRequest(Guid SnapshotId);
 
 public sealed record GetLocalSnapshotDetailRequest(Guid SnapshotId);
+
+public sealed record GetLocalSnapshotPreviewRequest(Guid SnapshotId, ApplicationKind Application);
+
+public sealed record LocalSnapshotPreview(
+    bool Found,
+    string MediaType,
+    byte[] Content);
 
 public sealed record SaveLocalDeviceMappingRequest(
     Guid SnapshotId,
@@ -154,10 +182,16 @@ public sealed record SnapshotTransferResult(
 
 public sealed record LocalSnapshotOperationResult(Guid SnapshotId, string Name, DateTimeOffset CompletedAt);
 
+public sealed record DeleteSnapshotsResult(int DeletedCount);
+
+public sealed record SnapshotSyncResult(int UploadedCount, int RemainingCount, string Message);
+
 public static class LocalControlProtocol
 {
     public const string PipeName = "LiveStudio.Agent.Control";
-    public const int MaximumMessageLength = 1024 * 1024;
+    // Complete LiveCompanion native trees can exceed 4 MB before packaging. The pipe is
+    // restricted to the current Windows user, but still keeps a finite allocation limit.
+    public const int MaximumMessageLength = 32 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static LocalControlRequest CreateRequest<T>(LocalControlMethod method, T payload) => new(

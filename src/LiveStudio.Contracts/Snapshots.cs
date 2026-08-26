@@ -8,6 +8,101 @@ public enum ApplicationKind
     LiveCompanion
 }
 
+public enum FieldEvidenceStatus
+{
+    Unknown,
+    EvidenceOnly,
+    Mapped,
+    Verified
+}
+
+public sealed record NativeLocatorSnapshot(
+    string StorageKind,
+    string StoreId,
+    string NativePath,
+    string? Container,
+    string? ValueKind);
+
+public sealed record ConfigurationFieldSnapshot(
+    string Id,
+    string NativeName,
+    string UiPath,
+    int Order,
+    string NativeType,
+    string ControlKind,
+    JsonElement CurrentValue,
+    JsonElement? DefaultValue,
+    string? Minimum,
+    string? Maximum,
+    string? Step,
+    IReadOnlyList<string> Options,
+    string? InternalId,
+    NativeLocatorSnapshot Locator,
+    FieldEvidenceStatus EvidenceStatus,
+    bool Writable,
+    IReadOnlyList<AssetBinding> Assets);
+
+public sealed record ConfigurationSectionSnapshot(
+    string Id,
+    string NativeName,
+    string UiPath,
+    int Order,
+    IReadOnlyList<ConfigurationSectionSnapshot> Sections,
+    IReadOnlyList<ConfigurationFieldSnapshot> Fields);
+
+public sealed record ConfigurationTreeSnapshot(
+    IReadOnlyList<ConfigurationSectionSnapshot> Sections,
+    int UnknownCount,
+    int EvidenceOnlyCount,
+    int MappedCount,
+    int VerifiedCount,
+    bool HasCompleteUiInventory,
+    bool HasCompleteNativeInventory);
+
+public sealed record FilterInstanceSnapshot(
+    Guid LogicalId,
+    string NativeName,
+    string Kind,
+    string? InternalId,
+    bool Enabled,
+    int Order,
+    IReadOnlyDictionary<string, JsonElement> Settings,
+    IReadOnlyList<AssetBinding> Assets,
+    FieldEvidenceStatus EvidenceStatus);
+
+public sealed record FilterChainSnapshot(
+    Guid SourceLogicalId,
+    string NativeName,
+    string UiPath,
+    bool? Enabled,
+    IReadOnlyList<FilterInstanceSnapshot> Filters);
+
+public sealed record CaptureConsistency(
+    string Strategy,
+    string StartSha256,
+    string EndSha256,
+    int Attempts,
+    bool IsConsistent);
+
+public sealed record CameraCreativeLookSnapshot(
+    int Contrast,
+    int Highlights,
+    int Shadows,
+    int Fade,
+    int Saturation,
+    int Sharpness,
+    int SharpnessRange,
+    int Clarity);
+
+public sealed record CameraStationSnapshot(
+    int Slot,
+    string Name,
+    string Aperture,
+    string ShutterSpeed,
+    string Iso,
+    string CreativeLook,
+    CameraCreativeLookSnapshot CreativeLookSettings);
+
 public sealed record CombinedSnapshot(
     Guid Id,
     Guid OrganizationId,
@@ -17,7 +112,8 @@ public sealed record CombinedSnapshot(
     int SchemaVersion,
     IReadOnlyList<ApplicationSnapshot> Applications,
     IReadOnlyList<AssetBlob> Assets,
-    IReadOnlyList<PreviewReference> Previews);
+    IReadOnlyList<PreviewReference> Previews,
+    IReadOnlyList<CameraStationSnapshot>? CameraStations = null);
 
 public sealed record ApplicationSnapshot(
     ApplicationKind Kind,
@@ -29,7 +125,10 @@ public sealed record ApplicationSnapshot(
     bool WasRunning,
     IReadOnlyList<CapturedParameterField> FieldCoverage,
     IReadOnlyList<VideoSource> Sources,
-    IReadOnlyList<NativeConfigurationDocument> NativeDocuments);
+    IReadOnlyList<NativeConfigurationDocument> NativeDocuments,
+    ConfigurationTreeSnapshot? ConfigurationTree = null,
+    IReadOnlyList<FilterChainSnapshot>? FilterChains = null,
+    CaptureConsistency? CaptureConsistency = null);
 
 public sealed record NativeConfigurationDocument(
     string StoreId,
@@ -47,7 +146,11 @@ public sealed record CapturedParameterField(
     string ValueType,
     bool Required,
     bool Writable,
-    string Verification);
+    string Verification,
+    string FieldId = "",
+    string NativeName = "",
+    string UiPath = "",
+    FieldEvidenceStatus EvidenceStatus = FieldEvidenceStatus.Unknown);
 
 public sealed record NativeConfigurationValue(
     string JsonPointer,
@@ -61,7 +164,9 @@ public sealed record VideoSource(
     CaptureDeviceDescriptor? Device,
     VideoMode? Mode,
     IReadOnlyDictionary<string, JsonElement> Settings,
-    IReadOnlyList<VideoFilter> Filters);
+    IReadOnlyList<VideoFilter> Filters,
+    string UnversionedKind = "",
+    IReadOnlyDictionary<string, JsonElement>? DefaultSettings = null);
 
 public sealed record CaptureDeviceDescriptor(
     string FriendlyName,
@@ -100,7 +205,8 @@ public sealed record AssetBinding(
     string BlobSha256,
     string OriginalFileName,
     string SourcePath,
-    string ReferencePath);
+    string ReferencePath,
+    long Length = 0);
 
 public sealed record PreviewReference(
     ApplicationKind Application,

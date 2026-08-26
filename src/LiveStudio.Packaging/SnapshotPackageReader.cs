@@ -7,8 +7,9 @@ namespace LiveStudio.Packaging;
 
 public static class SnapshotPackageReader
 {
-    private const int SupportedSchemaVersion = 2;
-    private const long MaximumMetadataLength = 256 * 1024;
+    private static readonly HashSet<int> SupportedSchemaVersions = [2, 3];
+    private const long MaximumManifestLength = 4L * 1024 * 1024;
+    private const long MaximumSignatureLength = 256 * 1024;
     private const long MaximumEntryLength = 512L * 1024 * 1024;
     private const long MaximumPackageLength = 2L * 1024 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -52,12 +53,20 @@ public static class SnapshotPackageReader
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
         EnsureSafeEntries(archive);
 
-        var manifestBytes = await ReadMetadataEntryAsync(archive, "manifest.json", cancellationToken);
-        var signatureBytes = await ReadMetadataEntryAsync(archive, "signature.json", cancellationToken);
+        var manifestBytes = await ReadMetadataEntryAsync(
+            archive,
+            "manifest.json",
+            MaximumManifestLength,
+            cancellationToken);
+        var signatureBytes = await ReadMetadataEntryAsync(
+            archive,
+            "signature.json",
+            MaximumSignatureLength,
+            cancellationToken);
         var manifest = Deserialize<SnapshotPackageManifest>(manifestBytes, "manifest.json");
         var signature = Deserialize<PackageSignature>(signatureBytes, "signature.json");
         ValidateSignatureMetadata(signature);
-        if (manifest.SchemaVersion != SupportedSchemaVersion)
+        if (!SupportedSchemaVersions.Contains(manifest.SchemaVersion))
         {
             throw new SnapshotPackageException($"不支持存档 schema 版本 {manifest.SchemaVersion}");
         }
@@ -147,10 +156,36 @@ public static class SnapshotPackageReader
         }
 
         EnsureManifestMatchesParameters(manifest, snapshot);
+        snapshot = NormalizeLegacySnapshot(snapshot);
 
         return new SnapshotPackageInspection(
             new SnapshotPackage(manifest, snapshot, files),
             signer);
+    }
+
+    private static CombinedSnapshot NormalizeLegacySnapshot(CombinedSnapshot snapshot)
+    {
+        if (snapshot.SchemaVersion >= 3)
+        {
+            return snapshot;
+        }
+
+        return snapshot with
+        {
+            Applications = snapshot.Applications.Select(application => application with
+            {
+                Compatibility = CompatibilityLevel.Unsupported,
+                FieldCoverage = application.FieldCoverage.Select(field => field with
+                {
+                    Writable = false,
+                    Verification = "LegacySchemaReadOnly",
+                    EvidenceStatus = FieldEvidenceStatus.Unknown
+                }).ToArray(),
+                ConfigurationTree = null,
+                FilterChains = null,
+                CaptureConsistency = null
+            }).ToArray()
+        };
     }
 
     private static void EnsureManifestMatchesParameters(
@@ -177,9 +212,7 @@ public static class SnapshotPackageReader
                     StringComparison.Ordinal)
                 || expected.Compatibility != actual.Compatibility
                 || expected.WasRunning != actual.WasRunning
-                || !expected.FieldCoverage.SequenceEqual(
-                    actual.FieldCoverage.Select(field => field.NativePath),
-                    StringComparer.Ordinal))
+                || !FieldCoverageMatches(expected, actual))
             {
                 throw new SnapshotPackageException("存档适配器清单与参数内容不一致");
             }
@@ -192,9 +225,7 @@ public static class SnapshotPackageReader
             }
         }
 
-        var actualBindings = snapshot.Applications.SelectMany(application => application.Sources)
-            .SelectMany(source => source.Filters)
-            .SelectMany(filter => filter.Assets)
+        var actualBindings = SnapshotAssetBindings.Collect(snapshot.Applications)
             .ToDictionary(binding => binding.Id);
         if (actualBindings.Count != manifest.AssetBindings.Count
             || manifest.AssetBindings.Any(expected =>
@@ -202,10 +233,35 @@ public static class SnapshotPackageReader
                 || !string.Equals(expected.BlobSha256, actual.BlobSha256, StringComparison.Ordinal)
                 || !string.Equals(expected.OriginalFileName, actual.OriginalFileName, StringComparison.Ordinal)
                 || !string.Equals(expected.SourcePath, actual.SourcePath, StringComparison.Ordinal)
-                || !string.Equals(expected.ReferencePath, actual.ReferencePath, StringComparison.Ordinal)))
+                || !string.Equals(expected.ReferencePath, actual.ReferencePath, StringComparison.Ordinal)
+                || expected.Length != actual.Length))
         {
             throw new SnapshotPackageException("存档素材 Binding 清单与参数内容不一致");
         }
+
+        var manifestStations = manifest.CameraStations ?? [];
+        var snapshotStations = snapshot.CameraStations ?? [];
+        if (!manifestStations.SequenceEqual(snapshotStations))
+        {
+            throw new SnapshotPackageException("存档相机参数清单与参数内容不一致");
+        }
+    }
+
+    private static bool FieldCoverageMatches(
+        SnapshotApplicationManifest expected,
+        ApplicationSnapshot actual)
+    {
+        var actualPaths = actual.FieldCoverage.Select(field => field.NativePath).ToArray();
+        if (!string.IsNullOrWhiteSpace(expected.FieldCoverageSha256))
+        {
+            return expected.FieldCoverageCount == actualPaths.Length
+                   && string.Equals(
+                       expected.FieldCoverageSha256,
+                       SnapshotManifestIntegrity.HashFieldCoverage(actualPaths),
+                       StringComparison.Ordinal);
+        }
+
+        return expected.FieldCoverage.SequenceEqual(actualPaths, StringComparer.Ordinal);
     }
 
     private static void ValidateSignatureMetadata(PackageSignature signature)
@@ -257,7 +313,7 @@ public static class SnapshotPackageReader
 
         if (findings.Count > 0)
         {
-            throw new SnapshotPackageException(string.Join(Environment.NewLine, findings));
+            throw new SnapshotSensitiveDataException(string.Join(Environment.NewLine, findings));
         }
     }
 
@@ -291,11 +347,12 @@ public static class SnapshotPackageReader
     private static async Task<ReadOnlyMemory<byte>> ReadMetadataEntryAsync(
         ZipArchive archive,
         string path,
+        long maximumLength,
         CancellationToken cancellationToken)
     {
         var entry = archive.GetEntry(path)
             ?? throw new SnapshotPackageException($"存档缺少文件: {path}");
-        if (entry.Length > MaximumMetadataLength)
+        if (entry.Length > maximumLength)
         {
             throw new SnapshotPackageException($"存档元数据过大: {path}");
         }

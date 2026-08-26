@@ -1,56 +1,75 @@
 <Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Style Selector="Window">
-        <Setter Property="FontFamily" Value="-apple-system, BlinkMacSystemFont, SF Pro Text, Segoe UI" />
+        <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="#F5F5F7" />
     </Style>
 
     <Style Selector="Border.sidebar">
-        <Setter Property="Background" Value="#F226272C" />
-        <Setter Property="BorderBrush" Value="#20FFFFFF" />
+        <Setter Property="Background" Value="#222326" />
+        <Setter Property="BorderBrush" Value="#12FFFFFF" />
         <Setter Property="BorderThickness" Value="0,0,1,0" />
     </Style>
+    <Style Selector="Border.brand-mark">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Background" Value="#0A84FF" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
     <Style Selector="TextBlock.brand-title">
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="14" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="#FAFAFC" />
     </Style>
     <Style Selector="TextBlock.brand-caption">
         <Setter Property="FontSize" Value="11" />
-        <Setter Property="Foreground" Value="#8D8D93" />
+        <Setter Property="Foreground" Value="#8F9299" />
+    </Style>
+    <Style Selector="TextBlock.nav-section-label">
+        <Setter Property="Margin" Value="8,0,0,5" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="#777A80" />
     </Style>
     <Style Selector="Button.nav">
         <Setter Property="MinHeight" Value="34" />
-        <Setter Property="Margin" Value="0,1" />
-        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Padding" Value="9,5" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="Foreground" Value="#CECED3" />
+        <Setter Property="Foreground" Value="#C9C9CE" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="CornerRadius" Value="6" />
         <Setter Property="FontSize" Value="13" />
-        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="FontWeight" Value="Normal" />
     </Style>
     <Style Selector="Button.nav:pointerover">
         <Setter Property="Foreground" Value="#FFFFFF" />
-        <Setter Property="Background" Value="#11FFFFFF" />
+        <Setter Property="Background" Value="#10FFFFFF" />
     </Style>
     <Style Selector="Button.nav.active">
         <Setter Property="Foreground" Value="#FFFFFF" />
-        <Setter Property="Background" Value="#3B5E8FD8" />
+        <Setter Property="Background" Value="#345A8BC4" />
+        <Setter Property="FontWeight" Value="Medium" />
     </Style>
     <Style Selector="Path.nav-icon">
-        <Setter Property="Width" Value="17" />
-        <Setter Property="Height" Value="17" />
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Stretch" Value="Uniform" />
-        <Setter Property="Stroke" Value="#B6B6BC" />
+        <Setter Property="Stroke" Value="#A7A9AF" />
         <Setter Property="StrokeThickness" Value="1.5" />
         <Setter Property="StrokeLineCap" Value="Round" />
         <Setter Property="StrokeJoin" Value="Round" />
     </Style>
-    <Style Selector="Button.nav.active Path.nav-icon"><Setter Property="Stroke" Value="#FFFFFF" /></Style>
-    <Style Selector="TextBlock.device-name"><Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#E9E9ED" /></Style>
-    <Style Selector="TextBlock.device-mode"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#8C8C93" /></Style>
+    <Style Selector="Button.nav.active Path.nav-icon"><Setter Property="Stroke" Value="#74B4FF" /></Style>
+    <Style Selector="Border.sidebar-separator"><Setter Property="Height" Value="1" /><Setter Property="Margin" Value="8,0,8,3" /><Setter Property="Background" Value="#12FFFFFF" /></Style>
+    <Style Selector="Border.device-card"><Setter Property="Padding" Value="9,7" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="Border.device-status-dot"><Setter Property="CornerRadius" Value="3" /><Setter Property="Background" Value="#777A80" /></Style>
+    <Style Selector="TextBlock.device-name"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#D7D7DC" /><Setter Property="TextTrimming" Value="CharacterEllipsis" /></Style>
+    <Style Selector="TextBlock.device-mode"><Setter Property="FontSize" Value="10" /><Setter Property="Foreground" Value="#777A80" /><Setter Property="TextTrimming" Value="CharacterEllipsis" /></Style>
 
     <Style Selector="Grid.toolbar"><Setter Property="Background" Value="#1C1C1E" /></Style>
     <Style Selector="TextBlock.page-title"><Setter Property="FontSize" Value="22" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.35" /><Setter Property="Foreground" Value="#F5F5F7" /></Style>
@@ -111,6 +130,9 @@
     <Style Selector="ListBox.snapshot-list, ListBox.mapping-list"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
     <Style Selector="ListBox.snapshot-list ListBoxItem, ListBox.mapping-list ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="CornerRadius" Value="6" /></Style>
     <Style Selector="ListBox.snapshot-list ListBoxItem:selected, ListBox.mapping-list ListBoxItem:selected"><Setter Property="Background" Value="#345E8FD8" /></Style>
+    <Style Selector="ListBox.compact-menu, ListBox.app-switch"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="ListBox.compact-menu ListBoxItem, ListBox.app-switch ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="CornerRadius" Value="7" /></Style>
+    <Style Selector="ListBox.compact-menu ListBoxItem:selected, ListBox.app-switch ListBoxItem:selected"><Setter Property="Background" Value="#345E8FD8" /></Style>
     <Style Selector="TextBlock.snapshot-name"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#ECECF0" /></Style>
     <Style Selector="TextBlock.snapshot-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
     <Style Selector="TextBlock.snapshot-time"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="#B6B6BC" /></Style>
@@ -141,6 +163,81 @@
     <Style Selector="TextBlock.settings-title"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="#F0F0F3" /></Style>
     <Style Selector="TextBlock.settings-copy"><Setter Property="FontSize" Value="11" /><Setter Property="LineHeight" Value="16" /><Setter Property="Foreground" Value="#8E8E93" /></Style>
     <Style Selector="TextBlock.settings-value"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="#B8B8BE" /></Style>
+    <Style Selector="Border.settings-card"><Setter Property="Padding" Value="18,2" /><Setter Property="Background" Value="#0CFFFFFF" /><Setter Property="BorderBrush" Value="#1CFFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="10" /></Style>
+    <Style Selector="Expander.settings-expander"><Setter Property="Padding" Value="16,13" /><Setter Property="Background" Value="#08FFFFFF" /><Setter Property="BorderBrush" Value="#18FFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="10" /></Style>
     <Style Selector="TextBlock.authorization-code-inline"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="1.2" /><Setter Property="Foreground" Value="#75B4FF" /></Style>
     <Style Selector="TextBox.settings-input"><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="9,5" /><Setter Property="Background" Value="#14FFFFFF" /><Setter Property="BorderBrush" Value="#28FFFFFF" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" /><Setter Property="Foreground" Value="#F1F1F4" /><Setter Property="FontSize" Value="12" /></Style>
+
+    <!-- 画面存档：系统主题自适应的高密度语义样式。 -->
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+    </Style>
+    <Style Selector="Border.sidebar">
+        <Setter Property="Background" Value="{DynamicResource AppSidebarBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" />
+    </Style>
+    <Style Selector="TextBlock.brand-title, TextBlock.device-name"><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.brand-caption, TextBlock.device-mode, TextBlock.nav-section-label"><Setter Property="Foreground" Value="{DynamicResource TertiaryTextBrush}" /></Style>
+    <Style Selector="Button.nav"><Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" /></Style>
+    <Style Selector="Button.nav:pointerover"><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /></Style>
+    <Style Selector="Button.nav.active"><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /></Style>
+    <Style Selector="Path.nav-icon"><Setter Property="Stroke" Value="{DynamicResource SecondaryTextBrush}" /></Style>
+    <Style Selector="Border.sidebar-separator"><Setter Property="Background" Value="{DynamicResource ArchiveSeparatorBrush}" /></Style>
+    <Style Selector="TextBlock.archive-title"><Setter Property="FontSize" Value="21" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.archive-section"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.archive-label"><Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.archive-value"><Setter Property="FontSize" Value="12" /><Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.archive-meta"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{DynamicResource TertiaryTextBrush}" /></Style>
+    <Style Selector="Border.archive-timeline"><Setter Property="Background" Value="{DynamicResource ArchiveSidebarBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="0,0,1,0" /></Style>
+    <Style Selector="Border.archive-context"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="0,0,1,0" /></Style>
+    <Style Selector="Border.archive-header"><Setter Property="Background" Value="{DynamicResource ArchiveContentBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="0,0,0,1" /></Style>
+    <Style Selector="Border.archive-warning"><Setter Property="Padding" Value="10,7" /><Setter Property="Background" Value="{DynamicResource WarningBackgroundBrush}" /><Setter Property="CornerRadius" Value="8" /></Style>
+    <Style Selector="Border.archive-filter"><Setter Property="Padding" Value="10,8" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="CornerRadius" Value="10" /></Style>
+    <Style Selector="Border.archive-field"><Setter Property="Margin" Value="0,0,8,4" /><Setter Property="Padding" Value="8,3" /><Setter Property="MinHeight" Value="26" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="CornerRadius" Value="7" /></Style>
+    <Style Selector="Button.archive-primary"><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="14,5" /><Setter Property="Background" Value="{DynamicResource AccentBrush}" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="8" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="Button.archive-primary:pointerover"><Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" /></Style>
+    <Style Selector="Button.archive-secondary"><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="12,5" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="8" /></Style>
+    <Style Selector="Button.archive-danger"><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="14,5" /><Setter Property="Background" Value="{DynamicResource DangerBrush}" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="8" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="ToggleButton.archive-secondary"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="12,4" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="8" /></Style>
+    <Style Selector="ToggleButton.archive-secondary:checked"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Style>
+    <Style Selector="Button.archive-icon"><Setter Property="Width" Value="32" /><Setter Property="Height" Value="32" /><Setter Property="Padding" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" /><Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="8" /><Setter Property="FontSize" Value="17" /></Style>
+    <Style Selector="Button.archive-icon:pointerover"><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="ListBox.archive-list, ListBox.archive-context-list, ListBox.archive-segment"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="ListBox.archive-list ListBoxItem, ListBox.archive-context-list ListBoxItem, ListBox.archive-segment ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,0,2" /><Setter Property="Background" Value="Transparent" /><Setter Property="CornerRadius" Value="8" /></Style>
+    <Style Selector="ListBox.archive-list ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" /><Setter Property="BorderThickness" Value="3,0,0,0" /></Style>
+    <Style Selector="ListBox.archive-context-list ListBoxItem:selected, ListBox.archive-segment ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /></Style>
+    <Style Selector="ListBox.archive-list ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter, ListBox.archive-context-list ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter, ListBox.archive-segment ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="ListBox.archive-list ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter, ListBox.archive-context-list ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter, ListBox.archive-segment ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /></Style>
+    <Style Selector="ListBox.archive-list ListBoxItem:pointerover, ListBox.archive-context-list ListBoxItem:pointerover, ListBox.archive-segment ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /></Style>
+    <Style Selector="ListBox.archive-segment"><Setter Property="Padding" Value="2" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="CornerRadius" Value="9" /></Style>
+    <Style Selector="Button.archive-segment-camera"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="12,4" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="8" /><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="Button.archive-segment-camera:pointerover"><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /></Style>
+    <Style Selector="Button.archive-segment-camera.active"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /></Style>
+    <Style Selector="TextBox.archive-search"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="9,4" /><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="8" /><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="Border.archive-technical-sheet"><Setter Property="Width" Value="400" /><Setter Property="Background" Value="{DynamicResource TechnicalPanelBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="1,0,0,0" /><Setter Property="BoxShadow" Value="-8 0 24 0 #30000000" /></Style>
+    <Style Selector="Border.archive-restore-sheet"><Setter Property="Width" Value="560" /><Setter Property="Background" Value="{DynamicResource TechnicalPanelBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="BorderThickness" Value="1,0,0,0" /><Setter Property="BoxShadow" Value="-8 0 24 0 #30000000" /></Style>
+
+    <!-- 全应用语义颜色：覆盖旧页面残留的固定深色。 -->
+    <Style Selector="Grid.toolbar"><Setter Property="Background" Value="{DynamicResource AppWindowBrush}" /></Style>
+    <Style Selector="TextBlock.page-title, TextBlock.empty-heading, TextBlock.detail-title, TextBlock.application-title, TextBlock.source-title, TextBlock.parameter-value-strong, TextBlock.filter-title, TextBlock.section-heading, TextBlock.snapshot-name, TextBlock.room-picker-name, TextBlock.coverage-status, TextBlock.coverage-application, TextBlock.coverage-field-name, TextBlock.coverage-field-value, TextBlock.settings-title"><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.page-subtitle, TextBlock.toolbar-context, TextBlock.quiet-label, TextBlock.meta-label, TextBlock.detail-meta, TextBlock.section-kicker, TextBlock.parameter-label, TextBlock.technical-value, TextBlock.technical-key, TextBlock.technical-heading, TextBlock.filter-order, TextBlock.inline-empty, TextBlock.column-heading, TextBlock.snapshot-meta, TextBlock.room-picker-count, TextBlock.coverage-summary, TextBlock.coverage-count, TextBlock.coverage-meta-label, TextBlock.coverage-field-state, TextBlock.coverage-field-path, TextBlock.coverage-field-meta, TextBlock.mapping-application, TextBlock.settings-section, TextBlock.settings-copy"><Setter Property="Foreground" Value="{DynamicResource TertiaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.empty-body, TextBlock.meta-value, TextBlock.inspector-title, TextBlock.group-label, TextBlock.row-label, TextBlock.row-value, TextBlock.inspector-note, TextBlock.parameter-value, TextBlock.snapshot-time, TextBlock.transfer-message, TextBlock.coverage-notice-text, TextBlock.coverage-meta-value, TextBlock.settings-value"><Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" /></Style>
+    <Style Selector="TextBlock.verification"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></Style>
+    <Style Selector="TextBlock.timeline-date, TextBlock.mapping-status, TextBlock.authorization-code-inline"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Style>
+    <Style Selector="Button.standard"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="Button.standard:pointerover"><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /></Style>
+    <Style Selector="Button.standard.accent"><Setter Property="Background" Value="{DynamicResource AccentBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" /><Setter Property="Foreground" Value="White" /></Style>
+    <Style Selector="Button.toolbar-action"><Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" /></Style>
+    <Style Selector="Button.toolbar-action:pointerover"><Setter Property="Background" Value="{DynamicResource ArchiveHoverBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="Button.link"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Style>
+    <Style Selector="Grid.preview-pane"><Setter Property="Background" Value="{DynamicResource ArchiveContentBrush}" /></Style>
+    <Style Selector="Border.status-bar"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /></Style>
+    <Style Selector="Border.inspector, Border.coverage-inspector"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /></Style>
+    <Style Selector="ListBox.snapshot-list ListBoxItem:selected, ListBox.mapping-list ListBoxItem:selected, ListBox.compact-menu ListBoxItem:selected, ListBox.app-switch ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource ArchiveSelectionBrush}" /></Style>
+    <Style Selector="Border.coverage-notice"><Setter Property="Background" Value="{DynamicResource WarningBackgroundBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource WarningAccentBrush}" /></Style>
+    <Style Selector="ComboBox.mapping-picker"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
+    <Style Selector="Border.settings-card"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /></Style>
+    <Style Selector="Expander.settings-expander"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /></Style>
+    <Style Selector="TextBox.settings-input"><Setter Property="Background" Value="{DynamicResource ArchiveRaisedBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource ArchiveSeparatorBrush}" /><Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" /></Style>
 </Styles>

@@ -5,208 +5,325 @@
              x:Class="LiveStudio.Desktop.Views.ControlRoomView"
              x:DataType="vm:MainViewModel">
     <Grid RowDefinitions="72,*">
-        <Grid Margin="28,0" ColumnDefinitions="*,Auto" Classes="toolbar">
+        <Grid Margin="20,0" ColumnDefinitions="*,Auto" Classes="toolbar">
             <StackPanel VerticalAlignment="Center" Spacing="3">
-                <TextBlock Classes="page-title" Text="控制室" />
-                <TextBlock Classes="page-subtitle" Text="{Binding ConnectionSubtitle}" />
+                <TextBlock Classes="page-title" Text="{Binding ControlPageTitle}" />
+                <TextBlock Classes="page-subtitle" Text="{Binding ControlPageSubtitle}" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
-                <TextBlock Margin="0,0,6,0" Classes="toolbar-context" VerticalAlignment="Center" Text="{Binding PlatformMode}" />
-                <Button Classes="standard" IsVisible="{Binding IsDisconnected}"
-                        Command="{Binding OpenConnectionSettingsCommand}">连接电脑…</Button>
-                <Button Classes="standard" AutomationProperties.Name="选择并恢复画面存档" IsVisible="{Binding IsAgentConnected}"
-                        Command="{Binding RestoreSnapshotCommand}">恢复</Button>
-                <Button Classes="standard accent" AutomationProperties.Name="联合保存 OBS 和直播伴侣当前画面参数" IsVisible="{Binding IsAgentConnected}"
-                        Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
+                <Button Classes="standard" IsVisible="{Binding CanOpenCloudManagement}"
+                        Command="{Binding ShowCloudManagementCommand}">多直播间</Button>
+                <Button Classes="standard" IsVisible="{Binding CanReturnToLocalControl}"
+                        Command="{Binding ShowLocalControlCommand}">返回本机</Button>
+                <Button Classes="standard" IsVisible="{Binding IsLocalControlPanelVisible}"
+                        Command="{Binding AutoConfigureObsCommand}">检测连接</Button>
+                <Button Classes="standard" AutomationProperties.Name="选择并还原画面存档"
+                        IsVisible="{Binding IsLocalControlPanelVisible}" Command="{Binding OpenSnapshotRestoreCommand}">选择存档恢复</Button>
+                <Button Classes="standard accent" AutomationProperties.Name="联合保存 OBS 和直播伴侣当前画面参数"
+                        IsVisible="{Binding IsLocalControlPanelVisible}" Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
             </StackPanel>
-            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
-        <Grid Grid.Row="1" IsVisible="{Binding IsDisconnected}">
+        <Grid Grid.Row="1" IsVisible="{Binding IsControlDisconnected}">
             <StackPanel Width="430" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                <Path Width="34" Height="34" Margin="0,0,0,5" HorizontalAlignment="Center"
-                      Data="M4,8 A3,3 0 0 1 7,5 L17,5 A3,3 0 0 1 20,8 L20,16 A3,3 0 0 1 17,19 L7,19 A3,3 0 0 1 4,16 Z M9,12 L15,12 M12,9 L12,15"
-                      Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
                 <TextBlock Classes="empty-heading" Text="{Binding ControlStatusTitle}" TextAlignment="Center" />
                 <TextBlock Classes="empty-body" Text="{Binding ControlStatusDescription}"
                            TextAlignment="Center" TextWrapping="Wrap" />
-                <Button Classes="standard" HorizontalAlignment="Center"
-                        Command="{Binding OpenConnectionSettingsCommand}">配置连接</Button>
+                <Button Classes="standard accent" HorizontalAlignment="Center"
+                        Command="{Binding AutoConfigureObsCommand}">一键连接 OBS 和直播伴侣</Button>
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="1" IsVisible="{Binding IsAgentConnected}" ColumnDefinitions="0.68*,0.32*">
-            <Grid Classes="preview-pane">
-                <StackPanel Width="430" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                    <Path Width="34" Height="34" Margin="0,0,0,5" HorizontalAlignment="Center"
-                          Data="M4,8 A3,3 0 0 1 7,5 L17,5 A3,3 0 0 1 20,8 L20,16 A3,3 0 0 1 17,19 L7,19 A3,3 0 0 1 4,16 Z M9,12 L15,12 M12,9 L12,15"
-                          Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
-                    <TextBlock Classes="empty-heading" Text="{Binding ControlStatusTitle}" TextAlignment="Center" />
-                    <TextBlock Classes="empty-body" Text="{Binding ControlStatusDescription}"
-                               TextAlignment="Center" TextWrapping="Wrap" />
-                </StackPanel>
-                <StackPanel Margin="20" HorizontalAlignment="Left" VerticalAlignment="Top"
-                            Orientation="Horizontal" Spacing="8">
-                    <Border Width="7" Height="7" CornerRadius="4" Background="#30D158" VerticalAlignment="Center" />
-                    <TextBlock Classes="quiet-label" Text="{Binding ConfigurationStatus}" />
-                </StackPanel>
-                <Border VerticalAlignment="Bottom" Classes="status-bar">
-                    <Grid Height="54" ColumnDefinitions="*,*,*">
-                        <StackPanel Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="配置状态" />
-                            <TextBlock Classes="meta-value" Text="{Binding ConfigurationStatus}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="执行端" />
-                            <TextBlock Classes="meta-value" Text="{Binding AgentStatus}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="存档" />
-                            <TextBlock Classes="meta-value" Text="{Binding SnapshotCountText}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
-            </Grid>
-
-            <Border Grid.Column="1" Classes="inspector">
-                <StackPanel>
-                    <TextBlock Margin="18,18,18,14" Classes="inspector-title" Text="检查器" />
-                    <Border Height="1" Background="#14FFFFFF" />
-                    <StackPanel Margin="18,16" Spacing="13">
-                        <TextBlock Classes="group-label" Text="连接" />
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Classes="row-label" Text="直播电脑" />
-                            <TextBlock Grid.Column="1" Classes="row-value" Text="{Binding DeviceName}" />
-                        </Grid>
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Classes="row-label" Text="本机执行端" />
-                            <TextBlock Grid.Column="1" Classes="row-value" Text="{Binding AgentStatus}" />
-                        </Grid>
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Classes="row-label" Text="云端同步" />
-                            <TextBlock Grid.Column="1" Classes="row-value" Text="{Binding CloudStatus}" />
-                        </Grid>
-                    </StackPanel>
-                    <Border Height="1" Margin="18,0" Background="#14FFFFFF" />
-                    <StackPanel Margin="18,16" Spacing="13">
-                        <TextBlock Classes="group-label" Text="当前配置" />
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Classes="row-label" Text="OBS" />
-                            <TextBlock Grid.Column="1" Classes="row-value" Text="{Binding ObsStatus}" />
-                        </Grid>
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Classes="row-label" Text="直播伴侣" />
-                            <TextBlock Grid.Column="1" Classes="row-value" Text="{Binding LiveCompanionStatus}" />
-                        </Grid>
-                    </StackPanel>
-                    <Border Height="1" Margin="18,0" Background="#14FFFFFF" />
-                    <StackPanel Margin="18,16" Spacing="8">
-                        <TextBlock Classes="group-label" Text="恢复安全" />
-                        <TextBlock Classes="inspector-note"
-                                   Text="恢复前会检查直播状态、设备能力并创建事务快照。任何字段回读不一致都会回滚。"
+        <Grid Grid.Row="1" IsVisible="{Binding IsLocalControlPanelVisible}">
+            <StackPanel Margin="28,18,28,20" MaxWidth="1480" HorizontalAlignment="Center" Spacing="14">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                    <StackPanel Spacing="3">
+                        <TextBlock Classes="detail-title" Text="{Binding ControlStatusTitle}" />
+                        <TextBlock Classes="detail-meta" Text="{Binding ControlStatusDescription}" TextWrapping="Wrap" />
+                        <TextBlock Classes="detail-meta" Margin="0,3,0,0"
+                                   Text="日常只需：保存当前画面 → 在画面存档中检查 → 需要时恢复。更换电脑或采集设备时，恢复会自动引导选择对应来源。"
                                    TextWrapping="Wrap" />
                     </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right" Spacing="3">
+                        <TextBlock Classes="coverage-status" HorizontalAlignment="Right" Text="{Binding ConfigurationStatus}" />
+                        <TextBlock Classes="detail-meta" HorizontalAlignment="Right" Text="{Binding SnapshotCountText, StringFormat={}本机存档 {0}}" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Height="180" ColumnDefinitions="*,*" ColumnSpacing="12">
+                    <Border Padding="16" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}"
+                            BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                        <Grid RowDefinitions="Auto,Auto,*,Auto">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Classes="application-title" Text="OBS Studio" />
+                                    <TextBlock Classes="detail-meta" Text="{Binding ObsVersionText}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="coverage-status" VerticalAlignment="Center"
+                                           Text="{Binding ObsConnectionState}" />
+                            </Grid>
+                            <Border Grid.Row="1" Height="1" Margin="0,12,0,10" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                            <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="16">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="连接" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding ObsConnectionState}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="推流" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding ObsStreamingState}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="录制" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding ObsRecordingState}" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Grid.Row="3" Classes="coverage-summary" Text="{Binding ObsReadSummary}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="1" Padding="16" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}"
+                            BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                        <Grid RowDefinitions="Auto,Auto,*,Auto">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Classes="application-title" Text="抖音直播伴侣" />
+                                    <TextBlock Classes="detail-meta" Text="{Binding LiveCompanionVersionText}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="coverage-status" VerticalAlignment="Center"
+                                           Text="{Binding LiveCompanionConnectionState}" />
+                            </Grid>
+                            <Border Grid.Row="1" Height="1" Margin="0,12,0,10" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                            <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="16">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="配置" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding LiveCompanionConnectionState}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="开播" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding LiveCompanionLiveState}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="3">
+                                    <TextBlock Classes="parameter-label" Text="还原" />
+                                    <TextBlock Classes="parameter-value-strong" Text="{Binding LiveCompanionAccessState}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Grid.Row="3" Classes="coverage-summary" Text="{Binding LiveCompanionReadSummary}" />
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <Grid ColumnDefinitions="1.5*,*" ColumnSpacing="12">
+                    <Border Padding="16" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}"
+                            BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="group-label" Text="最近一次保存" />
+                                <TextBlock Classes="section-heading" Text="{Binding SnapshotInspector.Name}" />
+                                <TextBlock Classes="detail-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
+                                <TextBlock Classes="detail-meta" Text="{Binding SnapshotInspector.Summary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="8">
+                                <TextBlock Classes="coverage-status" HorizontalAlignment="Right"
+                                           Text="{Binding SnapshotInspector.CoverageStatus}" />
+                                <Button Classes="standard" Command="{Binding SelectSectionCommand}" CommandParameter="1">检查存档内容</Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="1" Padding="16" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}"
+                            BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="group-label" Text="事务恢复" />
+                            <TextBlock Classes="section-heading" Text="失败自动回滚原配置" />
+                            <TextBlock Classes="detail-meta"
+                                       Text="还原会检查版本、设备、素材与权限；逐字段回读不一致时整次回滚。"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Border Padding="14,10" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}"
+                        BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                    <Grid RowDefinitions="Auto,*" RowSpacing="5">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="section-heading" Text="最近操作" />
+                            <Button Grid.Column="1" Classes="toolbar-icon"
+                                    Command="{Binding SelectSectionCommand}" CommandParameter="3">查看全部</Button>
+                        </Grid>
+                        <ItemsControl Grid.Row="1" ItemsSource="{Binding RecentActivityItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ActivityItemViewModel">
+                                    <Grid Height="29" ColumnDefinitions="105,92,*,116" ColumnSpacing="10">
+                                        <TextBlock VerticalAlignment="Center" Classes="snapshot-name" Text="{Binding Kind}" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Classes="mapping-status" Text="{Binding Status}" />
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" Classes="snapshot-meta"
+                                                   Text="{Binding Message}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                   Classes="snapshot-meta" Text="{Binding CreatedAt}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" IsVisible="{Binding IsCloudSetupVisible}">
+            <Border Width="560" Padding="26,24" CornerRadius="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="{DynamicResource ArchiveRaisedBrush}" BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="detail-title" Text="连接云存档" />
+                        <TextBlock Classes="detail-meta" Text="每台直播电脑绑定一个直播间；新存档自动上传，断网后自动续传。" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <TextBlock Classes="settings-value" VerticalAlignment="Center" Text="{Binding CloudServiceUrl}" />
+                        <Button Grid.Column="1" Classes="standard accent" MinWidth="92"
+                                IsEnabled="{Binding !IsCloudAuthorizing}" Command="{Binding ConnectCloudCommand}"
+                                Content="{Binding CloudConnectButtonText}" />
+                    </Grid>
+                    <TextBlock Classes="settings-copy" Text="{Binding CloudCertificateStatus}" TextWrapping="Wrap" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                        <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="{Binding CloudConnectionMessage}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Classes="authorization-code-inline" IsVisible="{Binding HasCloudAuthorizationCode}"
+                                   VerticalAlignment="Center" Text="{Binding CloudAuthorizationCode}" />
+                    </Grid>
+                    <TextBlock Classes="settings-copy" Text="授权在浏览器中完成；LiveStudio 不保存账号密码、Cookie 或直播账号登录状态。" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
         </Grid>
 
-        <Grid Grid.Row="1" IsVisible="{Binding IsCloudControlVisible}" ColumnDefinitions="250,*">
-            <Border BorderBrush="#16FFFFFF" BorderThickness="0,0,1,0">
-                <Grid RowDefinitions="Auto,*">
-                    <StackPanel Margin="20,16,16,12" Spacing="6">
-                        <TextBlock Classes="group-label" Text="组织" />
-                        <ComboBox Classes="mapping-picker" MinHeight="32"
-                                  ItemsSource="{Binding Organizations}"
-                                  SelectedItem="{Binding SelectedOrganization}">
+        <Grid Grid.Row="1" IsVisible="{Binding IsCloudControlVisible}" ColumnDefinitions="280,*">
+            <Border BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <StackPanel Margin="16,12,16,8" Spacing="6">
+                        <TextBlock Classes="group-label" Text="统一管理" />
+                        <ComboBox ItemsSource="{Binding Organizations}" SelectedItem="{Binding SelectedOrganization}">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="contracts:OrganizationSummary">
-                                    <TextBlock Classes="section-heading" Text="{Binding Name}" />
+                                    <TextBlock Text="{Binding Name}" />
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                     </StackPanel>
-                    <ListBox Grid.Row="1" Margin="10,0,10,14" Classes="mapping-list"
+                    <Grid Grid.Row="1" Margin="16,4,12,6" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                        <TextBlock VerticalAlignment="Center" Classes="snapshot-meta" Text="选择要保存的直播间" />
+                        <Button Grid.Column="1" Classes="toolbar-icon" Padding="7,3"
+                                Command="{Binding SelectAllOnlineRoomsCommand}">全选在线</Button>
+                        <Button Grid.Column="2" Classes="toolbar-icon" Padding="7,3"
+                                Command="{Binding ClearBatchRoomSelectionCommand}">清除</Button>
+                    </Grid>
+                    <ListBox Grid.Row="2" Margin="8,0,8,8" Classes="mapping-list"
                              ItemsSource="{Binding CloudRooms}" SelectedItem="{Binding SelectedCloudRoom}">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:CloudRoomItemViewModel">
-                                <Grid MinHeight="56" Margin="10,0" ColumnDefinitions="8,*,Auto" ColumnSpacing="10">
-                                    <Ellipse Width="7" Height="7" VerticalAlignment="Center"
-                                             Fill="#73767D" />
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <Grid MinHeight="50" Margin="6,0" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <CheckBox VerticalAlignment="Center" IsEnabled="{Binding CanBatchSelect}"
+                                              IsChecked="{Binding IsBatchSelected, Mode=TwoWay}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                         <TextBlock Classes="snapshot-name" Text="{Binding Name}" />
                                         <TextBlock Classes="snapshot-meta" Text="{Binding LastSnapshot}" />
                                     </StackPanel>
-                                    <TextBlock Grid.Column="2" Classes="mapping-status" VerticalAlignment="Center"
-                                               Text="{Binding Status}" />
+                                    <TextBlock Grid.Column="2" Classes="mapping-status" VerticalAlignment="Center" Text="{Binding Status}" />
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </Grid>
             </Border>
-
-            <Grid Grid.Column="1" RowDefinitions="*,Auto">
-                <Grid Margin="28,24,28,22" RowDefinitions="Auto,*">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Spacing="4">
-                            <TextBlock Classes="page-title" FontSize="19" Text="{Binding SelectedCloudRoom.Name}" />
-                            <TextBlock Classes="page-subtitle" Text="{Binding ControlStatusDescription}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <Button Classes="toolbar-action" Command="{Binding RefreshCloudPreviewCommand}">刷新画面</Button>
-                            <Button Classes="standard" Command="{Binding RestoreSnapshotCommand}">应用存档</Button>
-                            <Button Classes="standard accent" Command="{Binding CaptureCloudSnapshotCommand}">联合保存</Button>
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid Grid.Row="1" Margin="0,20,0,0" ColumnDefinitions="*,*" ColumnSpacing="16">
-                        <Grid RowDefinitions="*,Auto">
-                            <Border Background="#101012" CornerRadius="8" ClipToBounds="True">
-                                <Grid>
-                                    <Image Source="{Binding CurrentObsPreview}" Stretch="Uniform" />
-                                    <TextBlock IsVisible="{Binding !HasObsPreview}" Classes="inline-empty"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Text="尚无 OBS 当前画面" />
-                                </Grid>
-                            </Border>
-                            <Grid Grid.Row="1" Margin="2,9,2,0" ColumnDefinitions="*,Auto">
-                                <TextBlock Classes="section-heading" Text="OBS" />
-                                <TextBlock Grid.Column="1" Classes="snapshot-meta" Text="{Binding ObsStatus}" />
-                            </Grid>
+            <Grid Grid.Column="1" Margin="24,18,24,24" RowDefinitions="Auto,Auto,*" RowSpacing="12">
+                    <Border Padding="14,12" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                            <StackPanel Spacing="3">
+                                <TextBlock Classes="section-heading" Text="批量备份" />
+                                <TextBlock Classes="detail-meta" Text="{Binding BatchCaptureResultText}"
+                                           TextWrapping="Wrap" MaxWidth="760" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                                <Button Classes="standard" IsVisible="{Binding HasBatchCaptureFailures}"
+                                        Command="{Binding RetryFailedBatchCaptureCommand}">重试未成功项</Button>
+                                <Button Classes="standard accent" Command="{Binding BatchCaptureCloudSnapshotsCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="批量保存" />
+                                        <TextBlock Text="{Binding BatchSelectedCountText}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
                         </Grid>
-                        <Grid Grid.Column="1" RowDefinitions="*,Auto">
-                            <Border Background="#101012" CornerRadius="8" ClipToBounds="True">
-                                <Grid>
-                                    <Image Source="{Binding CurrentLiveCompanionPreview}" Stretch="Uniform" />
-                                    <TextBlock IsVisible="{Binding !HasLiveCompanionPreview}" Classes="inline-empty"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               Text="尚无直播伴侣当前画面" />
-                                </Grid>
-                            </Border>
-                            <Grid Grid.Row="1" Margin="2,9,2,0" ColumnDefinitions="*,Auto">
-                                <TextBlock Classes="section-heading" Text="直播伴侣" />
-                                <TextBlock Grid.Column="1" Classes="snapshot-meta" Text="{Binding LiveCompanionStatus}" />
-                            </Grid>
-                        </Grid>
-                    </Grid>
-                </Grid>
+                    </Border>
 
-                <Border Grid.Row="1" Classes="status-bar">
-                    <Grid Height="54" ColumnDefinitions="*,*,*">
-                        <StackPanel Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="设备状态" />
-                            <TextBlock Classes="meta-value" Text="{Binding AgentStatus}" />
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                        <StackPanel Spacing="3">
+                            <TextBlock Classes="detail-title" Text="{Binding SelectedCloudRoom.Name}" />
+                            <TextBlock Classes="detail-meta" Text="{Binding ControlStatusDescription}" TextWrapping="Wrap" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="配置状态" />
-                            <TextBlock Classes="meta-value" Text="{Binding ConfigurationStatus}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="18,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="meta-label" Text="云端存档" />
-                            <TextBlock Classes="meta-value" Text="{Binding SnapshotCountText}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                            <Button Classes="standard" Command="{Binding RefreshCloudPreviewCommand}">刷新当前状态</Button>
+                            <Button Classes="standard" Command="{Binding RestoreSnapshotCommand}">恢复存档</Button>
+                            <Button Classes="standard accent" Command="{Binding CaptureCloudSnapshotCommand}">单独保存</Button>
                         </StackPanel>
                     </Grid>
-                </Border>
+
+                    <Grid Grid.Row="2" RowDefinitions="3*,2*" RowSpacing="12">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <Border Padding="12" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
+                            <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="application-title" Text="OBS Studio" />
+                                    <TextBlock Grid.Column="1" Classes="coverage-status" Text="{Binding ObsStatus}" />
+                                </Grid>
+                                <Border Grid.Row="1" MinHeight="190" Background="{DynamicResource ArchiveContentBrush}" CornerRadius="8">
+                                    <Grid>
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Classes="detail-meta" Text="尚无画面预览" />
+                                        <Image Source="{Binding CurrentObsPreview}" Stretch="Uniform" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="1" Padding="12" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
+                            <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="application-title" Text="抖音直播伴侣" />
+                                    <TextBlock Grid.Column="1" Classes="coverage-status" Text="{Binding LiveCompanionStatus}" />
+                                </Grid>
+                                <Border Grid.Row="1" MinHeight="190" Background="{DynamicResource ArchiveContentBrush}" CornerRadius="8">
+                                    <Grid>
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Classes="detail-meta" Text="尚无画面预览" />
+                                        <Image Source="{Binding CurrentLiveCompanionPreview}" Stretch="Uniform" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        </Grid>
+                        <Border Grid.Row="1" Padding="12,9" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
+                            <Grid RowDefinitions="Auto,*" RowSpacing="5">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="section-heading" Text="最近任务" />
+                                    <Button Grid.Column="1" Classes="toolbar-icon"
+                                            Command="{Binding SelectSectionCommand}" CommandParameter="3">查看全部</Button>
+                                </Grid>
+                                <ItemsControl Grid.Row="1" ItemsSource="{Binding RecentActivityItems}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ActivityItemViewModel">
+                                            <Grid Height="29" ColumnDefinitions="105,92,*,116" ColumnSpacing="10">
+                                                <TextBlock VerticalAlignment="Center" Classes="snapshot-name" Text="{Binding Kind}" />
+                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Classes="mapping-status" Text="{Binding Status}" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Classes="snapshot-meta"
+                                                           Text="{Binding Message}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                           Classes="snapshot-meta" Text="{Binding CreatedAt}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </Border>
+                    </Grid>
             </Grid>
         </Grid>
     </Grid>

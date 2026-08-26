@@ -17,7 +17,8 @@ public sealed record SnapshotPackageManifest(
     int SchemaVersion,
     IReadOnlyList<SnapshotApplicationManifest> Applications,
     IReadOnlyList<AssetBinding> AssetBindings,
-    IReadOnlyList<PackageFileEntry> Files);
+    IReadOnlyList<PackageFileEntry> Files,
+    IReadOnlyList<CameraStationSnapshot>? CameraStations = null);
 
 public sealed record SnapshotApplicationManifest(
     ApplicationKind Application,
@@ -26,7 +27,9 @@ public sealed record SnapshotApplicationManifest(
     string StructureFingerprint,
     CompatibilityLevel Compatibility,
     bool WasRunning,
-    IReadOnlyList<string> FieldCoverage);
+    IReadOnlyList<string> FieldCoverage,
+    int FieldCoverageCount = 0,
+    string FieldCoverageSha256 = "");
 
 public sealed record PackageSignature(
     string Algorithm,
@@ -53,7 +56,7 @@ public sealed record SnapshotPackage(
     CombinedSnapshot Snapshot,
     IReadOnlyDictionary<string, PackageFile> Files);
 
-public sealed class SnapshotPackageException : Exception
+public class SnapshotPackageException : Exception
 {
     public SnapshotPackageException()
     {
@@ -65,6 +68,19 @@ public sealed class SnapshotPackageException : Exception
     }
 
     public SnapshotPackageException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+public sealed class SnapshotSensitiveDataException : SnapshotPackageException
+{
+    public SnapshotSensitiveDataException(string message)
+        : base(message)
+    {
+    }
+
+    public SnapshotSensitiveDataException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

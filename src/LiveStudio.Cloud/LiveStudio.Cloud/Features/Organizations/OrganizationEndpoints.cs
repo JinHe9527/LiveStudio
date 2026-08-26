@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using LiveStudio.Cloud.Data;
+using LiveStudio.Cloud.Infrastructure;
 using LiveStudio.Cloud.Realtime;
 using LiveStudio.Cloud.Security;
 using LiveStudio.Contracts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LiveStudio.Cloud.Features.Organizations;
 
@@ -25,6 +27,7 @@ public static class OrganizationEndpoints
 
     private static async Task<IResult> ListAsync(
         ClaimsPrincipal user,
+        FirstWorkspaceBootstrapper bootstrapper,
         ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -33,6 +36,8 @@ public static class OrganizationEndpoints
         {
             return TypedResults.Unauthorized();
         }
+
+        await bootstrapper.EnsureForFirstAccountAsync(userId, cancellationToken);
 
         var organizations = await dbContext.OrganizationMembers
             .Where(member => member.UserId == userId)
@@ -64,8 +69,17 @@ public static class OrganizationEndpoints
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                [nameof(request.Name)] = ["Organization 名称长度必须为 1 到 100 个字符"]
+                [nameof(request.Name)] = ["直播管理空间名称长度必须为 1 到 100 个字符"]
             });
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            "LOCK TABLE \"Organizations\" IN SHARE ROW EXCLUSIVE MODE",
+            cancellationToken);
+        if (await dbContext.Organizations.AnyAsync(cancellationToken))
+        {
+            return TypedResults.Conflict("当前服务器只使用一个直播管理空间，请在其中创建直播间");
         }
 
         var organization = new OrganizationEntity
@@ -93,6 +107,7 @@ public static class OrganizationEndpoints
             DetailJson = "{}"
         });
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return TypedResults.Created($"/api/v1/organizations/{organization.Id}", new OrganizationSummary(organization.Id, organization.Name));
     }
 
@@ -115,7 +130,7 @@ public static class OrganizationEndpoints
             .ToListAsync(cancellationToken);
         var deviceIds = rooms.Where(room => room.DeviceId is not null).Select(room => room.DeviceId!.Value).ToArray();
         var devices = await dbContext.Devices.AsNoTracking()
-            .Where(device => deviceIds.Contains(device.Id))
+            .Where(device => deviceIds.Contains(device.Id) && device.RevokedAt == null)
             .ToDictionaryAsync(device => device.Id, cancellationToken);
         var roomIds = rooms.Select(room => room.Id).ToArray();
         var currentHashes = await dbContext.CurrentParameterStates.AsNoTracking()
@@ -150,6 +165,7 @@ public static class OrganizationEndpoints
         ClaimsPrincipal user,
         OrganizationAccessService access,
         ApplicationDbContext dbContext,
+        IOptions<ServiceLimitsOptions> limits,
         CancellationToken cancellationToken)
     {
         if (!await access.HasRoleAsync(user, organizationId, OrganizationRole.Admin, cancellationToken))
@@ -164,6 +180,16 @@ public static class OrganizationEndpoints
             {
                 [nameof(request.Name)] = ["直播间名称长度必须为 1 到 100 个字符"]
             });
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await OrganizationWriteLock.AcquireAsync(dbContext, organizationId, cancellationToken);
+
+        if (await dbContext.LiveRooms.CountAsync(
+                room => room.OrganizationId == organizationId,
+                cancellationToken) >= limits.Value.MaximumLiveRooms)
+        {
+            return TypedResults.Conflict($"当前服务最多管理 {limits.Value.MaximumLiveRooms} 个直播间");
         }
 
         var room = new LiveRoomEntity
@@ -185,6 +211,7 @@ public static class OrganizationEndpoints
             DetailJson = "{}"
         });
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return TypedResults.Created(
             $"/api/v1/organizations/{organizationId}/rooms/{room.Id}",
             new LiveRoomSummary(room.Id, organizationId, room.Name, null, null, false, false));

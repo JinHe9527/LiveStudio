@@ -13,6 +13,7 @@
     <Project Path="src/LiveStudio.Cloud/LiveStudio.Cloud/LiveStudio.Cloud.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/LiveStudio.Agent.Tests/LiveStudio.Agent.Tests.csproj" />
     <Project Path="tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

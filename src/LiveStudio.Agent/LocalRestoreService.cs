@@ -61,6 +61,7 @@ public sealed class LocalRestoreService(
             "LiveStudio",
             "Assets");
         ValidateAssetEntries(package);
+        EnsureAssetCapacity(package, assetDirectory);
         return await restoreCoordinator.ExecuteAsync(
             Guid.NewGuid(),
             package.Snapshot,
@@ -91,14 +92,18 @@ public sealed class LocalRestoreService(
         }
 
         var blobs = package.Snapshot.Assets.Select(asset => asset.Sha256).ToHashSet(StringComparer.Ordinal);
-        var bindings = package.Snapshot.Applications.SelectMany(application => application.Sources)
-            .SelectMany(source => source.Filters)
-            .SelectMany(filter => filter.Assets)
-            .ToArray();
+        var bindings = SnapshotAssetBindings.Collect(package.Snapshot.Applications);
         var missingBinding = bindings.FirstOrDefault(binding => !blobs.Contains(binding.BlobSha256));
         if (missingBinding is not null)
         {
             throw new SnapshotPackageException($"滤镜素材引用缺少内容 Blob: {missingBinding.OriginalFileName}");
+        }
+
+        var invalidLength = bindings.FirstOrDefault(binding =>
+            binding.Length <= 0 || blobs.TryGetValue(binding.BlobSha256, out var blob) && binding.Length != blob.Length);
+        if (invalidLength is not null)
+        {
+            throw new SnapshotPackageException($"滤镜素材长度不一致: {invalidLength.OriginalFileName}");
         }
 
         var invalidFileName = bindings.FirstOrDefault(binding =>
@@ -125,12 +130,9 @@ public sealed class LocalRestoreService(
         string assetDirectory,
         CancellationToken cancellationToken)
     {
-        EnsureAssetCapacity(package, assetDirectory);
         Directory.CreateDirectory(assetDirectory);
         var blobs = package.Snapshot.Assets.ToDictionary(asset => asset.Sha256, StringComparer.Ordinal);
-        var bindings = package.Snapshot.Applications.SelectMany(application => application.Sources)
-            .SelectMany(source => source.Filters)
-            .SelectMany(filter => filter.Assets)
+        var bindings = SnapshotAssetBindings.Collect(package.Snapshot.Applications)
             .DistinctBy(binding => $"{binding.BlobSha256}\0{binding.OriginalFileName}", StringComparer.Ordinal)
             .ToArray();
         foreach (var binding in bindings)
@@ -186,10 +188,7 @@ public sealed class LocalRestoreService(
         var root = Path.GetPathRoot(fullPath)
             ?? throw new IOException($"无法确定素材目录所在磁盘: {fullPath}");
         var blobs = package.Snapshot.Assets.ToDictionary(asset => asset.Sha256, StringComparer.Ordinal);
-        var requiredBytes = package.Snapshot.Applications
-            .SelectMany(application => application.Sources)
-            .SelectMany(source => source.Filters)
-            .SelectMany(filter => filter.Assets)
+        var requiredBytes = SnapshotAssetBindings.Collect(package.Snapshot.Applications)
             .DistinctBy(binding => $"{binding.BlobSha256}\0{binding.OriginalFileName}", StringComparer.Ordinal)
             .Where(binding => !File.Exists(Path.Combine(
                 fullPath,

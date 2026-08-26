@@ -37,7 +37,8 @@ public sealed class SnapshotInspectorCoverageTests
                     "Object",
                     true,
                     true,
-                    "SignedAdapterReadback")
+                    "SignedAdapterReadback",
+                    EvidenceStatus: FieldEvidenceStatus.Mapped)
             ]);
 
         var viewModel = new SnapshotApplicationViewModel(application);
@@ -48,8 +49,8 @@ public sealed class SnapshotInspectorCoverageTests
             viewModel.CoverageFields,
             field => field.TechnicalPath == "studio.json:/filters/curves/master/1/y"
                      && field.Value == "0.62"
-                     && field.Name == "Y 坐标 · 第 2 个控制点");
-        Assert.Equal("字段覆盖完整", viewModel.CoverageStatus);
+                     && field.Name == "y");
+        Assert.Equal("已映射 10 项，尚未完成真机验收", viewModel.CoverageStatus);
     }
 
     [Fact]
@@ -65,7 +66,8 @@ public sealed class SnapshotInspectorCoverageTests
                     "Object",
                     false,
                     true,
-                    "SignedAdapterReadback")
+                    "SignedAdapterReadback",
+                    EvidenceStatus: FieldEvidenceStatus.Mapped)
             ]);
 
         var viewModel = new SnapshotApplicationViewModel(application);
@@ -94,7 +96,8 @@ public sealed class SnapshotInspectorCoverageTests
                     "Object",
                     true,
                     false,
-                    "DiscoveryReadOnly")
+                    "DiscoveryReadOnly",
+                    EvidenceStatus: FieldEvidenceStatus.EvidenceOnly)
             ]);
 
         var viewModel = new SnapshotApplicationViewModel(application);
@@ -103,7 +106,7 @@ public sealed class SnapshotInspectorCoverageTests
         Assert.All(viewModel.CoverageFields, field =>
         {
             Assert.True(field.IsGap);
-            Assert.Equal("待适配", field.Status);
+            Assert.Equal("仅有证据", field.Status);
             Assert.Equal("探测读取（不可恢复）", field.Verification);
         });
     }

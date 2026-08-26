@@ -6,13 +6,15 @@ namespace LiveStudio.Packaging;
 
 public static partial class SensitiveDataScanner
 {
+    private const int MaximumEmbeddedJsonDepth = 4;
+
     public static IReadOnlyList<string> ScanJson(ReadOnlySpan<byte> content, string path)
     {
         try
         {
             using var document = JsonDocument.Parse(content.ToArray());
             var findings = new List<string>();
-            ScanElement(document.RootElement, path, findings);
+            ScanElement(document.RootElement, path, findings, 0);
             return findings;
         }
         catch (JsonException)
@@ -38,7 +40,11 @@ public static partial class SensitiveDataScanner
         return findings;
     }
 
-    private static void ScanElement(JsonElement element, string path, List<string> findings)
+    private static void ScanElement(
+        JsonElement element,
+        string path,
+        List<string> findings,
+        int embeddedJsonDepth)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
@@ -51,7 +57,7 @@ public static partial class SensitiveDataScanner
                     continue;
                 }
 
-                ScanElement(property.Value, propertyPath, findings);
+                ScanElement(property.Value, propertyPath, findings, embeddedJsonDepth);
             }
         }
         else if (element.ValueKind == JsonValueKind.Array)
@@ -59,13 +65,52 @@ public static partial class SensitiveDataScanner
             var index = 0;
             foreach (var value in element.EnumerateArray())
             {
-                ScanElement(value, $"{path}[{index}]", findings);
+                ScanElement(value, $"{path}[{index}]", findings, embeddedJsonDepth);
                 index++;
             }
         }
-        else if (element.ValueKind == JsonValueKind.String && BearerPattern().IsMatch(element.GetString() ?? string.Empty))
+        else if (element.ValueKind == JsonValueKind.String)
         {
-            findings.Add($"{path}: 检测到 Bearer 凭据");
+            var value = element.GetString() ?? string.Empty;
+            if (BearerPattern().IsMatch(value))
+            {
+                findings.Add($"{path}: 检测到 Bearer 凭据");
+            }
+
+            ScanEmbeddedJson(value, path, findings, embeddedJsonDepth);
+        }
+    }
+
+    private static void ScanEmbeddedJson(
+        string value,
+        string path,
+        List<string> findings,
+        int embeddedJsonDepth)
+    {
+        if (embeddedJsonDepth >= MaximumEmbeddedJsonDepth)
+        {
+            return;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length < 2
+            || (trimmed[0] != '{' && trimmed[0] != '['))
+        {
+            return;
+        }
+
+        try
+        {
+            using var embedded = JsonDocument.Parse(trimmed);
+            ScanElement(
+                embedded.RootElement,
+                $"{path}（内嵌 JSON）",
+                findings,
+                embeddedJsonDepth + 1);
+        }
+        catch (JsonException)
+        {
+            // 普通文本可能以大括号开头；只有可解析的内嵌 JSON 才参与敏感字段审计。
         }
     }
 

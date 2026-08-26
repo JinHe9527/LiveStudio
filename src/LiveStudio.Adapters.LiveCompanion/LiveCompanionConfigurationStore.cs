@@ -18,18 +18,12 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         "account", "authorization", "cookie", "credential", "did", "login", "oauth", "password",
         "passport", "secret", "session", "streamkey", "token", "uid"
     ];
-    private static readonly string[] FilterTerms =
+    private static readonly string[] DiscoveryDocumentPaths =
     [
-        "beauty", "brightness", "chroma", "contrast", "effect", "exposure", "filter", "gamma",
-        "keying", "lut", "mask", "saturation", "sharp", "smooth", "whiten"
-    ];
-    private static readonly string[] DeviceTerms =
-    [
-        "cameraid", "capturedevice", "deviceid", "videodevice", "videoinput"
-    ];
-    private static readonly string[] ModeTerms =
-    [
-        "colorrange", "colorspace", "fps", "framerate", "height", "pixelformat", "resolution", "width"
+        @"WBStore\effectConfigStore.json",
+        @"WBStore\effectStore.json",
+        @"WBStore\filterStore.json",
+        @"WBStore\sourceStore.json"
     ];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -46,12 +40,11 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         var documents = new List<NativeConfigurationDocument>();
-        foreach (var path in Directory.EnumerateFiles(RootPath, "*.json", SearchOption.AllDirectories)
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (var relativePath in DiscoveryDocumentPaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var relativePath = Path.GetRelativePath(RootPath, path);
-            if (ShouldExcludePath(relativePath))
+            var path = Path.GetFullPath(Path.Combine(RootPath, relativePath));
+            if (!File.Exists(path))
             {
                 continue;
             }
@@ -73,7 +66,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
                 using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
                 var values = new List<NativeConfigurationValue>();
-                CollectValues(json.RootElement, string.Empty, values);
+                CollectDiscoveryValues(relativePath, json.RootElement, values);
                 if (values.Count == 0)
                 {
                     continue;
@@ -112,6 +105,12 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         VerifiedAdapterDefinition adapter,
         CancellationToken cancellationToken)
     {
+        var discoveredDocuments = await CaptureDocumentsAsync(cancellationToken);
+        var runtimeBinding = LiveCompanionRuntimeBinding.TryCreate(
+            adapter.Definition,
+            discoveredDocuments)
+            ?? throw new InvalidOperationException(
+                "直播伴侣当前摄像头来源无法唯一绑定到签名适配定义");
         var documents = new List<NativeConfigurationDocument>();
         foreach (var store in adapter.Definition.Stores.OrderBy(store => store.Id, StringComparer.Ordinal))
         {
@@ -140,9 +139,10 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                          .Where(field => string.Equals(field.StoreId, store.Id, StringComparison.Ordinal))
                          .OrderBy(field => field.NativePath, StringComparer.Ordinal))
             {
-                if (!TryGetPointer(json.RootElement, field.NativePath, out var value))
+                var runtimePath = runtimeBinding.ToRuntimePointer(field.NativePath);
+                if (!TryGetPointer(json.RootElement, runtimePath, out var value))
                 {
-                    if (field.Required)
+                    if (IsRestorableField(field))
                     {
                         throw new InvalidOperationException(
                             $"直播伴侣配置缺少必需字段 {store.Id}:{field.NativePath}");
@@ -151,11 +151,23 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     continue;
                 }
 
-                EnsureExpectedType(field, value);
+                if (!MatchesExpectedType(field, value))
+                {
+                    if (!IsOptionalApplicationManagedCache(field))
+                    {
+                        EnsureExpectedType(field, value);
+                    }
+
+                    // 直播伴侣会自行重建部分运行时缓存，同一路径可能在不同启动周期
+                    // 使用不同 JSON 类型。这些字段不可写、非必需，也不参与恢复回读；
+                    // 类型漂移时忽略该缓存，不能阻断真实画面配置的联合保存。
+                    continue;
+                }
+
                 values.Add(new NativeConfigurationValue(
                     field.NativePath,
                     Category(field.UnifiedKind),
-                    value.Clone()));
+                    runtimeBinding.ToCanonicalValue(value)));
             }
 
             var relativePath = Path.GetRelativePath(RootPath, path);
@@ -172,6 +184,60 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         return documents;
+    }
+
+    public async Task ValidateRepairTargetAsync(
+        VerifiedAdapterDefinition adapter,
+        CancellationToken cancellationToken)
+    {
+        var fieldsByStore = adapter.Definition.Fields
+            .Where(IsRestorableField)
+            .GroupBy(field => field.StoreId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        foreach (var store in adapter.Definition.Stores)
+        {
+            if (store.Kind != ConfigurationStorageKind.JsonFile)
+            {
+                throw new InvalidOperationException(
+                    $"适配器 {adapter.Definition.Id} 的存储 {store.Id} 尚未实现: {store.Kind}");
+            }
+
+            var path = ResolveDefinitionPath(store.Location);
+            if (!File.Exists(path))
+            {
+                throw new InvalidOperationException($"目标版本缺少配置存储 {store.Id}");
+            }
+
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                131_072,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            if (json.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException($"目标配置存储 {store.Id} 的根节点不是对象");
+            }
+
+            if (!fieldsByStore.TryGetValue(store.Id, out var fields))
+            {
+                continue;
+            }
+
+            foreach (var rootName in fields
+                         .Select(field => FirstPointerSegment(field.NativePath))
+                         .Distinct(StringComparer.Ordinal))
+            {
+                if (!json.RootElement.TryGetProperty(rootName, out var rootValue)
+                    || rootValue.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
+                {
+                    throw new InvalidOperationException(
+                        $"目标配置存储 {store.Id} 缺少签名定义根节点 {rootName}");
+                }
+            }
+        }
     }
 
     public static void ValidateDefinedDocuments(
@@ -195,10 +261,10 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
             foreach (var value in document.Values)
             {
                 var key = $"{document.StoreId}\0{value.JsonPointer}";
-                if (!fields.TryGetValue(key, out var field) || !field.Writable)
+                if (!fields.TryGetValue(key, out var field))
                 {
                     throw new InvalidOperationException(
-                        $"存档包含适配器未声明为可写的字段: {document.StoreId}:{value.JsonPointer}");
+                        $"存档包含适配器未声明的字段: {document.StoreId}:{value.JsonPointer}");
                 }
 
                 EnsureExpectedType(field, value.Value);
@@ -210,8 +276,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         var missing = adapter.Definition.Fields.FirstOrDefault(field =>
-            field.Required
-            && field.Writable
+            IsRestorableField(field)
             && !capturedKeys.Contains($"{field.StoreId}\0{field.NativePath}"));
         if (missing is not null)
         {
@@ -388,6 +453,21 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         };
     }).ToArray();
 
+    private static string ComputeDocumentSetHash(IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var canonical = documents
+            .OrderBy(document => document.StoreId, StringComparer.Ordinal)
+            .Select(document => new
+            {
+                document.StoreId,
+                Values = document.Values
+                    .OrderBy(value => value.JsonPointer, StringComparer.Ordinal)
+                    .Select(value => new { value.JsonPointer, value.Category, value.Value })
+            });
+        return Convert.ToHexStringLower(SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(canonical, JsonOptions)));
+    }
+
     public static async Task RestoreBackupAsync(
         IReadOnlyDictionary<string, byte[]> backup,
         CancellationToken cancellationToken)
@@ -432,7 +512,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         return path;
     }
 
-    private static bool TryGetPointer(JsonElement root, string pointer, out JsonElement value)
+    internal static bool TryGetPointer(JsonElement root, string pointer, out JsonElement value)
     {
         value = root;
         foreach (var segment in pointer.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(UnescapePointer))
@@ -461,8 +541,17 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
 
     private static void EnsureExpectedType(FieldMappingDefinition field, JsonElement value)
     {
+        if (!MatchesExpectedType(field, value))
+        {
+            throw new InvalidOperationException(
+                $"直播伴侣字段类型不匹配 {field.NativePath}: 期望 {field.ValueType}，实际 {value.ValueKind}");
+        }
+    }
+
+    private static bool MatchesExpectedType(FieldMappingDefinition field, JsonElement value)
+    {
         var expected = field.ValueType.Trim().ToLowerInvariant();
-        var matches = expected switch
+        return expected switch
         {
             "string" => value.ValueKind == JsonValueKind.String,
             "int" or "integer" or "number" or "double" => value.ValueKind == JsonValueKind.Number,
@@ -472,11 +561,6 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
             "null" => value.ValueKind == JsonValueKind.Null,
             _ => false
         };
-        if (!matches)
-        {
-            throw new InvalidOperationException(
-                $"直播伴侣字段类型不匹配 {field.NativePath}: 期望 {field.ValueType}，实际 {value.ValueKind}");
-        }
     }
 
     private static string Category(UnifiedFieldKind field) => field switch
@@ -491,7 +575,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
     private static void CollectValues(
         JsonElement element,
         string pointer,
-        ICollection<NativeConfigurationValue> destination)
+        List<NativeConfigurationValue> destination)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
@@ -504,21 +588,6 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 }
 
                 var childPointer = $"{pointer}/{EscapePointer(property.Name)}";
-                var category = Classify(normalized);
-                if (category is not null)
-                {
-                    var sanitized = Sanitize(property.Value);
-                    if (sanitized is not null)
-                    {
-                        destination.Add(new NativeConfigurationValue(
-                            childPointer,
-                            category,
-                            JsonSerializer.SerializeToElement(sanitized, JsonOptions)));
-                    }
-
-                    continue;
-                }
-
                 CollectValues(property.Value, childPointer, destination);
             }
         }
@@ -530,11 +599,180 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 CollectValues(item, $"{pointer}/{index}", destination);
                 index++;
             }
+
+            if (index == 0)
+            {
+                AddDiscoveryValue(element, pointer, destination);
+            }
+        }
+        else
+        {
+            AddDiscoveryValue(element, pointer, destination);
+        }
+
+        if (element.ValueKind == JsonValueKind.Object && !element.EnumerateObject().Any())
+        {
+            AddDiscoveryValue(element, pointer, destination);
+        }
+    }
+
+    public static IReadOnlyList<NativeConfigurationDocument> SelectWritableDocuments(
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var writable = adapter.Definition.Fields
+            .Where(IsRestorableField)
+            .Select(field => $"{field.StoreId}\0{field.NativePath}")
+            .ToHashSet(StringComparer.Ordinal);
+        return documents.Select(document =>
+        {
+            var values = document.Values
+                .Where(value => writable.Contains($"{document.StoreId}\0{value.JsonPointer}"))
+                .ToArray();
+            var content = JsonSerializer.SerializeToUtf8Bytes(values, JsonOptions);
+            return document with
+            {
+                Sha256 = Convert.ToHexStringLower(SHA256.HashData(content)),
+                Values = values
+            };
+        }).ToArray();
+    }
+
+    public async Task<IReadOnlyList<NativeConfigurationDocument>> CaptureStableDefinedDocumentsAsync(
+        VerifiedAdapterDefinition adapter,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        var earliestSuccess = startedAt + TimeSpan.FromSeconds(10);
+        var deadline = startedAt + TimeSpan.FromSeconds(35);
+        string? previousHash = null;
+        var matchingCaptures = 0;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var documents = await CaptureDefinedDocumentsAsync(adapter, cancellationToken);
+                var hash = ComputeDocumentSetHash(documents);
+                if (DateTimeOffset.UtcNow >= earliestSuccess
+                    && string.Equals(hash, previousHash, StringComparison.Ordinal))
+                {
+                    matchingCaptures++;
+                    if (matchingCaptures >= 2)
+                    {
+                        return documents;
+                    }
+                }
+                else
+                {
+                    matchingCaptures = 0;
+                }
+
+                previousHash = hash;
+            }
+            catch (Exception exception) when (exception is IOException or JsonException)
+            {
+                previousHash = null;
+                matchingCaptures = 0;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+
+        throw new TimeoutException("直播伴侣启动后配置在 35 秒内未稳定，恢复结果不予通过");
+    }
+
+    private static void AddDiscoveryValue(
+        JsonElement element,
+        string pointer,
+        List<NativeConfigurationValue> destination)
+    {
+        if (element.ValueKind == JsonValueKind.String
+            && ContainsAny(Normalize(element.GetString() ?? string.Empty), SensitiveTerms))
+        {
+            return;
+        }
+
+        var sanitized = Sanitize(element);
+        if (sanitized is not null)
+        {
+            destination.Add(new NativeConfigurationValue(
+                string.IsNullOrEmpty(pointer) ? "/" : pointer,
+                NativeParameterCategories.Unmapped,
+                JsonSerializer.SerializeToElement(sanitized, JsonOptions)));
+        }
+    }
+
+    private static void CollectDiscoveryValues(
+        string relativePath,
+        JsonElement root,
+        List<NativeConfigurationValue> destination)
+    {
+        if (!string.Equals(relativePath, @"WBStore\sourceStore.json", StringComparison.OrdinalIgnoreCase))
+        {
+            CollectValues(root, string.Empty, destination);
+            return;
+        }
+
+        if (!root.TryGetProperty("sourceStore", out var sourceStore)
+            || !sourceStore.TryGetProperty("sceneSource", out var sceneSource)
+            || sceneSource.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var scene in sceneSource.EnumerateObject())
+        {
+            if (scene.Value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            foreach (var containerName in new[] { "data", "data2" })
+            {
+                if (!scene.Value.TryGetProperty(containerName, out var container)
+                    || container.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                foreach (var source in container.EnumerateObject())
+                {
+                    if (source.Value.ValueKind != JsonValueKind.Object
+                        || !source.Value.TryGetProperty("type", out var type)
+                        || type.ValueKind != JsonValueKind.String
+                        || !string.Equals(type.GetString(), "camera", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var sourcePointer = $"/sourceStore/sceneSource/{EscapePointer(scene.Name)}/{containerName}/{EscapePointer(source.Name)}";
+                    foreach (var propertyName in new[]
+                             {
+                                 "name", "type", "viewIndex", "secondSource", "liveScene", "payload", "effectConfigId"
+                             })
+                    {
+                        if (source.Value.TryGetProperty(propertyName, out var propertyValue))
+                        {
+                            CollectValues(
+                                propertyValue,
+                                $"{sourcePointer}/{EscapePointer(propertyName)}",
+                                destination);
+                        }
+                    }
+                }
+            }
         }
     }
 
     private static JsonNode? Sanitize(JsonElement element)
     {
+        if (element.ValueKind == JsonValueKind.String
+            && ContainsAny(Normalize(element.GetString() ?? string.Empty), SensitiveTerms))
+        {
+            return null;
+        }
+
         if (element.ValueKind == JsonValueKind.Object)
         {
             var result = new JsonObject();
@@ -563,23 +801,6 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         return JsonNode.Parse(element.GetRawText());
-    }
-
-    private static string? Classify(string normalizedName)
-    {
-        if (ContainsAny(normalizedName, FilterTerms))
-        {
-            return NativeParameterCategories.Filter;
-        }
-
-        if (DeviceTerms.Any(term => string.Equals(normalizedName, term, StringComparison.Ordinal)))
-        {
-            return NativeParameterCategories.DeviceSelection;
-        }
-
-        return ModeTerms.Any(term => string.Equals(normalizedName, term, StringComparison.Ordinal))
-            ? NativeParameterCategories.VideoMode
-            : null;
     }
 
     private static bool TryFindLiveState(JsonElement element, out bool isLive)
@@ -650,7 +871,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         return false;
     }
 
-    private static void SetPointer(JsonNode root, string pointer, JsonNode? value)
+    internal static void SetPointer(JsonNode root, string pointer, JsonNode? value)
     {
         var segments = pointer.Split('/', StringSplitOptions.RemoveEmptyEntries)
             .Select(UnescapePointer)
@@ -663,14 +884,21 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         JsonNode current = root;
         for (var index = 0; index < segments.Length - 1; index++)
         {
+            var segment = segments[index];
+            var nextIsArrayIndex = int.TryParse(segments[index + 1], out _);
             current = current switch
             {
-                JsonObject jsonObject => jsonObject[segments[index]]
-                    ?? throw new InvalidOperationException($"配置路径不存在: {pointer}"),
-                JsonArray jsonArray when int.TryParse(segments[index], out var arrayIndex)
-                                         && arrayIndex >= 0
-                                         && arrayIndex < jsonArray.Count => jsonArray[arrayIndex]
-                    ?? throw new InvalidOperationException($"配置路径不存在: {pointer}"),
+                JsonObject jsonObject => GetOrCreateObjectChild(
+                    jsonObject,
+                    segment,
+                    nextIsArrayIndex,
+                    pointer),
+                JsonArray jsonArray when int.TryParse(segment, out var arrayIndex)
+                                         && arrayIndex >= 0 => GetOrCreateArrayChild(
+                                             jsonArray,
+                                             arrayIndex,
+                                             nextIsArrayIndex,
+                                             pointer),
                 _ => throw new InvalidOperationException($"配置路径结构不匹配: {pointer}")
             };
         }
@@ -678,26 +906,99 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         var leaf = segments[^1];
         if (current is JsonObject targetObject)
         {
-            if (!targetObject.ContainsKey(leaf))
-            {
-                throw new InvalidOperationException($"配置字段不存在: {pointer}");
-            }
-
             targetObject[leaf] = value;
             return;
         }
 
         if (current is JsonArray targetArray
             && int.TryParse(leaf, out var targetIndex)
-            && targetIndex >= 0
-            && targetIndex < targetArray.Count)
+            && targetIndex >= 0)
         {
+            EnsureArrayLength(targetArray, targetIndex + 1);
             targetArray[targetIndex] = value;
             return;
         }
 
         throw new InvalidOperationException($"配置字段结构不匹配: {pointer}");
     }
+
+    private static JsonNode GetOrCreateObjectChild(
+        JsonObject parent,
+        string propertyName,
+        bool createArray,
+        string pointer)
+    {
+        if (parent[propertyName] is { } existing)
+        {
+            if (existing is JsonObject || existing is JsonArray)
+            {
+                return existing;
+            }
+
+            throw new InvalidOperationException($"配置路径结构不匹配: {pointer}");
+        }
+
+        JsonNode created = createArray ? new JsonArray() : new JsonObject();
+        parent[propertyName] = created;
+        return created;
+    }
+
+    private static JsonNode GetOrCreateArrayChild(
+        JsonArray parent,
+        int index,
+        bool createArray,
+        string pointer)
+    {
+        EnsureArrayLength(parent, index + 1);
+        if (parent[index] is { } existing)
+        {
+            if (existing is JsonObject || existing is JsonArray)
+            {
+                return existing;
+            }
+
+            throw new InvalidOperationException($"配置路径结构不匹配: {pointer}");
+        }
+
+        JsonNode created = createArray ? new JsonArray() : new JsonObject();
+        parent[index] = created;
+        return created;
+    }
+
+    private static void EnsureArrayLength(JsonArray array, int length)
+    {
+        while (array.Count < length)
+        {
+            array.Add(null);
+        }
+    }
+
+    private static string FirstPointerSegment(string pointer)
+    {
+        var segment = pointer.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrWhiteSpace(segment)
+            ? throw new InvalidOperationException($"签名适配定义包含无效字段路径: {pointer}")
+            : UnescapePointer(segment);
+    }
+
+    // carnivalInfo/sourceLink is a per-camera list of the activity system's
+    // numeric capability IDs.  It is regenerated by Live Companion and does
+    // not describe an enabled effect (isOn/using do).  Replaying the list from
+    // another camera would restore stale application inventory, not picture
+    // state, so keep it in technical evidence but outside the write/readback
+    // projection.
+    internal static bool IsRestorableField(FieldMappingDefinition field) =>
+        field.Required
+        && field.Writable
+        && !(string.Equals(field.StoreId, "effect-store", StringComparison.Ordinal)
+             && field.NativePath.StartsWith(
+                  "/effectStore/carnivalInfo/sourceLink/",
+                  StringComparison.Ordinal));
+
+    private static bool IsOptionalApplicationManagedCache(FieldMappingDefinition field) =>
+        !field.Required
+        && !field.Writable
+        && string.Equals(field.ControlKind, "ApplicationManaged", StringComparison.Ordinal);
 
     private static JsonNode? MaterializeAssetPaths(
         JsonNode? node,
@@ -747,7 +1048,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         return node?.DeepClone();
     }
 
-    private static async Task WriteJsonAtomicallyAsync(
+    internal static async Task WriteJsonAtomicallyAsync(
         string path,
         JsonNode content,
         CancellationToken cancellationToken)
@@ -764,7 +1065,19 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         var temporaryPath = $"{path}.livestudio-{Guid.NewGuid():N}.tmp";
         try
         {
-            await File.WriteAllBytesAsync(temporaryPath, content.ToArray(), cancellationToken);
+            await using (var stream = new FileStream(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             131_072,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(content, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+
             File.Move(temporaryPath, path, true);
         }
         finally
@@ -812,4 +1125,5 @@ internal static class NativeParameterCategories
     public const string DeviceSelection = "DeviceSelection";
     public const string VideoMode = "VideoMode";
     public const string Filter = "Filter";
+    public const string Unmapped = "Unmapped";
 }

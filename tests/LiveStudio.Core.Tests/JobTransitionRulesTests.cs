@@ -39,4 +39,15 @@ public sealed class JobTransitionRulesTests
         Assert.True(JobTransitionRules.CanTransition(JobStatus.RefreshingPreview, JobStatus.Succeeded));
         Assert.False(JobTransitionRules.CanTransition(JobStatus.RefreshingPreview, JobStatus.Applying));
     }
+
+    [Fact]
+    public void LiveStateCannotBlockNewJobs()
+    {
+        Assert.False(JobTransitionRules.CanTransition(
+            JobStatus.Preflight,
+            JobStatus.BlockedByLiveSession));
+        Assert.False(JobTransitionRules.CanTransition(
+            JobStatus.Capturing,
+            JobStatus.BlockedByLiveSession));
+    }
 }

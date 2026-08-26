@@ -63,7 +63,7 @@ public sealed class ObsFilterAssetMapperTests
     }
 
     [Fact]
-    public async Task KeepsOriginalPathWhenRollbackAssetWasNotMaterialized()
+    public async Task RejectsMissingMaterializedAssetInsteadOfKeepingStalePath()
     {
         var directory = CreateTemporaryDirectory();
         try
@@ -76,12 +76,10 @@ public sealed class ObsFilterAssetMapperTests
             };
             var assets = await ObsFilterAssetMapper.CaptureAsync(settings, CancellationToken.None);
 
-            var materialized = ObsFilterAssetMapper.Materialize(
+            Assert.Throws<FileNotFoundException>(() => ObsFilterAssetMapper.Materialize(
                 settings,
                 assets,
-                Path.Combine(directory, "missing-assets"));
-
-            Assert.Equal(sourcePath, materialized["image_path"].GetString());
+                Path.Combine(directory, "missing-assets")));
         }
         finally
         {
@@ -129,6 +127,95 @@ public sealed class ObsFilterAssetMapperTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ReplacesMissingKnownColorCardBeforeSnapshotCapture()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var builtInPath = Path.Combine(directory, "发灰提亮.png");
+            await File.WriteAllBytesAsync(builtInPath, [137, 80, 78, 71]);
+            var stalePath = @"D:\调试\旧色卡索引\发灰提亮.png";
+            var settings = new Dictionary<string, JsonElement>
+            {
+                ["image_path"] = JsonSerializer.SerializeToElement(stalePath)
+            };
+            var resolver = new DictionaryAssetResolver(new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["发灰提亮.png"] = builtInPath
+            });
+
+            var resolved = ObsFilterAssetMapper.ResolveMissingAssets(
+                settings,
+                resolver,
+                rejectUnresolved: true);
+            var assets = await ObsFilterAssetMapper.CaptureAsync(resolved, CancellationToken.None);
+
+            Assert.Equal(builtInPath, resolved["image_path"].GetString());
+            Assert.Equal(builtInPath, Assert.Single(assets).SourcePath);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MaterializesLegacySnapshotWithoutBindingFromBuiltInColorCard()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var builtInPath = Path.Combine(directory, "肤色红润.png");
+            File.WriteAllBytes(builtInPath, [137, 80, 78, 71]);
+            var stalePath = @"D:\不存在\色卡\肤色红润.png";
+            var settings = new Dictionary<string, JsonElement>
+            {
+                ["image_path"] = JsonSerializer.SerializeToElement(stalePath)
+            };
+            var resolver = new DictionaryAssetResolver(new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["肤色红润.png"] = builtInPath
+            });
+
+            var materialized = ObsFilterAssetMapper.Materialize(
+                settings,
+                [],
+                Path.Combine(directory, "snapshot-assets"),
+                resolver);
+
+            Assert.Equal(builtInPath, materialized["image_path"].GetString());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RejectsMissingKnownAssetWhenSnapshotAndBuiltInBundleCannotProvideIt()
+    {
+        var stalePath = @"D:\不存在\色卡\未收录.png";
+        var settings = new Dictionary<string, JsonElement>
+        {
+            ["image_path"] = JsonSerializer.SerializeToElement(stalePath)
+        };
+
+        var exception = Assert.Throws<FileNotFoundException>(() =>
+            ObsFilterAssetMapper.ResolveMissingAssets(settings, null, rejectUnresolved: true));
+
+        Assert.Equal(stalePath, exception.FileName);
+    }
+
+    private sealed class DictionaryAssetResolver(IReadOnlyDictionary<string, string> paths)
+        : IObsAssetPathResolver
+    {
+        public string? ResolveMissingPath(string configuredPath) =>
+            paths.TryGetValue(Path.GetFileName(configuredPath), out var path) ? path : null;
     }
 
     private static string CreateTemporaryDirectory()

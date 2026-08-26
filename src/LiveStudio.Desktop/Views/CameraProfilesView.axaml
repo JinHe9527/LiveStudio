@@ -1,0 +1,131 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveStudio.Desktop.ViewModels"
+             xmlns:services="using:LiveStudio.Desktop.Services"
+             x:Class="LiveStudio.Desktop.Views.CameraProfilesView"
+             x:DataType="vm:MainViewModel">
+    <Grid RowDefinitions="72,*">
+        <Grid Margin="20,0" ColumnDefinitions="*,Auto" Classes="toolbar">
+            <StackPanel VerticalAlignment="Center" Spacing="3">
+                <TextBlock Classes="page-title" Text="相机参数" />
+                <TextBlock Classes="page-subtitle" Text="一个直播间固定三个机位，同一页直接填写并保存" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                <ToggleButton Classes="archive-secondary" IsChecked="{Binding IsManualCameraMode, Mode=OneWay}"
+                              Command="{Binding ShowManualCameraModeCommand}">手动填写</ToggleButton>
+                <ToggleButton Classes="archive-secondary" IsChecked="{Binding IsWiredCameraMode, Mode=OneWay}"
+                              Command="{Binding ShowWiredCameraModeCommand}">USB 自动</ToggleButton>
+            </StackPanel>
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom"
+                    Background="{DynamicResource ArchiveSeparatorBrush}" />
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="16,16,16,18">
+            <StackPanel Spacing="10" IsVisible="{Binding IsManualCameraMode}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="detail-meta" VerticalAlignment="Center"
+                               Text="默认：F4 · 1/125 · ISO 640 · ST；名称、曝光和创意外观参数均可直接修改。" />
+                    <TextBlock Grid.Column="1" Classes="archive-meta" VerticalAlignment="Center"
+                               Text="录像模式不应用锐度范围，但档案仍完整保存" />
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding CameraStations}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CameraStationEditorViewModel">
+                            <Border Margin="4" Padding="14,12" CornerRadius="10"
+                                    Background="{DynamicResource ArchiveRaisedBrush}">
+                                <StackPanel Spacing="10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                        <TextBlock Classes="archive-section" VerticalAlignment="Center" Text="{Binding PositionTitle}" />
+                                        <TextBlock Grid.Column="1" Classes="archive-meta" VerticalAlignment="Center"
+                                                   Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5">
+                                            <Button Classes="archive-secondary" Tag="{Binding}" Click="DeleteCameraStationClicked"
+                                                    Content="{Binding DeleteButtonText}" />
+                                            <Button Classes="archive-primary" Tag="{Binding}" Click="SaveCameraStationClicked">保存</Button>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="parameter-label" Text="机位名称" />
+                                        <TextBox Classes="archive-search" Text="{Binding Name}" MaxLength="80" />
+                                    </StackPanel>
+
+                                    <UniformGrid Columns="4" Rows="1">
+                                        <StackPanel Margin="0,0,6,0" Spacing="4"><TextBlock Classes="parameter-label" Text="光圈" /><TextBox Classes="archive-search" Text="{Binding Aperture}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,0" Spacing="4"><TextBlock Classes="parameter-label" Text="快门" /><TextBox Classes="archive-search" Text="{Binding ShutterSpeed}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,0" Spacing="4"><TextBlock Classes="parameter-label" Text="ISO" /><TextBox Classes="archive-search" Text="{Binding Iso}" /></StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Classes="parameter-label" Text="创意外观" />
+                                            <ComboBox MinHeight="30" ItemsSource="{Binding CreativeLooks}" SelectedItem="{Binding SelectedCreativeLook}">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:CameraCreativeLookOptionViewModel"><TextBlock Text="{Binding Code}" /></DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                                    <TextBlock Classes="parameter-label" Text="创意外观完整参数" />
+                                    <UniformGrid Columns="4" Rows="2">
+                                        <StackPanel Margin="0,0,6,7" Spacing="3"><TextBlock Classes="archive-meta" Text="对比度  −9…+9" /><TextBox Classes="archive-search" Text="{Binding Contrast}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,7" Spacing="3"><TextBlock Classes="archive-meta" Text="高光  −9…+9" /><TextBox Classes="archive-search" Text="{Binding Highlights}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,7" Spacing="3"><TextBlock Classes="archive-meta" Text="阴影  −9…+9" /><TextBox Classes="archive-search" Text="{Binding Shadows}" /></StackPanel>
+                                        <StackPanel Margin="0,0,0,7" Spacing="3"><TextBlock Classes="archive-meta" Text="褪色  0…9" /><TextBox Classes="archive-search" Text="{Binding Fade}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,0" Spacing="3"><TextBlock Classes="archive-meta" Text="饱和度  −9…+9" /><TextBox Classes="archive-search" Text="{Binding Saturation}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,0" Spacing="3"><TextBlock Classes="archive-meta" Text="锐度  0…9" /><TextBox Classes="archive-search" Text="{Binding Sharpness}" /></StackPanel>
+                                        <StackPanel Margin="0,0,6,0" Spacing="3"><TextBlock Classes="archive-meta" Text="锐度范围  0…5" /><TextBox Classes="archive-search" Text="{Binding SharpnessRange}" /></StackPanel>
+                                        <StackPanel Spacing="3"><TextBlock Classes="archive-meta" Text="清晰度  0…9" /><TextBox Classes="archive-search" Text="{Binding Clarity}" /></StackPanel>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Classes="archive-meta" Margin="4,0"
+                           Text="三个机位分别独立保存；修改名称后点本卡片“保存”就是重命名，删除会把该机位恢复为默认值。" />
+            </StackPanel>
+
+            <StackPanel MaxWidth="1180" HorizontalAlignment="Stretch" Spacing="14" IsVisible="{Binding IsWiredCameraMode}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Spacing="3">
+                        <TextBlock Classes="detail-title" Text="USB 自动保存与恢复" />
+                        <TextBlock Classes="detail-meta" Text="HDMI 继续连接 4K Pro，另接一根 USB 数据线到电脑。" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                        <Button Classes="archive-secondary" Command="{Binding OpenSonyCameraSdkPageCommand}">索尼官方 SDK</Button>
+                        <Button Classes="archive-primary" Command="{Binding DetectSonyCameraCommand}">检测相机</Button>
+                    </StackPanel>
+                </Grid>
+                <Border Padding="18,16" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <Border Width="9" Height="9" CornerRadius="5" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}" />
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Classes="section-heading" Text="{Binding SonyCameraConnectionState}" />
+                                <TextBlock Classes="archive-meta" Text="支持目标：Sony FX3、α7S III、FX30" />
+                            </StackPanel>
+                        </Grid>
+                        <Border Grid.Row="1" Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
+                        <ComboBox Grid.Row="2" MinHeight="32" IsVisible="{Binding HasDetectedSonyCameras}" ItemsSource="{Binding DetectedSonyCameras}" SelectedItem="{Binding SelectedSonyCamera}">
+                            <ComboBox.ItemTemplate><DataTemplate x:DataType="services:SonyCameraDevice"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <WrapPanel Grid.Row="3" ItemWidth="196" ItemHeight="46">
+                            <StackPanel Spacing="3"><TextBlock Classes="parameter-label" Text="光圈" /><TextBlock Classes="parameter-value-strong" Text="待 SDK 读取" /></StackPanel>
+                            <StackPanel Spacing="3"><TextBlock Classes="parameter-label" Text="快门" /><TextBlock Classes="parameter-value-strong" Text="待 SDK 读取" /></StackPanel>
+                            <StackPanel Spacing="3"><TextBlock Classes="parameter-label" Text="ISO" /><TextBlock Classes="parameter-value-strong" Text="待 SDK 读取" /></StackPanel>
+                            <StackPanel Spacing="3"><TextBlock Classes="parameter-label" Text="创意外观" /><TextBlock Classes="parameter-value-strong" Text="待 SDK 读取" /></StackPanel>
+                        </WrapPanel>
+                    </Grid>
+                </Border>
+                <Border Padding="14,11" CornerRadius="9" Background="{DynamicResource WarningBackgroundBrush}">
+                    <TextBlock Classes="archive-value" TextWrapping="Wrap" Text="USB 自动模式使用 Sony SDK 2.02；原生桥接必须连接真实相机逐字段回读通过后才开放写入。" />
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

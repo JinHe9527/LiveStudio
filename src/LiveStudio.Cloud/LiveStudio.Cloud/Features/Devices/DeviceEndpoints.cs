@@ -3,17 +3,23 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LiveStudio.Cloud.Data;
+using LiveStudio.Cloud.Features.Jobs;
 using LiveStudio.Cloud.Infrastructure;
 using LiveStudio.Cloud.Security;
 using LiveStudio.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LiveStudio.Cloud.Features.Devices;
 
 public static class DeviceEndpoints
 {
+    private static readonly JobStatus[] InProgressJobStatuses = Enum.GetValues<JobStatus>()
+        .Where(status => status != JobStatus.Queued && !JobTransitionRules.IsTerminal(status))
+        .ToArray();
+
     public static IEndpointRouteBuilder MapDeviceEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var organizations = endpoints.MapGroup("/api/v1/organizations/{organizationId:guid}")
@@ -22,6 +28,7 @@ public static class DeviceEndpoints
         organizations.MapGet("/devices/{deviceId:guid}/management-state", GetManagementStateAsync);
         organizations.MapGet("/device-mappings", ListMappingsAsync);
         organizations.MapPost("/device-enrollments", CreateEnrollmentAsync);
+        organizations.MapDelete("/devices/{deviceId:guid}", RevokeDeviceAsync);
         organizations.MapPut("/devices/{deviceId:guid}/mappings", SaveMappingAsync);
 
         endpoints.MapPost("/api/v1/devices/enroll", EnrollAsync);
@@ -50,7 +57,7 @@ public static class DeviceEndpoints
         }
 
         var devices = await dbContext.Devices
-            .Where(device => device.OrganizationId == organizationId)
+            .Where(device => device.OrganizationId == organizationId && device.RevokedAt == null)
             .OrderBy(device => device.Name)
             .ToListAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -74,6 +81,7 @@ public static class DeviceEndpoints
         ClaimsPrincipal user,
         OrganizationAccessService access,
         ApplicationDbContext dbContext,
+        IOptions<ServiceLimitsOptions> limits,
         CancellationToken cancellationToken)
     {
         if (!await access.HasRoleAsync(user, organizationId, OrganizationRole.Admin, cancellationToken))
@@ -89,6 +97,9 @@ public static class DeviceEndpoints
             });
         }
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await OrganizationWriteLock.AcquireAsync(dbContext, organizationId, cancellationToken);
+
         var room = await dbContext.LiveRooms.SingleOrDefaultAsync(
             value => value.Id == request.RoomId && value.OrganizationId == organizationId,
             cancellationToken);
@@ -102,6 +113,20 @@ public static class DeviceEndpoints
             return TypedResults.Conflict("直播间已经绑定设备，请先解除现有设备后再注册");
         }
 
+        var now = DateTimeOffset.UtcNow;
+        var managedDeviceCount = await dbContext.Devices.CountAsync(
+            device => device.OrganizationId == organizationId && device.RevokedAt == null,
+            cancellationToken);
+        var pendingEnrollmentCount = await dbContext.DeviceEnrollments.CountAsync(
+            enrollment => enrollment.OrganizationId == organizationId
+                && enrollment.ConsumedAt == null
+                && enrollment.ExpiresAt > now,
+            cancellationToken);
+        if (managedDeviceCount + pendingEnrollmentCount >= limits.Value.MaximumManagedDevices)
+        {
+            return TypedResults.Conflict($"当前服务最多接入 {limits.Value.MaximumManagedDevices} 台直播电脑");
+        }
+
         var token = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
         var enrollment = new DeviceEnrollmentEntity
         {
@@ -110,10 +135,11 @@ public static class DeviceEndpoints
             RoomId = request.RoomId,
             DeviceName = request.DeviceName.Trim(),
             TokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token)),
-            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10)
+            ExpiresAt = now.AddMinutes(10)
         };
         dbContext.DeviceEnrollments.Add(enrollment);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return TypedResults.Ok(new DeviceEnrollmentResponse(enrollment.Id, token, enrollment.ExpiresAt));
     }
 
@@ -133,7 +159,7 @@ public static class DeviceEndpoints
         }
 
         var device = await dbContext.Devices.AsNoTracking().SingleOrDefaultAsync(
-            value => value.Id == deviceId && value.OrganizationId == organizationId,
+            value => value.Id == deviceId && value.OrganizationId == organizationId && value.RevokedAt == null,
             cancellationToken);
         if (device is null)
         {
@@ -214,6 +240,7 @@ public static class DeviceEndpoints
     private static async Task<IResult> EnrollAsync(
         EnrollDeviceRequest request,
         ApplicationDbContext dbContext,
+        IOptions<ServiceLimitsOptions> limits,
         CancellationToken cancellationToken)
     {
         var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(request.EnrollmentToken));
@@ -223,6 +250,21 @@ public static class DeviceEndpoints
         if (enrollment is null || enrollment.ConsumedAt is not null || enrollment.ExpiresAt <= DateTimeOffset.UtcNow)
         {
             return TypedResults.Unauthorized();
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await OrganizationWriteLock.AcquireAsync(dbContext, enrollment.OrganizationId, cancellationToken);
+        await dbContext.Entry(enrollment).ReloadAsync(cancellationToken);
+        if (enrollment.ConsumedAt is not null || enrollment.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        if (await dbContext.Devices.CountAsync(
+                device => device.OrganizationId == enrollment.OrganizationId && device.RevokedAt == null,
+                cancellationToken) >= limits.Value.MaximumManagedDevices)
+        {
+            return TypedResults.Conflict($"当前服务最多接入 {limits.Value.MaximumManagedDevices} 台直播电脑");
         }
 
         try
@@ -264,11 +306,88 @@ public static class DeviceEndpoints
             cancellationToken);
         room.DeviceId = device.Id;
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return TypedResults.Ok(new EnrollDeviceResponse(
             device.Id,
             device.OrganizationId,
             device.RoomId,
             secret));
+    }
+
+    private static async Task<IResult> RevokeDeviceAsync(
+        Guid organizationId,
+        Guid deviceId,
+        ClaimsPrincipal user,
+        OrganizationAccessService access,
+        ApplicationDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (!await access.HasRoleAsync(user, organizationId, OrganizationRole.Admin, cancellationToken))
+        {
+            return TypedResults.Forbid();
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await OrganizationWriteLock.AcquireAsync(dbContext, organizationId, cancellationToken);
+
+        var device = await dbContext.Devices.SingleOrDefaultAsync(
+            value => value.Id == deviceId && value.OrganizationId == organizationId,
+            cancellationToken);
+        if (device is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (device.RevokedAt is null)
+        {
+            if (await dbContext.RemoteJobs.AnyAsync(
+                    job => job.DeviceId == deviceId && InProgressJobStatuses.Contains(job.Status),
+                    cancellationToken))
+            {
+                return TypedResults.Conflict("设备仍有任务正在执行，请等待任务完成后再解除");
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            device.RevokedAt = now;
+            device.InteractiveUserSession = false;
+            device.DeviceKeyHash = RandomNumberGenerator.GetBytes(32);
+            var room = await dbContext.LiveRooms.SingleOrDefaultAsync(
+                value => value.Id == device.RoomId
+                    && value.OrganizationId == organizationId
+                    && value.DeviceId == deviceId,
+                cancellationToken);
+            if (room is not null)
+            {
+                room.DeviceId = null;
+            }
+
+            var queuedJobs = await dbContext.RemoteJobs
+                .Where(job => job.DeviceId == deviceId && job.Status == JobStatus.Queued)
+                .ToListAsync(cancellationToken);
+            foreach (var job in queuedJobs)
+            {
+                job.Status = JobStatus.DeviceOffline;
+                job.CompletedAt = now;
+                job.Message = "设备已解除，排队任务已取消";
+            }
+
+            dbContext.AuditEvents.Add(new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                ActorId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+                Action = "device.revoked",
+                TargetType = "ManagedDevice",
+                TargetId = deviceId.ToString(),
+                OccurredAt = now,
+                DetailJson = "{}"
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return TypedResults.NoContent();
     }
 
     private static async Task<IResult> HeartbeatAsync(
@@ -285,7 +404,9 @@ public static class DeviceEndpoints
 
         var organizationId = GetOrganizationId(user);
         var device = await dbContext.Devices.SingleOrDefaultAsync(
-            value => value.Id == deviceId && value.OrganizationId == organizationId,
+            value => value.Id == deviceId
+                && value.OrganizationId == organizationId
+                && value.RevokedAt == null,
             cancellationToken);
         if (device is null)
         {
@@ -354,7 +475,9 @@ public static class DeviceEndpoints
         var organizationId = GetOrganizationId(user);
         var device = await dbContext.Devices.AsNoTracking()
             .SingleOrDefaultAsync(
-                value => value.Id == deviceId && value.OrganizationId == organizationId,
+                value => value.Id == deviceId
+                    && value.OrganizationId == organizationId
+                    && value.RevokedAt == null,
                 cancellationToken);
         if (device is null
             || request.State.RoomId != device.RoomId
@@ -522,7 +645,9 @@ public static class DeviceEndpoints
         }
 
         if (!await dbContext.Devices.AnyAsync(
-                device => device.Id == deviceId && device.OrganizationId == organizationId,
+                device => device.Id == deviceId
+                    && device.OrganizationId == organizationId
+                    && device.RevokedAt == null,
                 cancellationToken))
         {
             return TypedResults.NotFound();

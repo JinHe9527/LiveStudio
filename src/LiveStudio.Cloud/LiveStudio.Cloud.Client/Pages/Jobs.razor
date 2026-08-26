@@ -17,9 +17,9 @@
                 @foreach (var job in jobs)
                 {
                     <tr>
-                        <td><strong>@(job.Kind == JobKind.Capture ? "联合保存" : "恢复存档")</strong></td>
+                        <td><strong>@KindLabel(job.Kind)</strong></td>
                         <td><span class="status-badge @Tone(job.Status)">@Label(job.Status)</span></td>
-                        <td>@job.Compatibility</td>
+                        <td>@CompatibilityLabel(job.Compatibility)</td>
                         <td>@job.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
                         <td>@(job.DetailCode ?? job.Message ?? "—")</td>
                     </tr>
@@ -47,7 +47,7 @@
     {
         JobStatus.Succeeded => "success",
         JobStatus.FailedRolledBack or JobStatus.RollbackFailed => "error",
-        JobStatus.BlockedByLiveSession or JobStatus.MappingRequired or JobStatus.UnsupportedDeviceMode or JobStatus.MissingFilter or JobStatus.IncompatibleVersion => "warning",
+        JobStatus.BlockedByLiveSession or JobStatus.MappingRequired or JobStatus.UnsupportedDeviceMode or JobStatus.MissingFilter or JobStatus.MissingAsset or JobStatus.IncompatibleVersion => "warning",
         _ => "info"
     };
 
@@ -57,7 +57,23 @@
         JobStatus.BackingUp => "事务备份", JobStatus.StoppingApplications => "停止应用", JobStatus.Applying => "正在应用",
         JobStatus.StartingApplications => "启动应用", JobStatus.Verifying => "逐项验证", JobStatus.Succeeded => "成功",
         JobStatus.DeviceOffline => "设备离线", JobStatus.BlockedByLiveSession => "直播中已阻止", JobStatus.MappingRequired => "需要映射",
-        JobStatus.UnsupportedDeviceMode => "格式不支持", JobStatus.MissingFilter => "缺少滤镜", JobStatus.IncompatibleVersion => "版本不兼容",
+        JobStatus.UnsupportedDeviceMode => "格式不支持", JobStatus.MissingFilter => "缺少滤镜", JobStatus.MissingAsset => "缺少滤镜素材", JobStatus.IncompatibleVersion => "版本不兼容",
         JobStatus.FailedRolledBack => "失败已回滚", JobStatus.RollbackFailed => "回滚失败", _ => status.ToString()
+    };
+
+    private static string KindLabel(JobKind kind) => kind switch
+    {
+        JobKind.Capture => "联合保存",
+        JobKind.Restore => "恢复存档",
+        JobKind.RefreshPreview => "刷新画面",
+        _ => "未知任务"
+    };
+
+    private static string CompatibilityLabel(CompatibilityLevel compatibility) => compatibility switch
+    {
+        CompatibilityLevel.Verified => "已跨机验证",
+        CompatibilityLevel.Experimental => "当前版本适配",
+        CompatibilityLevel.Unsupported => "不支持",
+        _ => "未知"
     };
 }

@@ -4,7 +4,10 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using LiveStudio.Cloud.Data;
+using LiveStudio.Cloud.Features.Organizations;
 using LiveStudio.Cloud.Infrastructure;
+using LiveStudio.Cloud.Realtime;
+using LiveStudio.Cloud.Security;
 using LiveStudio.Contracts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -45,11 +48,40 @@ public sealed class CloudIntegrationTests : IAsyncLifetime, IAsyncDisposable
             EmailConfirmed = true
         };
 
-        var result = await userManager.CreateAsync(user, "Integration-Password-2026!");
+        var registrationService = scope.ServiceProvider.GetRequiredService<InitialAccountRegistrationService>();
+        Assert.True(await registrationService.IsRegistrationOpenAsync());
+        var registration = await registrationService.RegisterAsync(user, "Integration-Password-2026!");
+        var result = registration.IdentityResult;
 
         Assert.True(result.Succeeded, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.False(registration.RegistrationClosed);
+        Assert.False(await registrationService.IsRegistrationOpenAsync());
         Assert.True(await userManager.CheckPasswordAsync(user, "Integration-Password-2026!"));
         Assert.False(await userManager.CheckPasswordAsync(user, "wrong-password"));
+
+        var rejectedAccount = new ApplicationUser
+        {
+            UserName = "second@livestudio.test",
+            Email = "second@livestudio.test"
+        };
+        var rejected = await registrationService.RegisterAsync(rejectedAccount, "Integration-Password-2026!");
+        Assert.True(rejected.RegistrationClosed);
+        Assert.False(rejected.IdentityResult.Succeeded);
+        Assert.Null(await userManager.FindByEmailAsync(rejectedAccount.Email));
+
+        var bootstrapper = scope.ServiceProvider.GetRequiredService<FirstWorkspaceBootstrapper>();
+        Assert.True(await bootstrapper.EnsureForFirstAccountAsync(user.Id));
+        Assert.False(await bootstrapper.EnsureForFirstAccountAsync("another-account"));
+
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var workspace = await dbContext.Organizations.AsNoTracking().SingleAsync();
+        var room = await dbContext.LiveRooms.AsNoTracking().SingleAsync();
+        var membership = await dbContext.OrganizationMembers.AsNoTracking().SingleAsync();
+        Assert.Equal(FirstWorkspaceBootstrapper.DefaultWorkspaceName, workspace.Name);
+        Assert.Equal(FirstWorkspaceBootstrapper.DefaultRoomName, room.Name);
+        Assert.Equal(workspace.Id, room.OrganizationId);
+        Assert.Equal(user.Id, membership.UserId);
+        Assert.Equal(OrganizationRole.Owner, membership.Role);
     }
 
     [Fact]
@@ -130,6 +162,54 @@ public sealed class CloudIntegrationTests : IAsyncLifetime, IAsyncDisposable
         Assert.Equal("1.1.0", stored.AgentVersion);
         Assert.True(stored.InteractiveUserSession);
         Assert.Equal(1, await dbContext.DeviceHeartbeats.CountAsync(value => value.DeviceId == enrolled.DeviceId));
+
+        var revoke = await desktopClient.DeleteAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/devices/{enrolled.DeviceId}");
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        var afterRevoke = await deviceClient.PostAsJsonAsync(
+            $"/api/v1/devices/{enrolled.DeviceId}/heartbeat",
+            heartbeat);
+        Assert.Equal(HttpStatusCode.Unauthorized, afterRevoke.StatusCode);
+        var revoked = await dbContext.Devices.AsNoTracking().SingleAsync(value => value.Id == enrolled.DeviceId);
+        var room = await dbContext.LiveRooms.AsNoTracking().SingleAsync(value => value.Id == seeded.RoomId);
+        Assert.NotNull(revoked.RevokedAt);
+        Assert.False(revoked.InteractiveUserSession);
+        Assert.Null(room.DeviceId);
+    }
+
+    [Fact]
+    public async Task ServiceLimitsRejectExtraRoomsAndPendingDeviceEnrollments()
+    {
+        var seeded = await SeedAuthorizedDesktopAsync();
+        using var client = CreateClient(allowAutoRedirect: false);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", seeded.Token);
+
+        var extraWorkspace = await client.PostAsJsonAsync(
+            "/api/v1/organizations/",
+            new CreateOrganizationRequest("绕过上限的空间"));
+        Assert.Equal(HttpStatusCode.Conflict, extraWorkspace.StatusCode);
+
+        var secondRoomResponse = await client.PostAsJsonAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/rooms",
+            new CreateRoomRequest("第二直播间"));
+        Assert.Equal(HttpStatusCode.Created, secondRoomResponse.StatusCode);
+        var secondRoom = await secondRoomResponse.Content.ReadFromJsonAsync<LiveRoomSummary>();
+        Assert.NotNull(secondRoom);
+
+        var roomLimit = await client.PostAsJsonAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/rooms",
+            new CreateRoomRequest("超额直播间"));
+        Assert.Equal(HttpStatusCode.Conflict, roomLimit.StatusCode);
+
+        var firstEnrollment = await client.PostAsJsonAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/device-enrollments",
+            new CreateDeviceEnrollmentRequest(seeded.RoomId, "第一台直播电脑"));
+        Assert.Equal(HttpStatusCode.OK, firstEnrollment.StatusCode);
+
+        var deviceLimit = await client.PostAsJsonAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/device-enrollments",
+            new CreateDeviceEnrollmentRequest(secondRoom.Id, "超额直播电脑"));
+        Assert.Equal(HttpStatusCode.Conflict, deviceLimit.StatusCode);
     }
 
     [Fact]
@@ -296,6 +376,93 @@ public sealed class CloudIntegrationTests : IAsyncLifetime, IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task BatchCaptureCreatesEligibleJobsAndIsolatesRoomFailures()
+    {
+        var seeded = await SeedAuthorizedDesktopAsync();
+        var acceptedRoomId = Guid.NewGuid();
+        var offlineRoomId = Guid.NewGuid();
+        var activeRoomId = Guid.NewGuid();
+        var acceptedDeviceId = Guid.NewGuid();
+        var offlineDeviceId = Guid.NewGuid();
+        var activeDeviceId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        await using (var seedScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            dbContext.LiveRooms.AddRange(
+                new LiveRoomEntity
+                {
+                    Id = acceptedRoomId,
+                    OrganizationId = seeded.OrganizationId,
+                    Name = "在线直播间",
+                    DeviceId = acceptedDeviceId
+                },
+                new LiveRoomEntity
+                {
+                    Id = offlineRoomId,
+                    OrganizationId = seeded.OrganizationId,
+                    Name = "离线直播间",
+                    DeviceId = offlineDeviceId
+                },
+                new LiveRoomEntity
+                {
+                    Id = activeRoomId,
+                    OrganizationId = seeded.OrganizationId,
+                    Name = "执行中直播间",
+                    DeviceId = activeDeviceId
+                });
+            dbContext.Devices.AddRange(
+                CreateManagedDevice(acceptedDeviceId, seeded.OrganizationId, acceptedRoomId, now),
+                CreateManagedDevice(offlineDeviceId, seeded.OrganizationId, offlineRoomId, now),
+                CreateManagedDevice(activeDeviceId, seeded.OrganizationId, activeRoomId, now));
+            dbContext.RemoteJobs.Add(new RemoteJobEntity
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = seeded.OrganizationId,
+                RoomId = activeRoomId,
+                DeviceId = activeDeviceId,
+                Kind = JobKind.Capture,
+                Status = JobStatus.Capturing,
+                Compatibility = CompatibilityLevel.Experimental,
+                RequestedBy = "integration",
+                CreatedAt = now.AddMinutes(-1),
+                Message = "已有保存任务"
+            });
+            await dbContext.SaveChangesAsync();
+
+            var connections = seedScope.ServiceProvider.GetRequiredService<DeviceConnectionRegistry>();
+            connections.Connected(acceptedDeviceId);
+            connections.Connected(activeDeviceId);
+        }
+
+        using var client = CreateClient(allowAutoRedirect: false);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", seeded.Token);
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/organizations/{seeded.OrganizationId}/capture-jobs/batch",
+            new CreateBatchCaptureJobsRequest(
+                [acceptedRoomId, offlineRoomId, activeRoomId, seeded.RoomId, Guid.NewGuid()],
+                "晚场统一备份"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<CreateBatchCaptureJobsResponse>();
+        Assert.NotNull(result);
+        Assert.Equal(5, result.Requested);
+        Assert.Equal(1, result.Accepted);
+        Assert.Equal(4, result.Rejected);
+        Assert.Contains(result.Results, item => item.RoomId == acceptedRoomId && item.Code == "Accepted" && item.JobId is not null);
+        Assert.Contains(result.Results, item => item.RoomId == offlineRoomId && item.Code == "DeviceOffline");
+        Assert.Contains(result.Results, item => item.RoomId == activeRoomId && item.Code == "CaptureAlreadyActive");
+        Assert.Contains(result.Results, item => item.RoomId == seeded.RoomId && item.Code == "DeviceNotAssigned");
+        Assert.Contains(result.Results, item => item.Code == "RoomNotFound");
+
+        await using var verificationScope = _factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.Equal(2, await verificationDb.RemoteJobs.CountAsync(job => job.Kind == JobKind.Capture));
+        Assert.Equal(1, await verificationDb.AuditEvents.CountAsync(audit => audit.Action == "capture.batch-requested"));
+    }
+
     private async Task<SeededDesktop> SeedAuthorizedDesktopAsync()
     {
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -372,6 +539,28 @@ public sealed class CloudIntegrationTests : IAsyncLifetime, IAsyncDisposable
             ManifestJson = "{}"
         };
     }
+
+    private static ManagedDeviceEntity CreateManagedDevice(
+        Guid deviceId,
+        Guid organizationId,
+        Guid roomId,
+        DateTimeOffset now) => new()
+    {
+        Id = deviceId,
+        OrganizationId = organizationId,
+        RoomId = roomId,
+        Name = $"Agent {deviceId:N}",
+        MachineName = "INTEGRATION-PC",
+        AgentVersion = "1.0.0",
+        OperatingSystem = "Windows 11",
+        ApplicationVersionsJson = "{}",
+        CapabilitiesJson = "{}",
+        PackageSigningPublicKeyPem = "integration-public-key",
+        DeviceKeyHash = SHA256.HashData(deviceId.ToByteArray()),
+        EnrolledAt = now.AddHours(-1),
+        LastSeenAt = now,
+        InteractiveUserSession = true
+    };
 
     private sealed record SeededDesktop(
         string Token,

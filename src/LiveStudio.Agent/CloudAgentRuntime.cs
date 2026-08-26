@@ -19,6 +19,7 @@ public sealed class CloudAgentRuntime(
         "Agent 云端运行时未能正常停止后台组件");
     private readonly Lock stateLock = new();
     private CurrentStatePublisher? currentStatePublisher;
+    private SnapshotUploadWorker? snapshotUploadWorker;
 
     public async Task<bool> PublishCurrentStateAsync(
         LiveStudio.Contracts.CurrentStateReason reason,
@@ -37,6 +38,18 @@ public sealed class CloudAgentRuntime(
 
         await publisher.PublishAsync(reason, cancellationToken);
         return true;
+    }
+
+    public async Task<LiveStudio.Contracts.SnapshotSyncResult?> SyncSnapshotsAsync(
+        CancellationToken cancellationToken)
+    {
+        SnapshotUploadWorker? worker;
+        lock (stateLock)
+        {
+            worker = snapshotUploadWorker;
+        }
+
+        return worker is null ? null : await worker.SyncNowAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -59,6 +72,7 @@ public sealed class CloudAgentRuntime(
                 lock (stateLock)
                 {
                     currentStatePublisher = publisher;
+                    snapshotUploadWorker = uploadWorker;
                 }
 
                 await worker.StartAsync(stoppingToken);
@@ -85,6 +99,7 @@ public sealed class CloudAgentRuntime(
                 lock (stateLock)
                 {
                     currentStatePublisher = null;
+                    snapshotUploadWorker = null;
                 }
 
                 using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

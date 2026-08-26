@@ -74,6 +74,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             .HasForeignKey(device => device.RoomId)
             .OnDelete(DeleteBehavior.Restrict);
         builder.Entity<ManagedDeviceEntity>().HasIndex(device => new { device.OrganizationId, device.RoomId });
+        builder.Entity<ManagedDeviceEntity>().HasIndex(device => new { device.OrganizationId, device.RevokedAt });
         builder.Entity<DeviceEnrollmentEntity>().HasIndex(enrollment => enrollment.TokenHash).IsUnique();
         builder.Entity<DeviceEnrollmentEntity>().Property(enrollment => enrollment.TokenHash).HasMaxLength(64);
         builder.Entity<DesktopAuthorizationSessionEntity>().HasIndex(session => session.UserCode).IsUnique();

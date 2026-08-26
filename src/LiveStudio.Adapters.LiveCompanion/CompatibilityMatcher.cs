@@ -25,15 +25,23 @@ public static class CompatibilityMatcher
                 structureFingerprint,
                 StringComparison.Ordinal))
             .ToArray();
+        return MatchCandidates(applicationVersion, candidates, "结构指纹");
+    }
+
+    internal static AdapterMatchResult MatchCandidates(
+        string applicationVersion,
+        IReadOnlyList<VerifiedAdapterDefinition> candidates,
+        string matchKind)
+    {
         if (!Version.TryParse(applicationVersion, out var version))
         {
-            var structuralMatch = candidates.FirstOrDefault();
+            var structuralMatch = candidates.Count > 0 ? candidates[0] : null;
             return structuralMatch is null
-                ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, "无法解析版本号且没有结构指纹匹配")
+                ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, $"无法解析版本号且没有{matchKind}匹配")
                 : new AdapterMatchResult(
                     AdapterMatchLevel.Experimental,
                     structuralMatch,
-                    "结构指纹匹配，但目标版本号无法验证");
+                    $"{matchKind}匹配，但目标版本号无法验证");
         }
 
         var verified = candidates.FirstOrDefault(adapter =>
@@ -41,12 +49,12 @@ public static class CompatibilityMatcher
             && Version.Parse(adapter.Definition.MaximumVersion) >= version);
         if (verified is not null)
         {
-            return new AdapterMatchResult(AdapterMatchLevel.Verified, verified, "版本和结构指纹均已验证");
+            return new AdapterMatchResult(AdapterMatchLevel.Verified, verified, $"版本和{matchKind}均已验证");
         }
 
-        var experimental = candidates.FirstOrDefault();
+        var experimental = candidates.Count > 0 ? candidates[0] : null;
         return experimental is null
-            ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, "没有结构指纹匹配的适配定义")
-            : new AdapterMatchResult(AdapterMatchLevel.Experimental, experimental, "结构指纹匹配，但应用版本未验证");
+            ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, $"没有{matchKind}匹配的适配定义")
+            : new AdapterMatchResult(AdapterMatchLevel.Experimental, experimental, $"{matchKind}匹配，但应用版本未验证");
     }
 }

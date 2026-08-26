@@ -62,6 +62,8 @@ public sealed class ManagedDeviceEntity
     public DateTimeOffset LastSeenAt { get; set; }
 
     public bool InteractiveUserSession { get; set; }
+
+    public DateTimeOffset? RevokedAt { get; set; }
 }
 
 public sealed class DeviceEnrollmentEntity

@@ -11,7 +11,7 @@
             </StackPanel>
             <Button Grid.Column="1" Classes="toolbar-action" VerticalAlignment="Center"
                     Command="{Binding RefreshStateCommand}">刷新</Button>
-            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
         <Grid Grid.Row="1">
@@ -33,7 +33,7 @@
                                 <TextBlock Grid.Column="3" Classes="snapshot-meta" VerticalAlignment="Center"
                                            Text="{Binding Message}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="4" Classes="snapshot-meta" VerticalAlignment="Center" Text="{Binding CreatedAt}" />
-                                <Border Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Background="#12FFFFFF" />
+                                <Border Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -44,7 +44,7 @@
                         HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
                 <Path Width="32" Height="32" Margin="0,0,0,5" HorizontalAlignment="Center"
                       Data="M12,21 A9,9 0 1 0 12,3 A9,9 0 0 0 12,21 M12,7 L12,12 L15,14"
-                      Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
+                      Stretch="Uniform" Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.35" />
                 <TextBlock Classes="empty-heading" Text="还没有执行任务" TextAlignment="Center" />
                 <TextBlock Classes="empty-body" Text="本机保存、恢复，以及云端下发的任务会显示在这里。"
                            TextAlignment="Center" TextWrapping="Wrap" />

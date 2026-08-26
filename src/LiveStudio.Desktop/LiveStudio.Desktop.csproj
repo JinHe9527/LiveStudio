@@ -13,7 +13,9 @@
 
   <ItemGroup>
     <Folder Include="Models\" />
-    <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Assets\**" Exclude="Assets\Cloud\LiveStudio-Cloud-Root-CA.crt" />
+    <EmbeddedResource Include="Assets\Cloud\LiveStudio-Cloud-Root-CA.crt"
+                      LogicalName="LiveStudio.Desktop.Assets.Cloud.LiveStudio-Cloud-Root-CA.crt" />
     <AssemblyMetadata Include="LiveStudioUpdatePublisher" Value="$(LiveStudioUpdatePublisher)" />
     <AssemblyMetadata Include="LiveStudioUpdateCertificateThumbprint" Value="$(LiveStudioUpdateCertificateThumbprint)" />
   </ItemGroup>

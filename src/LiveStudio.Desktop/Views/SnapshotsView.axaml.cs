@@ -1,5 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using LiveStudio.Desktop.ViewModels;
 
@@ -17,6 +21,34 @@ public partial class SnapshotsView : UserControl
     public SnapshotsView()
     {
         InitializeComponent();
+    }
+
+    private void SnapshotsViewKeyDown(object? sender, KeyEventArgs eventArgs)
+    {
+        if (!eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control)
+            || DataContext is not MainViewModel { SnapshotInspector: { } inspector })
+        {
+            return;
+        }
+
+        if (eventArgs.Key == Key.F && inspector.SelectedApplication is { } application)
+        {
+            application.ShowSearch();
+            eventArgs.Handled = true;
+        }
+        else if (eventArgs.Key == Key.I)
+        {
+            inspector.IsTechnicalPanelOpen = true;
+            eventArgs.Handled = true;
+        }
+    }
+
+    private void TechnicalInfoClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MainViewModel { SnapshotInspector: { } inspector })
+        {
+            inspector.IsTechnicalPanelOpen = true;
+        }
     }
 
     private async void ImportSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
@@ -63,5 +95,282 @@ public partial class SnapshotsView : UserControl
         {
             await viewModel.ExportSelectedSnapshotAsync(path);
         }
+    }
+
+    private async void RenameCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MainViewModel { SelectedSnapshot: { } snapshot } viewModel)
+        {
+            await RenameSnapshotAsync(viewModel, snapshot);
+        }
+    }
+
+    private async void RenameTimelineSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MainViewModel viewModel
+            && sender is MenuItem { Tag: LocalSnapshotItemViewModel snapshot })
+        {
+            viewModel.SelectedSnapshot = snapshot;
+            await RenameSnapshotAsync(viewModel, snapshot);
+        }
+    }
+
+    private async Task RenameSnapshotAsync(
+        MainViewModel viewModel,
+        LocalSnapshotItemViewModel snapshot)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        if (snapshot.IsDesktopFile)
+        {
+            viewModel.PendingImportMessage = "当前文件不是受管存档，不能在此修改名称";
+            return;
+        }
+
+        var name = await ShowTextInputAsync(
+            owner,
+            "重命名存档",
+            "只修改管理界面中的显示名称，不改动已签名的存档内容。",
+            snapshot.DisplayName,
+            "保存名称",
+            120);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            await viewModel.RenameSnapshotAsync(snapshot, name);
+        }
+    }
+
+    private async void DeleteTimelineSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is not MainViewModel viewModel
+            || sender is not MenuItem { Tag: LocalSnapshotItemViewModel snapshot }
+            || TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        if (snapshot.IsDesktopFile)
+        {
+            viewModel.PendingImportMessage = "当前文件不是受管存档，不能在此删除";
+            return;
+        }
+
+        viewModel.SelectedSnapshot = snapshot;
+        var confirmed = await ShowDeleteConfirmationAsync(
+            owner,
+            "删除存档",
+            snapshot.IsCloud
+                ? $"将永久删除云存档“{snapshot.DisplayName}”、云端预览和不再被引用的素材。此操作无法撤销，不会修改任何直播电脑。"
+                : $"将永久删除“{snapshot.DisplayName}”及其本机 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
+            "删除存档");
+        if (confirmed)
+        {
+            await viewModel.DeleteSelectedSnapshotAsync();
+        }
+    }
+
+    private async void CreateRoomClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        if (!viewModel.IsCloudConnected)
+        {
+            viewModel.OpenCloudSettingsCommand.Execute(null);
+            return;
+        }
+
+        var name = await ShowTextInputAsync(
+            owner,
+            "新建直播间",
+            "直播间用于归档一台或一组直播电脑的画面存档。",
+            string.Empty,
+            "新建",
+            100);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            await viewModel.CreateCloudRoomAsync(name);
+        }
+    }
+
+    private void CloudSettingsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MainViewModel viewModel)
+        {
+            viewModel.OpenCloudSettingsCommand.Execute(null);
+        }
+    }
+
+    private async void DeleteCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this) is not Window owner
+            || viewModel.SelectedSnapshot is not { } selectedSnapshot)
+        {
+            return;
+        }
+
+        var confirmed = await ShowDeleteConfirmationAsync(
+            owner,
+            "删除当前存档",
+            selectedSnapshot.IsCloud
+                ? $"将永久删除云存档“{selectedSnapshot.DisplayName}”、云端预览和不再被引用的素材。此操作无法撤销，不会修改任何直播电脑。"
+                : $"将永久删除“{selectedSnapshot.DisplayName}”及其本机 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
+            "删除当前存档");
+        if (confirmed)
+        {
+            await viewModel.DeleteSelectedSnapshotAsync();
+        }
+    }
+
+    private async void DeleteAllSnapshotsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this) is not Window owner
+            || viewModel.LocalSnapshotCount == 0)
+        {
+            return;
+        }
+
+        var snapshotCount = viewModel.LocalSnapshotCount;
+        var confirmed = await ShowDeleteConfirmationAsync(
+            owner,
+            "清空本机存档",
+            $"将永久删除本机全部 {snapshotCount} 份画面存档及其 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
+            $"永久清空 {snapshotCount} 份");
+        if (confirmed)
+        {
+            await viewModel.DeleteAllSnapshotsAsync();
+        }
+    }
+
+    private static Task<bool> ShowDeleteConfirmationAsync(
+        Window owner,
+        string title,
+        string message,
+        string confirmText)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            RequestedThemeVariant = owner.ActualThemeVariant,
+            Background = owner.Background
+        };
+        var cancel = new Button { Content = "取消", MinWidth = 76 };
+        cancel.Classes.Add("archive-secondary");
+        var confirm = new Button
+        {
+            Content = confirmText,
+            MinWidth = 116
+        };
+        confirm.Classes.Add("archive-danger");
+        cancel.Click += (_, _) => dialog.Close(false);
+        confirm.Click += (_, _) => dialog.Close(true);
+        dialog.Content = new StackPanel
+        {
+            Margin = new Avalonia.Thickness(24),
+            Spacing = 16,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = title,
+                    FontSize = 20,
+                    FontWeight = FontWeight.SemiBold
+                },
+                new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { cancel, confirm }
+                }
+            }
+        };
+        dialog.Opened += (_, _) => cancel.Focus();
+        return dialog.ShowDialog<bool>(owner);
+    }
+
+    private static Task<string?> ShowTextInputAsync(
+        Window owner,
+        string title,
+        string message,
+        string initialValue,
+        string confirmText,
+        int maximumLength)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            RequestedThemeVariant = owner.ActualThemeVariant,
+            Background = owner.Background
+        };
+        var input = new TextBox
+        {
+            Text = initialValue,
+            MaxLength = maximumLength,
+            MinWidth = 360,
+            PlaceholderText = title
+        };
+        input.Classes.Add("settings-input");
+        var cancel = new Button { Content = "取消", MinWidth = 76 };
+        cancel.Classes.Add("archive-secondary");
+        var confirm = new Button { Content = confirmText, MinWidth = 96 };
+        confirm.Classes.Add("archive-primary");
+        cancel.Click += (_, _) => dialog.Close(null);
+        confirm.Click += (_, _) => dialog.Close(input.Text?.Trim());
+        input.KeyDown += (_, eventArgs) =>
+        {
+            if (eventArgs.Key == Key.Enter && !string.IsNullOrWhiteSpace(input.Text))
+            {
+                dialog.Close(input.Text.Trim());
+                eventArgs.Handled = true;
+            }
+        };
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(24),
+            Spacing = 14,
+            Children =
+            {
+                new TextBlock { Text = title, FontSize = 20, FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                input,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { cancel, confirm }
+                }
+            }
+        };
+        dialog.Opened += (_, _) =>
+        {
+            input.Focus();
+            input.SelectAll();
+        };
+        return dialog.ShowDialog<string?>(owner);
     }
 }

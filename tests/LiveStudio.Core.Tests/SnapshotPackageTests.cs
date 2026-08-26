@@ -52,7 +52,7 @@ public sealed class SnapshotPackageTests
         try
         {
             using var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            var exception = await Assert.ThrowsAsync<SnapshotPackageException>(() => SnapshotPackageWriter.WriteAsync(
+            var exception = await Assert.ThrowsAsync<SnapshotSensitiveDataException>(() => SnapshotPackageWriter.WriteAsync(
                 Path.Combine(directory, "snapshot.lscfg"),
                 CreateSnapshot(),
                 [new PackageFile("native/config.json", "application/json", Encoding.UTF8.GetBytes("{\"token\":\"forbidden\"}"))],
@@ -304,13 +304,191 @@ public sealed class SnapshotPackageTests
         }
     }
 
+    [Fact]
+    public async Task PackageSignsAndRoundTripsThreeBoundCameraStations()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(directory, "snapshot.lscfg");
+            using var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var publicParameters = privateKey.ExportParameters(false);
+            CameraStationSnapshot[] stations =
+            [
+                CreateCameraStation(0, "主机"),
+                CreateCameraStation(1, "游机"),
+                CreateCameraStation(2, "侧机")
+            ];
+            await SnapshotPackageWriter.WriteAsync(
+                path,
+                CreateSnapshot() with { CameraStations = stations },
+                [],
+                privateKey,
+                "test-key",
+                CancellationToken.None);
+
+            var package = await SnapshotPackageReader.ReadAsync(
+                path,
+                keyId => keyId == "test-key" ? CreatePublicKey(publicParameters) : null,
+                CancellationToken.None);
+
+            Assert.Equal(stations, package.Snapshot.CameraStations);
+            Assert.Equal(stations, package.Manifest.CameraStations);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageRejectsSensitiveKeyInsideEncodedJsonString()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var sourceId = Guid.NewGuid();
+            var encodedConfiguration = System.Text.Json.JsonSerializer.SerializeToElement(
+                "{\"appToken\":\"dummy-secret\",\"enabled\":true}");
+            var snapshot = CreateSnapshot() with
+            {
+                Applications =
+                [
+                    new ApplicationSnapshot(
+                        ApplicationKind.LiveCompanion,
+                        "12.8.1",
+                        "evidence-only",
+                        "",
+                        "fingerprint",
+                        CompatibilityLevel.Experimental,
+                        true,
+                        [],
+                        [],
+                        [new NativeConfigurationDocument(
+                            "effectStore",
+                            "JsonFile",
+                            "json-v1",
+                            "effectStore.json",
+                            "effectStore.json",
+                            new string('a', 64),
+                            sourceId,
+                            [new NativeConfigurationValue(
+                                "/speechConfig",
+                                "NativeField",
+                                encodedConfiguration)])])
+                ]
+            };
+            using var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+
+            var exception = await Assert.ThrowsAsync<SnapshotSensitiveDataException>(() =>
+                SnapshotPackageWriter.WriteAsync(
+                    Path.Combine(directory, "encoded-sensitive.lscfg"),
+                    snapshot,
+                    [],
+                    privateKey,
+                    "test-key",
+                    CancellationToken.None));
+
+            Assert.Contains("内嵌 JSON", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("dummy-secret", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SchemaThreeManifestUsesCoverageHashForLargeNativeTrees()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(directory, "large-tree.lscfg");
+            using var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var publicParameters = privateKey.ExportParameters(false);
+            var snapshot = CreateSnapshot();
+            snapshot = snapshot with
+            {
+                Applications = snapshot.Applications.Select(application => application with
+                {
+                    FieldCoverage = Enumerable.Range(0, 5_000)
+                        .Select(index => new CapturedParameterField(
+                            $"studio.json:/native/tree/field-{index:D5}",
+                            "NativeField",
+                            "string",
+                            true,
+                            false,
+                            "NativeFieldReadback",
+                            $"field-{index:D5}",
+                            $"field-{index:D5}",
+                            $"未映射原生字段/field-{index:D5}",
+                            FieldEvidenceStatus.EvidenceOnly))
+                        .ToArray()
+                }).ToArray()
+            };
+
+            await SnapshotPackageWriter.WriteAsync(
+                path,
+                snapshot,
+                [],
+                privateKey,
+                "large-tree-device",
+                CancellationToken.None);
+            var package = await SnapshotPackageReader.ReadAsync(
+                path,
+                keyId => keyId == "large-tree-device" ? CreatePublicKey(publicParameters) : null,
+                CancellationToken.None);
+
+            var manifestApplication = Assert.Single(package.Manifest.Applications);
+            Assert.Empty(manifestApplication.FieldCoverage);
+            Assert.Equal(5_000, manifestApplication.FieldCoverageCount);
+            Assert.Equal(64, manifestApplication.FieldCoverageSha256.Length);
+            Assert.Equal(5_000, Assert.Single(package.Snapshot.Applications).FieldCoverage.Count);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SchemaTwoPackageIsReadableButNormalizedToReadOnly()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(directory, "legacy.lscfg");
+            using var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var snapshot = CreateSnapshot() with { SchemaVersion = 2 };
+            await SnapshotPackageWriter.WriteAsync(
+                path,
+                snapshot,
+                [],
+                privateKey,
+                "legacy-device",
+                CancellationToken.None);
+
+            var inspection = await SnapshotPackageReader.InspectAsync(path, CancellationToken.None);
+            var application = Assert.Single(inspection.Package.Snapshot.Applications);
+
+            Assert.Equal(2, inspection.Package.Snapshot.SchemaVersion);
+            Assert.Equal(CompatibilityLevel.Unsupported, application.Compatibility);
+            Assert.Null(application.ConfigurationTree);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static CombinedSnapshot CreateSnapshot() => new(
         Guid.NewGuid(),
         Guid.NewGuid(),
         Guid.NewGuid(),
         "画面存档",
         DateTimeOffset.UtcNow,
-        2,
+        3,
         [new ApplicationSnapshot(
             ApplicationKind.Obs,
             "32.0.0",
@@ -324,6 +502,15 @@ public sealed class SnapshotPackageTests
             [])],
         [],
         []);
+
+    private static CameraStationSnapshot CreateCameraStation(int slot, string name) => new(
+        slot,
+        name,
+        "F4",
+        "1/125",
+        "640",
+        "ST",
+        new CameraCreativeLookSnapshot(0, 0, 0, 0, 0, 0, 0, 0));
 
     private static ECDsa CreatePublicKey(ECParameters parameters)
     {

@@ -12,6 +12,12 @@ public sealed class LocalAgentClient
         new { },
         cancellationToken);
 
+    public Task<LocalOperationProgress> GetOperationProgressAsync(CancellationToken cancellationToken) =>
+        SendAsync<object, LocalOperationProgress>(
+            LocalControlMethod.GetOperationProgress,
+            new { },
+            cancellationToken);
+
     public Task<LocalAgentState> RefreshCurrentStateAsync(CancellationToken cancellationToken) =>
         SendAsync<object, LocalAgentState>(
             LocalControlMethod.RefreshCurrentState,
@@ -20,9 +26,22 @@ public sealed class LocalAgentClient
 
     public Task<LocalSnapshotOperationResult> CaptureAsync(
         string name,
+        IReadOnlyList<CameraStationSnapshot>? cameraStations,
         CancellationToken cancellationToken) => SendAsync<CaptureLocalSnapshotRequest, LocalSnapshotOperationResult>(
             LocalControlMethod.CaptureSnapshot,
-            new CaptureLocalSnapshotRequest(name),
+            new CaptureLocalSnapshotRequest(name, cameraStations),
+            cancellationToken);
+
+    public Task<LocalSnapshotOperationResult> CaptureAsync(
+        string name,
+        CancellationToken cancellationToken) => CaptureAsync(name, null, cancellationToken);
+
+    public Task<LocalSnapshotOperationResult> UpdateSnapshotCameraStationsAsync(
+        Guid snapshotId,
+        IReadOnlyList<CameraStationSnapshot> cameraStations,
+        CancellationToken cancellationToken) => SendAsync<UpdateSnapshotCameraStationsRequest, LocalSnapshotOperationResult>(
+            LocalControlMethod.UpdateSnapshotCameraStations,
+            new UpdateSnapshotCameraStationsRequest(snapshotId, cameraStations),
             cancellationToken);
 
     public Task<LocalSnapshotOperationResult> RestoreAsync(
@@ -38,6 +57,12 @@ public sealed class LocalAgentClient
         CancellationToken cancellationToken) => SendAsync<ConfigureObsRequest, LocalAgentState>(
             LocalControlMethod.ConfigureObs,
             new ConfigureObsRequest(endpoint, password),
+            cancellationToken);
+
+    public Task<LocalAgentState> AutoConfigureObsAsync(CancellationToken cancellationToken) =>
+        SendAsync<object, LocalAgentState>(
+            LocalControlMethod.AutoConfigureObs,
+            new { },
             cancellationToken);
 
     public Task<LocalAgentState> ConfigureLanDirectoryAsync(
@@ -77,6 +102,14 @@ public sealed class LocalAgentClient
             new GetLocalSnapshotDetailRequest(snapshotId),
             cancellationToken);
 
+    public Task<LocalSnapshotPreview> GetSnapshotPreviewAsync(
+        Guid snapshotId,
+        ApplicationKind application,
+        CancellationToken cancellationToken) => SendAsync<GetLocalSnapshotPreviewRequest, LocalSnapshotPreview>(
+            LocalControlMethod.GetSnapshotPreview,
+            new GetLocalSnapshotPreviewRequest(snapshotId, application),
+            cancellationToken);
+
     public Task<LocalMappingContext> SaveDeviceMappingAsync(
         SaveLocalDeviceMappingRequest request,
         CancellationToken cancellationToken) => SendAsync<SaveLocalDeviceMappingRequest, LocalMappingContext>(
@@ -105,6 +138,33 @@ public sealed class LocalAgentClient
         CancellationToken cancellationToken) => SendAsync<ExportSnapshotFileRequest, SnapshotTransferResult>(
             LocalControlMethod.ExportSnapshotFile,
             new ExportSnapshotFileRequest(snapshotId, path),
+            cancellationToken);
+
+    public Task<DeleteSnapshotsResult> DeleteSnapshotAsync(
+        Guid snapshotId,
+        CancellationToken cancellationToken) => SendAsync<DeleteLocalSnapshotRequest, DeleteSnapshotsResult>(
+            LocalControlMethod.DeleteSnapshot,
+            new DeleteLocalSnapshotRequest(snapshotId),
+            cancellationToken);
+
+    public Task<LocalSnapshotOperationResult> RenameSnapshotAsync(
+        Guid snapshotId,
+        string name,
+        CancellationToken cancellationToken) => SendAsync<RenameLocalSnapshotRequest, LocalSnapshotOperationResult>(
+            LocalControlMethod.RenameSnapshot,
+            new RenameLocalSnapshotRequest(snapshotId, name),
+            cancellationToken);
+
+    public Task<DeleteSnapshotsResult> DeleteAllSnapshotsAsync(CancellationToken cancellationToken) =>
+        SendAsync<object, DeleteSnapshotsResult>(
+            LocalControlMethod.DeleteAllSnapshots,
+            new { },
+            cancellationToken);
+
+    public Task<SnapshotSyncResult> SyncPendingSnapshotsAsync(CancellationToken cancellationToken) =>
+        SendAsync<object, SnapshotSyncResult>(
+            LocalControlMethod.SyncPendingSnapshots,
+            new { },
             cancellationToken);
 
     private async Task<TResult> SendAsync<TRequest, TResult>(

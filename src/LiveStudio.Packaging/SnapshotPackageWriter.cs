@@ -50,7 +50,7 @@ public sealed class SnapshotPackageWriter
 
         if (sensitiveFindings.Count > 0)
         {
-            throw new SnapshotPackageException(string.Join(Environment.NewLine, sensitiveFindings));
+            throw new SnapshotSensitiveDataException(string.Join(Environment.NewLine, sensitiveFindings));
         }
 
         packageFiles.Add(ParametersPath, new PackageFile(ParametersPath, "application/json", parameters));
@@ -69,19 +69,23 @@ public sealed class SnapshotPackageWriter
             snapshot.Name,
             snapshot.CreatedAt,
             snapshot.SchemaVersion,
-            snapshot.Applications.Select(application => new SnapshotApplicationManifest(
-                application.Kind,
-                application.AdapterId,
-                application.AdapterDefinitionSha256,
-                application.StructureFingerprint,
-                application.Compatibility,
-                application.WasRunning,
-                application.FieldCoverage.Select(field => field.NativePath).ToArray())).ToArray(),
-            snapshot.Applications.SelectMany(application => application.Sources)
-                .SelectMany(source => source.Filters)
-                .SelectMany(filter => filter.Assets)
-                .ToArray(),
-            entries);
+            snapshot.Applications.Select(application =>
+            {
+                var fieldCoverage = application.FieldCoverage.Select(field => field.NativePath).ToArray();
+                return new SnapshotApplicationManifest(
+                    application.Kind,
+                    application.AdapterId,
+                    application.AdapterDefinitionSha256,
+                    application.StructureFingerprint,
+                    application.Compatibility,
+                    application.WasRunning,
+                    snapshot.SchemaVersion >= 3 ? [] : fieldCoverage,
+                    fieldCoverage.Length,
+                    SnapshotManifestIntegrity.HashFieldCoverage(fieldCoverage));
+            }).ToArray(),
+            SnapshotAssetBindings.Collect(snapshot.Applications),
+            entries,
+            snapshot.CameraStations);
         var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
         var signature = new PackageSignature(
             "ECDSA-P256-SHA256",

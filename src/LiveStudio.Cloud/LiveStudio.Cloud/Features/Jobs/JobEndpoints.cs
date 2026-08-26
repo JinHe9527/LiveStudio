@@ -12,11 +12,16 @@ namespace LiveStudio.Cloud.Features.Jobs;
 
 public static class JobEndpoints
 {
+    private static readonly JobStatus[] ActiveJobStatuses = Enum.GetValues<JobStatus>()
+        .Where(status => !JobTransitionRules.IsTerminal(status))
+        .ToArray();
+
     public static IEndpointRouteBuilder MapJobEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var organizations = endpoints.MapGroup("/api/v1/organizations/{organizationId:guid}")
             .RequireAuthorization();
         organizations.MapPost("/capture-jobs", CreateCaptureAsync);
+        organizations.MapPost("/capture-jobs/batch", CreateBatchCaptureAsync);
         organizations.MapPost("/restore-jobs", CreateRestoreAsync);
         organizations.MapPost("/refresh-jobs", CreateRefreshAsync);
         organizations.MapGet("/jobs", ListJobsAsync);
@@ -47,7 +52,7 @@ public static class JobEndpoints
             request.DeviceId,
             null,
             JobKind.Capture,
-            CompatibilityLevel.Verified,
+            CompatibilityLevel.Experimental,
             request.Name,
             user,
             access,
@@ -55,6 +60,160 @@ public static class JobEndpoints
             connections,
             hub,
             cancellationToken);
+
+    private static async Task<IResult> CreateBatchCaptureAsync(
+        Guid organizationId,
+        CreateBatchCaptureJobsRequest request,
+        ClaimsPrincipal user,
+        OrganizationAccessService access,
+        ApplicationDbContext dbContext,
+        DeviceConnectionRegistry connections,
+        IHubContext<AgentHub> hub,
+        CancellationToken cancellationToken)
+    {
+        if (!await access.HasRoleAsync(user, organizationId, OrganizationRole.Operator, cancellationToken))
+        {
+            return TypedResults.Forbid();
+        }
+
+        var requestedRoomIds = request.RoomIds?
+            .Where(roomId => roomId != Guid.Empty)
+            .Distinct()
+            .ToArray() ?? [];
+        var validationErrors = new Dictionary<string, string[]>();
+        if (requestedRoomIds.Length == 0 || requestedRoomIds.Length > 200)
+        {
+            validationErrors[nameof(request.RoomIds)] = ["请选择 1 至 200 个直播间"];
+        }
+
+        if (request.Name?.Length > 120)
+        {
+            validationErrors[nameof(request.Name)] = ["批量存档名称不能超过 120 个字符"];
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(validationErrors);
+        }
+
+        var rooms = await dbContext.LiveRooms.AsNoTracking()
+            .Where(room => room.OrganizationId == organizationId && requestedRoomIds.Contains(room.Id))
+            .ToDictionaryAsync(room => room.Id, cancellationToken);
+        var deviceIds = rooms.Values
+            .Where(room => room.DeviceId is not null)
+            .Select(room => room.DeviceId!.Value)
+            .Distinct()
+            .ToArray();
+        var devices = await dbContext.Devices.AsNoTracking()
+            .Where(device => device.OrganizationId == organizationId
+                && deviceIds.Contains(device.Id)
+                && device.RevokedAt == null)
+            .ToDictionaryAsync(device => device.Id, cancellationToken);
+        var activeCaptureDeviceIds = await dbContext.RemoteJobs.AsNoTracking()
+            .Where(job => job.OrganizationId == organizationId
+                && job.Kind == JobKind.Capture
+                && deviceIds.Contains(job.DeviceId)
+                && ActiveJobStatuses.Contains(job.Status))
+            .Select(job => job.DeviceId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var activeDevices = activeCaptureDeviceIds.ToHashSet();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        var now = DateTimeOffset.UtcNow;
+        var results = new List<BatchCaptureJobResult>(requestedRoomIds.Length);
+        var acceptedJobs = new List<RemoteJobEntity>();
+
+        foreach (var roomId in requestedRoomIds)
+        {
+            if (!rooms.TryGetValue(roomId, out var room))
+            {
+                results.Add(new BatchCaptureJobResult(
+                    roomId, "未知直播间", null, null, false, "RoomNotFound", "直播间不存在或不属于当前组织"));
+                continue;
+            }
+
+            if (room.DeviceId is not { } deviceId || !devices.TryGetValue(deviceId, out var device))
+            {
+                results.Add(new BatchCaptureJobResult(
+                    room.Id, room.Name, room.DeviceId, null, false, "DeviceNotAssigned", "尚未绑定 Windows 执行端"));
+                continue;
+            }
+
+            var online = connections.IsConnected(deviceId)
+                && device.InteractiveUserSession
+                && device.LastSeenAt >= now.AddSeconds(-45);
+            if (!online)
+            {
+                results.Add(new BatchCaptureJobResult(
+                    room.Id, room.Name, deviceId, null, false, "DeviceOffline", "执行端离线，未创建排队任务"));
+                continue;
+            }
+
+            if (activeDevices.Contains(deviceId))
+            {
+                results.Add(new BatchCaptureJobResult(
+                    room.Id, room.Name, deviceId, null, false, "CaptureAlreadyActive", "已有保存任务正在执行"));
+                continue;
+            }
+
+            var namePrefix = string.IsNullOrWhiteSpace(request.Name) ? "批量存档" : request.Name.Trim();
+            var job = new RemoteJobEntity
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                RoomId = room.Id,
+                DeviceId = deviceId,
+                Kind = JobKind.Capture,
+                Status = JobStatus.Queued,
+                Compatibility = CompatibilityLevel.Experimental,
+                RequestedBy = userId,
+                CreatedAt = now,
+                Message = $"{namePrefix} · {room.Name}"
+            };
+            acceptedJobs.Add(job);
+            activeDevices.Add(deviceId);
+            dbContext.RemoteJobs.Add(job);
+            dbContext.JobEvents.Add(new JobEventEntity
+            {
+                Id = Guid.NewGuid(),
+                JobId = job.Id,
+                ExecutionId = Guid.Empty,
+                Sequence = 0,
+                Status = JobStatus.Queued,
+                OccurredAt = now,
+                Message = job.Message
+            });
+            dbContext.AuditEvents.Add(new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                ActorId = userId,
+                Action = "capture.batch-requested",
+                TargetType = "RemoteJob",
+                TargetId = job.Id.ToString(),
+                OccurredAt = now,
+                DetailJson = JsonSerializer.Serialize(new { job.RoomId, job.DeviceId, Batch = true })
+            });
+            results.Add(new BatchCaptureJobResult(
+                room.Id, room.Name, deviceId, job.Id, true, "Accepted", "保存任务已下发"));
+        }
+
+        if (acceptedJobs.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            foreach (var job in acceptedJobs)
+            {
+                await hub.Clients.Group(AgentHub.DeviceGroup(organizationId, job.DeviceId))
+                    .SendAsync("JobAvailable", new AgentJobNotification(job.Id, job.Kind), cancellationToken);
+            }
+        }
+
+        return TypedResults.Ok(new CreateBatchCaptureJobsResponse(
+            requestedRoomIds.Length,
+            acceptedJobs.Count,
+            requestedRoomIds.Length - acceptedJobs.Count,
+            results));
+    }
 
     private static Task<IResult> CreateRestoreAsync(
         Guid organizationId,
@@ -93,7 +252,7 @@ public static class JobEndpoints
             request.DeviceId,
             null,
             JobKind.RefreshPreview,
-            CompatibilityLevel.Verified,
+            CompatibilityLevel.Experimental,
             "刷新当前参数与画面",
             user,
             access,
@@ -125,7 +284,8 @@ public static class JobEndpoints
         var device = await dbContext.Devices.SingleOrDefaultAsync(
             value => value.Id == deviceId
                 && value.OrganizationId == organizationId
-                && value.RoomId == roomId,
+                && value.RoomId == roomId
+                && value.RevokedAt == null,
             cancellationToken);
         if (device is null)
         {
@@ -147,7 +307,7 @@ public static class JobEndpoints
                 restoreSnapshotId,
                 dbContext,
                 cancellationToken)
-            : compatibility ?? CompatibilityLevel.Verified;
+            : compatibility ?? CompatibilityLevel.Experimental;
         if (assessedCompatibility == CompatibilityLevel.Unsupported)
         {
             return TypedResults.Problem(
@@ -264,6 +424,23 @@ public static class JobEndpoints
         var result = CompatibilityLevel.Verified;
         foreach (var snapshotApplication in snapshotApplications.Cast<ApplicationSnapshot>())
         {
+            if (snapshotApplication.Compatibility == CompatibilityLevel.Unsupported)
+            {
+                return CompatibilityLevel.Unsupported;
+            }
+
+            if (snapshotApplication.Compatibility != CompatibilityLevel.Verified
+                || snapshotApplication.ConfigurationTree is not
+                {
+                    HasCompleteUiInventory: true,
+                    HasCompleteNativeInventory: true,
+                    UnknownCount: 0,
+                    EvidenceOnlyCount: 0
+                })
+            {
+                result = CompatibilityLevel.Experimental;
+            }
+
             var targetApplication = currentState.Applications.FirstOrDefault(
                 application => application.Kind == snapshotApplication.Kind);
             if (targetApplication is null)

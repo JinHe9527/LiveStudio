@@ -7,7 +7,8 @@ namespace LiveStudio.Agent;
 
 public sealed class CurrentStatePublisher(
     IEnumerable<IApplicationAdapter> applicationAdapters,
-    DeviceApiClient apiClient)
+    DeviceApiClient apiClient,
+    ApplicationOperationGate operationGate)
 {
     private readonly IReadOnlyList<IApplicationAdapter> adapters = applicationAdapters.ToArray();
 
@@ -19,6 +20,8 @@ public sealed class CurrentStatePublisher(
         {
             throw new ArgumentException("显式发布当前状态必须标明手动刷新或恢复", nameof(reason));
         }
+
+        using var operationLease = await operationGate.EnterAsync(cancellationToken);
 
         var applications = new List<ApplicationSnapshot>();
         var previews = new List<CurrentPreviewUpload>();

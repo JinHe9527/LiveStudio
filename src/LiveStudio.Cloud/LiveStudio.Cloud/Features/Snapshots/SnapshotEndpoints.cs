@@ -47,6 +47,7 @@ public static class SnapshotEndpoints
         organizations.MapGet("/snapshots", ListAsync);
         organizations.MapGet("/snapshots/{snapshotId:guid}", GetDetailAsync);
         organizations.MapGet("/snapshots/{snapshotId:guid}/download", DownloadAsync);
+        organizations.MapPut("/snapshots/{snapshotId:guid}/name", RenameAsync);
         organizations.MapDelete("/snapshots/{snapshotId:guid}", DeleteAsync);
         return endpoints;
     }
@@ -67,7 +68,8 @@ public static class SnapshotEndpoints
         var device = await dbContext.Devices.AsNoTracking().SingleOrDefaultAsync(
             value => value.Id == deviceId
                 && value.OrganizationId == GetOrganizationId(user)
-                && value.RoomId == request.RoomId,
+                && value.RoomId == request.RoomId
+                && value.RevokedAt == null,
             cancellationToken);
         if (device is null)
         {
@@ -223,7 +225,9 @@ public static class SnapshotEndpoints
         }
 
         var device = await dbContext.Devices.AsNoTracking().SingleAsync(
-            value => value.Id == deviceId && value.OrganizationId == upload.OrganizationId,
+            value => value.Id == deviceId
+                && value.OrganizationId == upload.OrganizationId
+                && value.RevokedAt == null,
             cancellationToken);
         await objectStorage.CompleteMultipartUploadAsync(
             upload.ObjectKey,
@@ -510,7 +514,9 @@ public static class SnapshotEndpoints
 
         var organizationId = GetOrganizationId(user);
         var targetDevice = await dbContext.Devices.AsNoTracking().SingleOrDefaultAsync(
-            device => device.Id == deviceId && device.OrganizationId == organizationId,
+            device => device.Id == deviceId
+                && device.OrganizationId == organizationId
+                && device.RevokedAt == null,
             cancellationToken);
         if (targetDevice is null)
         {
@@ -574,6 +580,8 @@ public static class SnapshotEndpoints
             .ToListAsync(cancellationToken);
         try
         {
+            var manifest = JsonSerializer.Deserialize<SnapshotPackageManifest>(snapshot.ManifestJson, JsonOptions)
+                ?? throw new JsonException("无法解析存档清单");
             var applications = components.Select(component =>
                     JsonSerializer.Deserialize<ApplicationSnapshot>(component.ParametersJson, JsonOptions)
                     ?? throw new JsonException($"无法解析 {component.Application} 存档参数"))
@@ -594,7 +602,8 @@ public static class SnapshotEndpoints
                     snapshot.PackageLength,
                     snapshot.PackageSha256),
                 applications,
-                previewUrls));
+                previewUrls,
+                manifest.CameraStations));
         }
         catch (JsonException exception)
         {
@@ -715,6 +724,54 @@ public static class SnapshotEndpoints
                 queuedObjectCount = objectKeys.Length,
                 removedAssetCount = unreferencedAssets.Count
             })
+        });
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<IResult> RenameAsync(
+        Guid organizationId,
+        Guid snapshotId,
+        RenameCloudSnapshotRequest request,
+        ClaimsPrincipal user,
+        OrganizationAccessService access,
+        ApplicationDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (!await access.HasRoleAsync(user, organizationId, OrganizationRole.Admin, cancellationToken))
+        {
+            return TypedResults.Forbid();
+        }
+
+        var name = request.Name.Trim();
+        if (name.Length is < 1 or > 120)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(request.Name)] = ["存档名称必须为 1 至 120 个字符"]
+            });
+        }
+
+        var snapshot = await dbContext.Snapshots.SingleOrDefaultAsync(
+            value => value.Id == snapshotId && value.OrganizationId == organizationId,
+            cancellationToken);
+        if (snapshot is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var previousName = snapshot.Name;
+        snapshot.Name = name;
+        dbContext.AuditEvents.Add(new AuditEventEntity
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            ActorId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty,
+            Action = "snapshot.renamed",
+            TargetType = "Snapshot",
+            TargetId = snapshot.Id.ToString(),
+            OccurredAt = DateTimeOffset.UtcNow,
+            DetailJson = JsonSerializer.Serialize(new { previousName, name })
         });
         await dbContext.SaveChangesAsync(cancellationToken);
         return TypedResults.NoContent();

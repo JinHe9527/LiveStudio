@@ -20,6 +20,8 @@ internal sealed class CloudApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("ObjectStorage:AccessKey", _environment.ObjectStorageAccessKey);
         builder.UseSetting("ObjectStorage:SecretKey", _environment.ObjectStorageSecretKey);
         builder.UseSetting("ObjectStorage:UsePathStyle", bool.TrueString);
+        builder.UseSetting("ServiceLimits:MaximumManagedDevices", "1");
+        builder.UseSetting("ServiceLimits:MaximumLiveRooms", "2");
     }
 
     public async Task ResetDomainDataAsync()

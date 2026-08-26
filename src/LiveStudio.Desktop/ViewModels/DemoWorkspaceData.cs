@@ -27,7 +27,7 @@ internal static class DemoWorkspaceData
         {
             JobStatus.Succeeded,
             JobStatus.Succeeded,
-            JobStatus.BlockedByLiveSession,
+            JobStatus.IncompatibleVersion,
             JobStatus.FailedRolledBack,
             JobStatus.Verifying,
             JobStatus.DeviceOffline,
@@ -222,6 +222,7 @@ internal static class DemoWorkspaceData
         or JobStatus.MappingRequired
         or JobStatus.UnsupportedDeviceMode
         or JobStatus.MissingFilter
+        or JobStatus.MissingAsset
         or JobStatus.IncompatibleVersion
         or JobStatus.FailedRolledBack
         or JobStatus.RollbackFailed;
@@ -229,7 +230,7 @@ internal static class DemoWorkspaceData
     private static string CreateJobMessage(int roomNumber, JobKind kind, JobStatus status) => status switch
     {
         JobStatus.Succeeded => $"{roomNumber}号直播间逐字段回读完成",
-        JobStatus.BlockedByLiveSession => $"{roomNumber}号直播间正在直播，写入前已阻止",
+        JobStatus.BlockedByLiveSession => $"{roomNumber}号直播间存在历史终止记录",
         JobStatus.FailedRolledBack => $"{roomNumber}号直播间字段不一致，原配置已回滚",
         JobStatus.Verifying => $"{roomNumber}号直播间正在核对设备、滤镜和美颜字段",
         JobStatus.DeviceOffline => $"{roomNumber}号直播间执行端离线，任务未排队",

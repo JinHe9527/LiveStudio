@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using LiveStudio.Core;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
@@ -56,11 +58,15 @@ internal sealed class LiveCompanionTransactionJournal
         foreach (var item in backups.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
         {
             var backupFileName = $"{index:D4}.bin";
-            await File.WriteAllBytesAsync(
+            await WriteDurableAsync(
                 Path.Combine(transactionDirectory, backupFileName),
                 item.Value,
                 cancellationToken);
-            entries.Add(new LiveCompanionBackupEntry(item.Key, backupFileName));
+            entries.Add(new LiveCompanionBackupEntry(
+                item.Key,
+                backupFileName,
+                Convert.ToHexStringLower(SHA256.HashData(item.Value)),
+                item.Value.LongLength));
             index++;
         }
 
@@ -78,6 +84,17 @@ internal sealed class LiveCompanionTransactionJournal
         return Task.CompletedTask;
     }
 
+    public string GetWorkingPath(string fileName)
+    {
+        var path = Path.GetFullPath(Path.Combine(transactionDirectory, fileName));
+        if (!IsWithinRoot(path, transactionDirectory))
+        {
+            throw new InvalidOperationException("直播伴侣事务工作文件路径无效");
+        }
+
+        return path;
+    }
+
     public static async Task RecoverPendingAsync(
         LiveCompanionConfigurationStore configurationStore,
         CancellationToken cancellationToken)
@@ -93,12 +110,32 @@ internal sealed class LiveCompanionTransactionJournal
             var manifestPath = Path.Combine(directory, ManifestFileName);
             if (!File.Exists(manifestPath))
             {
+                // No configuration write can begin before CreateAsync has durably written the
+                // manifest and returned the session.
+                Directory.Delete(directory, recursive: true);
                 continue;
             }
 
             var manifest = JsonSerializer.Deserialize<LiveCompanionTransactionManifest>(
                 await File.ReadAllBytesAsync(manifestPath, cancellationToken),
                 JsonOptions) ?? throw new InvalidOperationException($"无法解析未完成事务 {manifestPath}");
+            if (manifest.TransactionId == Guid.Empty
+                || !string.Equals(
+                    Path.GetFullPath(directory),
+                    Path.GetFullPath(Path.Combine(RootDirectory, manifest.TransactionId.ToString("N"))),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"直播伴侣事务标识或目录无效: {manifestPath}");
+            }
+
+            if (await RestoreTransactionJournal.IsCommittedAsync(
+                    manifest.TransactionId,
+                    cancellationToken))
+            {
+                Directory.Delete(directory, recursive: true);
+                continue;
+            }
+
             var running = LiveCompanionProcessController.FindRunning();
             if (running is not null)
             {
@@ -120,7 +157,18 @@ internal sealed class LiveCompanionTransactionJournal
                     throw new InvalidOperationException($"事务备份文件无效: {entry.BackupFileName}");
                 }
 
-                backup.Add(originalPath, await File.ReadAllBytesAsync(backupPath, cancellationToken));
+                var content = await File.ReadAllBytesAsync(backupPath, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(entry.Sha256)
+                    && (content.LongLength != entry.Length
+                        || !string.Equals(
+                            Convert.ToHexStringLower(SHA256.HashData(content)),
+                            entry.Sha256,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException($"直播伴侣事务备份校验失败: {entry.BackupFileName}");
+                }
+
+                backup.Add(originalPath, content);
             }
 
             await LiveCompanionConfigurationStore.RestoreBackupAsync(backup, cancellationToken);
@@ -145,12 +193,42 @@ internal sealed class LiveCompanionTransactionJournal
         CancellationToken cancellationToken)
     {
         var manifestPath = Path.Combine(transactionDirectory, ManifestFileName);
-        var temporaryPath = $"{manifestPath}.{Guid.NewGuid():N}.tmp";
-        await File.WriteAllBytesAsync(
-            temporaryPath,
+        await WriteDurableAsync(
+            manifestPath,
             JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions),
             cancellationToken);
-        File.Move(temporaryPath, manifestPath, overwrite: true);
+    }
+
+    private static async Task WriteDurableAsync(
+        string destinationPath,
+        byte[] content,
+        CancellationToken cancellationToken)
+    {
+        var temporaryPath = $"{destinationPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var stream = new FileStream(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             4096,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(content, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, destinationPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
 
     private static bool IsWithinRoot(string path, string root)
@@ -170,5 +248,9 @@ internal sealed class LiveCompanionTransactionJournal
         string Phase,
         IReadOnlyList<LiveCompanionBackupEntry> Backups);
 
-    private sealed record LiveCompanionBackupEntry(string OriginalPath, string BackupFileName);
+    private sealed record LiveCompanionBackupEntry(
+        string OriginalPath,
+        string BackupFileName,
+        string? Sha256 = null,
+        long Length = 0);
 }

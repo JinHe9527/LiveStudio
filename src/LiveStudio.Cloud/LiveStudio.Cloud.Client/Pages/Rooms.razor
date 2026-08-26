@@ -7,6 +7,11 @@
 
 <div class="page-header">
     <div><h1>直播间</h1><p>查看 Agent 在线状态、最近存档和配置漂移。</p></div>
+    <div class="page-actions">
+        <button class="button quiet" disabled="@(selectedRoomIds.Count == 0 || busy)" @onclick="ClearBatchSelection">清除</button>
+        <button class="button quiet" disabled="@(rooms.All(room => !room.Online || room.DeviceId is null) || busy)" @onclick="SelectAllOnline">全选在线</button>
+        <button class="button primary" disabled="@(selectedRoomIds.Count == 0 || busy)" @onclick="CaptureBatchAsync">统一保存（@selectedRoomIds.Count）</button>
+    </div>
 </div>
 
 @if (message is not null) { <p class="status-badge info">@message</p> }
@@ -22,11 +27,18 @@
     else
     {
         <table class="data-table">
-            <thead><tr><th>直播间</th><th>Agent</th><th>最近存档</th><th>画面状态</th><th></th></tr></thead>
+            <thead><tr><th class="selection-column">选择</th><th>直播间</th><th>Agent</th><th>最近存档</th><th>画面状态</th><th></th></tr></thead>
             <tbody>
                 @foreach (var room in rooms)
                 {
                     <tr>
+                        <td class="selection-column">
+                            <input type="checkbox"
+                                   aria-label="选择 @room.Name 统一保存"
+                                   checked="@selectedRoomIds.Contains(room.Id)"
+                                   disabled="@(!room.Online || room.DeviceId is null || busy)"
+                                   @onchange="eventArgs => SetBatchSelection(room, eventArgs.Value is true)" />
+                        </td>
                         <td><strong>@room.Name</strong></td>
                         <td><span class="status-badge @(room.Online ? "success" : null)"><span class="status-dot @(room.Online ? "online" : null)"></span>@(room.Online ? "在线" : "离线")</span></td>
                         <td>@(room.LastSnapshotAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "尚无")</td>
@@ -36,6 +48,18 @@
                                 <button class="button quiet" disabled="@(room.DeviceId is null || busy)" @onclick="() => ViewAsync(room)">查看</button>
                                 <button class="button quiet" disabled="@(!room.Online || room.DeviceId is null || busy)" @onclick="() => RefreshAsync(room)">刷新画面</button>
                                 <button class="button primary" disabled="@(!room.Online || room.DeviceId is null || busy)" @onclick="() => CaptureAsync(room)">联合保存</button>
+                                @if (room.DeviceId is { } deviceId)
+                                {
+                                    @if (pendingRevokeDeviceId == deviceId)
+                                    {
+                                        <button class="button quiet" disabled="@busy" @onclick="CancelRevoke">取消</button>
+                                        <button class="button danger" disabled="@busy" @onclick="() => RevokeDeviceAsync(room, deviceId)">确认解除</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="button quiet danger" disabled="@busy" @onclick="() => PrepareRevoke(room, deviceId)">解除设备</button>
+                                    }
+                                }
                             </div>
                         </td>
                     </tr>
@@ -106,15 +130,70 @@
     private string? message;
     private LiveRoomSummary? selectedRoom;
     private DeviceManagementState? managementState;
+    private readonly HashSet<Guid> selectedRoomIds = [];
+    private Guid? pendingRevokeDeviceId;
 
     protected override async Task OnInitializedAsync()
     {
         await Session.LoadAsync();
+        await LoadRoomsAsync();
+        loading = false;
+    }
+
+    private async Task LoadRoomsAsync()
+    {
         if (Session.SelectedOrganizationId is { } organizationId)
         {
-            rooms = await Http.GetFromJsonAsync<IReadOnlyList<LiveRoomSummary>>($"/api/v1/organizations/{organizationId}/rooms") ?? [];
+            rooms = await Http.GetFromJsonAsync<IReadOnlyList<LiveRoomSummary>>(
+                $"/api/v1/organizations/{organizationId}/rooms") ?? [];
         }
-        loading = false;
+    }
+
+    private void PrepareRevoke(LiveRoomSummary room, Guid deviceId)
+    {
+        pendingRevokeDeviceId = deviceId;
+        message = $"解除“{room.Name}”的电脑后，该设备密钥立即失效；存档仍会保留。请再次确认。";
+    }
+
+    private void CancelRevoke()
+    {
+        pendingRevokeDeviceId = null;
+        message = null;
+    }
+
+    private async Task RevokeDeviceAsync(LiveRoomSummary room, Guid deviceId)
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var response = await Http.DeleteAsync($"/api/v1/organizations/{organizationId}/devices/{deviceId}");
+            if (!response.IsSuccessStatusCode)
+            {
+                message = response.StatusCode == System.Net.HttpStatusCode.Conflict
+                    ? "设备仍有任务正在执行，请等待任务完成后再解除。"
+                    : "无法解除设备，请确认当前账户具有管理员权限。";
+                return;
+            }
+
+            pendingRevokeDeviceId = null;
+            selectedRoomIds.Remove(room.Id);
+            if (selectedRoom?.Id == room.Id)
+            {
+                CloseDetail();
+            }
+
+            message = $"已解除“{room.Name}”的电脑；原设备密钥已失效，可以重新注册。";
+            await LoadRoomsAsync();
+        }
+        finally
+        {
+            busy = false;
+        }
     }
 
     private async Task CaptureAsync(LiveRoomSummary room)
@@ -126,6 +205,80 @@
             new CreateCaptureJobRequest(room.Id, deviceId, $"{room.Name} {DateTimeOffset.Now:yyyy-MM-dd HH:mm}"));
         message = response.IsSuccessStatusCode ? "保存任务已下发。" : "任务未创建：目标设备离线或权限不足。";
         busy = false;
+    }
+
+    private void SelectAllOnline()
+    {
+        selectedRoomIds.Clear();
+        foreach (var room in rooms.Where(room => room.Online && room.DeviceId is not null))
+        {
+            selectedRoomIds.Add(room.Id);
+        }
+    }
+
+    private void ClearBatchSelection() => selectedRoomIds.Clear();
+
+    private void SetBatchSelection(LiveRoomSummary room, bool selected)
+    {
+        if (!room.Online || room.DeviceId is null)
+        {
+            return;
+        }
+
+        if (selected)
+        {
+            selectedRoomIds.Add(room.Id);
+        }
+        else
+        {
+            selectedRoomIds.Remove(room.Id);
+        }
+    }
+
+    private async Task CaptureBatchAsync()
+    {
+        if (Session.SelectedOrganizationId is not { } organizationId || selectedRoomIds.Count == 0)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"/api/v1/organizations/{organizationId}/capture-jobs/batch",
+                new CreateBatchCaptureJobsRequest(
+                    selectedRoomIds.ToArray(),
+                    $"批量存档 {DateTimeOffset.Now:yyyy-MM-dd HH:mm}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                message = "批量保存未创建，请检查权限和云端连接。";
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<CreateBatchCaptureJobsResponse>();
+            if (result is null)
+            {
+                message = "云端没有返回批量保存结果。";
+                return;
+            }
+
+            var failures = result.Results.Where(item => !item.Accepted).ToArray();
+            selectedRoomIds.Clear();
+            foreach (var failure in failures.Where(item => rooms.Any(room => room.Id == item.RoomId && room.Online && room.DeviceId is not null)))
+            {
+                selectedRoomIds.Add(failure.RoomId);
+            }
+
+            var failureText = failures.Length == 0
+                ? string.Empty
+                : "；" + string.Join("；", failures.Take(3).Select(item => $"{item.RoomName}：{item.Message}"));
+            message = $"已下发 {result.Accepted} 个保存任务，{result.Rejected} 个未创建{failureText}";
+        }
+        finally
+        {
+            busy = false;
+        }
     }
 
     private async Task RefreshAsync(LiveRoomSummary room)

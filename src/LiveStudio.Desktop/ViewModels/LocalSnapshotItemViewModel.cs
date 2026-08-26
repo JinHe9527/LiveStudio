@@ -2,15 +2,17 @@ using LiveStudio.Contracts;
 
 namespace LiveStudio.Desktop.ViewModels;
 
-public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
+public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot, string? roomName = null)
 {
     public Guid Id { get; } = snapshot.Id;
 
     public string Name { get; } = snapshot.Name;
 
-    public string DisplayName { get; } = ExtractDisplayName(snapshot.Name);
+    public string DisplayName { get; } = ExtractDisplayName(snapshot.Name, snapshot.CreatedAt);
 
-    public string RoomName { get; private set; } = ExtractRoomName(snapshot.Name, null);
+    public string RoomName { get; private set; } = string.IsNullOrWhiteSpace(roomName)
+        ? ExtractRoomName(snapshot.Name, snapshot.RoomId)
+        : roomName;
 
     public DateTimeOffset CreatedAtValue { get; } = snapshot.CreatedAt;
 
@@ -32,11 +34,15 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
 
     public string Detail => $"{Size} · {SyncStatus}";
 
-    public Guid? RoomId { get; }
+    public Guid? RoomId { get; } = snapshot.RoomId;
 
     public bool IsCloud { get; }
 
     public bool IsDesktopFile { get; }
+
+    public bool IsUploadPending { get; } = snapshot.UploadEligible && !snapshot.Uploaded;
+
+    public SnapshotSummary? CloudSummary { get; private set; }
 
     public LocalSnapshotItemViewModel(SnapshotSummary snapshot)
         : this(new LocalSnapshotSummary(
@@ -45,12 +51,14 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
             snapshot.CreatedAt,
             snapshot.PackageLength,
             true,
-            true))
+            true,
+            snapshot.RoomId))
     {
         RoomId = snapshot.RoomId;
         RoomName = ExtractRoomName(snapshot.Name, snapshot.RoomId);
         IsCloud = true;
         SyncStatus = "云端";
+        CloudSummary = snapshot;
     }
 
     public LocalSnapshotItemViewModel(CombinedSnapshot snapshot, long packageLength)
@@ -60,12 +68,21 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
             snapshot.CreatedAt,
             packageLength,
             false,
-            false))
+            false,
+            snapshot.RoomId))
     {
         RoomId = snapshot.RoomId;
         RoomName = ExtractRoomName(snapshot.Name, snapshot.RoomId);
         IsDesktopFile = true;
         SyncStatus = "本地文件";
+    }
+
+    public void ApplyRoomName(string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            RoomName = value;
+        }
     }
 
     private static string FormatSize(long length) => length switch
@@ -94,7 +111,7 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
             }
         }
 
-        if (roomId is not { } id)
+        if (roomId is not { } id || id == Guid.Empty)
         {
             return "未分配直播间";
         }
@@ -103,17 +120,38 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot)
         return $"直播间 {shortId}";
     }
 
-    private static string ExtractDisplayName(string name)
+    private static string ExtractDisplayName(string name, DateTimeOffset createdAt)
     {
         const string marker = "号直播间";
         var markerIndex = name.IndexOf(marker, StringComparison.Ordinal);
         if (markerIndex < 0)
         {
-            return name;
+            return NormalizeGeneratedName(name, createdAt);
         }
 
         var suffix = name[(markerIndex + marker.Length)..].Trim(' ', '·', '—', '-');
-        return string.IsNullOrWhiteSpace(suffix) ? "画面备份" : suffix;
+        return string.IsNullOrWhiteSpace(suffix)
+            ? "画面备份"
+            : NormalizeGeneratedName(suffix, createdAt);
+    }
+
+    private static string NormalizeGeneratedName(string name, DateTimeOffset createdAt)
+    {
+        var local = createdAt.ToLocalTime();
+        var completeTimestamp = local.ToString(
+            "yyyy-MM-dd HH:mm",
+            System.Globalization.CultureInfo.CurrentCulture);
+        var legacyTimeOnly = local.ToString(
+            "HH:mm",
+            System.Globalization.CultureInfo.CurrentCulture);
+
+        if (string.Equals(name, legacyTimeOnly, StringComparison.Ordinal)
+            || string.Equals(name, $"{completeTimestamp} 画面存档", StringComparison.Ordinal))
+        {
+            return completeTimestamp;
+        }
+
+        return name;
     }
 }
 
@@ -144,7 +182,7 @@ public sealed class SnapshotTimelineItemViewModel(LocalSnapshotItemViewModel sna
 
     public string Detail => Snapshot.Detail;
 
-    public string Time => Snapshot.Time;
+    public string Time => FormatRelativeTime(Snapshot.CreatedAtValue);
 
     private static string FormatDate(DateTimeOffset value)
     {
@@ -157,5 +195,28 @@ public sealed class SnapshotTimelineItemViewModel(LocalSnapshotItemViewModel sna
                 ? "昨天"
                 : local.ToString("M月d日", System.Globalization.CultureInfo.CurrentCulture);
         return $"{prefix} · {local:dddd}";
+    }
+
+    private static string FormatRelativeTime(DateTimeOffset value)
+    {
+        var elapsed = DateTimeOffset.Now - value.ToLocalTime();
+        if (elapsed < TimeSpan.FromMinutes(1))
+        {
+            return "刚刚";
+        }
+
+        if (elapsed < TimeSpan.FromHours(1))
+        {
+            return $"{Math.Max(1, (int)elapsed.TotalMinutes)} 分钟前";
+        }
+
+        if (elapsed < TimeSpan.FromDays(1))
+        {
+            return $"{Math.Max(1, (int)elapsed.TotalHours)} 小时前";
+        }
+
+        return elapsed < TimeSpan.FromDays(7)
+            ? $"{Math.Max(1, (int)elapsed.TotalDays)} 天前"
+            : value.ToLocalTime().ToString("M月d日", System.Globalization.CultureInfo.CurrentCulture);
     }
 }

@@ -1,5 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text.Json;
 using LiveStudio.Contracts;
 using LiveStudio.Desktop.Services;
 using LiveStudio.Packaging;
@@ -14,11 +17,14 @@ public partial class MainViewModel : ViewModelBase
     private readonly ISystemBrowser systemBrowser;
     private readonly SnapshotFileStore snapshotFileStore;
     private readonly ApplicationUpdateService applicationUpdateService;
+    private readonly CameraProfileStore cameraProfileStore;
+    private readonly ISonyCameraDetectionService sonyCameraDetectionService;
     private readonly bool isDemoMode;
     private readonly bool supportsLocalAgent;
     private IReadOnlyList<LocalMappingTargetItemViewModel> allMappingTargets = [];
     private IReadOnlyList<LocalOperationSummary> localOperations = [];
     private IReadOnlyList<JobSummary> cloudJobs = [];
+    private IReadOnlyList<LocalSnapshotItemViewModel> localSnapshotItems = [];
     private IReadOnlyList<LocalSnapshotItemViewModel> desktopSnapshotItems = [];
     private IReadOnlyList<LocalSnapshotItemViewModel> cloudSnapshotItems = [];
     private DesktopCloudCredentials? cloudCredentials;
@@ -27,6 +33,10 @@ public partial class MainViewModel : ViewModelBase
     private bool isLoadingCloudWorkspace;
     private bool isRefreshingSnapshotNavigation;
     private ApplicationUpdateRelease? availableUpdate;
+    private string? updateAccessToken;
+    private Guid[] failedBatchCaptureRoomIds = [];
+    private bool batchSelectionInitialized;
+    private bool skipNextMappingPreparation;
 
     public MainViewModel()
         : this(
@@ -56,26 +66,109 @@ public partial class MainViewModel : ViewModelBase
         ISystemBrowser systemBrowser,
         SnapshotFileStore snapshotFileStore,
         ApplicationUpdateService applicationUpdateService,
-        bool isDemoMode = false)
+        bool isDemoMode = false,
+        CameraProfileStore? cameraProfileStore = null,
+        ISonyCameraDetectionService? sonyCameraDetectionService = null)
     {
         this.localAgentClient = localAgentClient;
         this.cloudClient = cloudClient;
         this.systemBrowser = systemBrowser;
         this.snapshotFileStore = snapshotFileStore;
         this.applicationUpdateService = applicationUpdateService;
+        this.cameraProfileStore = cameraProfileStore ?? new CameraProfileStore();
+        this.sonyCameraDetectionService = sonyCameraDetectionService ?? new SonyCameraDetectionService();
         this.isDemoMode = isDemoMode;
         supportsLocalAgent = OperatingSystem.IsWindows() || isDemoMode;
+        ThemeModes =
+        [
+            new ThemeModeOptionViewModel(ThemePreferenceService.SystemMode, "跟随系统"),
+            new ThemeModeOptionViewModel(ThemePreferenceService.LightMode, "浅色"),
+            new ThemeModeOptionViewModel(ThemePreferenceService.DarkMode, "深色")
+        ];
+        CameraCreativeLooks =
+        [
+            new("ST", "标准"),
+            new("PT", "人像"),
+            new("NT", "中性"),
+            new("VV", "鲜艳"),
+            new("VV2", "鲜艳 2"),
+            new("FL", "胶片"),
+            new("IN", "即时"),
+            new("SH", "柔和高调"),
+            new("BW", "黑白"),
+            new("SE", "棕褐色")
+        ];
+        CameraStations =
+        [
+            new CameraStationEditorViewModel(0, "主机", CameraCreativeLooks),
+            new CameraStationEditorViewModel(1, "游机", CameraCreativeLooks),
+            new CameraStationEditorViewModel(2, "侧机", CameraCreativeLooks)
+        ];
+        SelectedCameraCreativeLook = CameraCreativeLooks[0];
+        initializingThemePreference = true;
+        SelectedThemeMode = ThemeModes.First(mode => mode.Key == ThemePreferenceService.LoadMode());
+        initializingThemePreference = false;
         CurrentVersionText = applicationUpdateService.CurrentVersionText;
         SelectedSection = supportsLocalAgent ? 0 : 1;
         ApplyDisconnectedState();
+        RefreshCloudCertificateStatus();
     }
 
     public event EventHandler? UpdateRestartRequested;
 
+    private bool initializingThemePreference;
+
+    public IReadOnlyList<ThemeModeOptionViewModel> ThemeModes { get; }
+
+    public IReadOnlyList<CameraCreativeLookOptionViewModel> CameraCreativeLooks { get; }
+
+    public IReadOnlyList<CameraStationEditorViewModel> CameraStations { get; }
+
+    [ObservableProperty]
+    public partial ThemeModeOptionViewModel? SelectedThemeMode { get; set; }
+
+    partial void OnSelectedThemeModeChanged(ThemeModeOptionViewModel? value)
+    {
+        if (!initializingThemePreference && value is not null)
+        {
+            ThemePreferenceService.Apply(value.Key);
+        }
+    }
+
+    partial void OnSelectedCameraProfileChanged(CameraProfileItemViewModel? value)
+    {
+        IsCameraDeleteConfirmationVisible = false;
+        if (value is null)
+        {
+            return;
+        }
+
+        var profile = value.Profile;
+        IsManualCameraMode = profile.Mode == CameraProfileMode.Manual;
+        CameraProfileName = profile.Name;
+        CameraAperture = profile.Aperture;
+        CameraShutterSpeed = profile.ShutterSpeed;
+        CameraIso = profile.Iso;
+        SelectedCameraCreativeLook = CameraCreativeLooks.FirstOrDefault(
+            option => string.Equals(option.Code, profile.CreativeLook, StringComparison.OrdinalIgnoreCase))
+            ?? CameraCreativeLooks[0];
+        ApplyCameraCreativeLookSettings(profile.EffectiveCreativeLookSettings);
+        CameraProfileMessage = $"已选择“{profile.Name}”";
+    }
+
+    partial void OnIsManualCameraModeChanged(bool value)
+    {
+        IsCameraDeleteConfirmationVisible = false;
+        CameraProfileMessage = value
+            ? "手动档案只记录光圈、快门、ISO 和创意外观。"
+            : "USB 模式将使用相机原生设置文件；检测到相机后才允许读取或恢复。";
+    }
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsControlVisible))]
     [NotifyPropertyChangedFor(nameof(IsSnapshotsVisible))]
-    [NotifyPropertyChangedFor(nameof(IsMappingsVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCloudWorkspaceVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCloudSetupVisible))]
     [NotifyPropertyChangedFor(nameof(IsActivityVisible))]
     [NotifyPropertyChangedFor(nameof(IsSettingsVisible))]
     public partial int SelectedSection { get; set; }
@@ -99,6 +192,36 @@ public partial class MainViewModel : ViewModelBase
     public partial string LiveCompanionStatus { get; set; } = string.Empty;
 
     [ObservableProperty]
+    public partial string ObsVersionText { get; set; } = "版本未知";
+
+    [ObservableProperty]
+    public partial string ObsConnectionState { get; set; } = "未连接";
+
+    [ObservableProperty]
+    public partial string ObsStreamingState { get; set; } = "推流状态未知";
+
+    [ObservableProperty]
+    public partial string ObsRecordingState { get; set; } = "录制状态未知";
+
+    [ObservableProperty]
+    public partial string ObsReadSummary { get; set; } = "尚未读取画面存档";
+
+    [ObservableProperty]
+    public partial string LiveCompanionVersionText { get; set; } = "版本未知";
+
+    [ObservableProperty]
+    public partial string LiveCompanionConnectionState { get; set; } = "未连接";
+
+    [ObservableProperty]
+    public partial string LiveCompanionLiveState { get; set; } = "开播状态未知";
+
+    [ObservableProperty]
+    public partial string LiveCompanionAccessState { get; set; } = "当前不能还原";
+
+    [ObservableProperty]
+    public partial string LiveCompanionReadSummary { get; set; } = "尚未读取画面存档";
+
+    [ObservableProperty]
     public partial string CloudStatus { get; set; } = string.Empty;
 
     [ObservableProperty]
@@ -114,30 +237,78 @@ public partial class MainViewModel : ViewModelBase
     public partial bool CanRestoreLocalApplications { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSyncCloudSnapshots))]
     public partial bool IsBusy { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RestoreActionText))]
+    public partial bool IsRestoringSnapshot { get; set; }
 
     [ObservableProperty]
     public partial bool IsAgentAutoStartEnabled { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SnapshotCloudStatus))]
+    [NotifyPropertyChangedFor(nameof(CanAssignSelectedSnapshotRoom))]
+    [NotifyPropertyChangedFor(nameof(CanSyncCloudSnapshots))]
     public partial bool IsAgentCloudEnrolled { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDisconnected))]
+    [NotifyPropertyChangedFor(nameof(IsControlDisconnected))]
     [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(HasLocalAndCloudControl))]
+    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
+    [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
+    [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
+    [NotifyPropertyChangedFor(nameof(ControlPageSubtitle))]
+    [NotifyPropertyChangedFor(nameof(CanSyncCloudSnapshots))]
+    [NotifyPropertyChangedFor(nameof(IsCloudSetupVisible))]
     public partial bool IsAgentConnected { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDisconnected))]
+    [NotifyPropertyChangedFor(nameof(IsControlDisconnected))]
     [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(HasLocalAndCloudControl))]
+    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
+    [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
     [NotifyPropertyChangedFor(nameof(CanShowRestoreAction))]
+    [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
+    [NotifyPropertyChangedFor(nameof(ControlPageSubtitle))]
+    [NotifyPropertyChangedFor(nameof(SnapshotCloudStatus))]
+    [NotifyPropertyChangedFor(nameof(CanAssignSelectedSnapshotRoom))]
+    [NotifyPropertyChangedFor(nameof(IsCloudWorkspaceVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCloudSetupVisible))]
     public partial bool IsCloudConnected { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
+    [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
+    [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
+    [NotifyPropertyChangedFor(nameof(ControlPageSubtitle))]
+    [NotifyPropertyChangedFor(nameof(IsCloudWorkspaceVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCloudSetupVisible))]
+    [NotifyPropertyChangedFor(nameof(IsControlDisconnected))]
+    public partial bool IsShowingCloudManagement { get; set; }
 
     [ObservableProperty]
     public partial bool IsCloudAuthorizing { get; set; }
 
     [ObservableProperty]
-    public partial string CloudServiceUrl { get; set; } = "https://";
+    public partial string CloudServiceUrl { get; set; } = CloudTrustService.DefaultServiceUrl;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CloudConnectButtonText))]
+    [NotifyPropertyChangedFor(nameof(CanInstallCloudCertificate))]
+    public partial bool IsCloudCertificateInstalled { get; set; }
+
+    [ObservableProperty]
+    public partial string CloudCertificateStatus { get; set; } = "正在检查固定 IP 私有证书";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCloudAuthorizationCode))]
@@ -147,7 +318,7 @@ public partial class MainViewModel : ViewModelBase
     public partial string CloudConnectionMessage { get; set; } = "尚未连接云端服务";
 
     [ObservableProperty]
-    public partial string OrganizationName { get; set; } = "未选择 Organization";
+    public partial string OrganizationName { get; set; } = "未选择直播管理空间";
 
     [ObservableProperty]
     public partial IReadOnlyList<OrganizationSummary> Organizations { get; set; } = [];
@@ -162,7 +333,14 @@ public partial class MainViewModel : ViewModelBase
     public partial CloudRoomItemViewModel? SelectedCloudRoom { get; set; }
 
     [ObservableProperty]
+    public partial string BatchCaptureResultText { get; set; } = "选择在线直播间后统一保存；每个直播间独立执行，失败不会影响其他直播间。";
+
+    [ObservableProperty]
+    public partial bool HasBatchCaptureFailures { get; set; }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasActivityItems))]
+    [NotifyPropertyChangedFor(nameof(RecentActivityItems))]
     public partial IReadOnlyList<ActivityItemViewModel> ActivityItems { get; set; } = [];
 
     [ObservableProperty]
@@ -181,6 +359,9 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSnapshots))]
+    [NotifyPropertyChangedFor(nameof(HasLocalSnapshots))]
+    [NotifyPropertyChangedFor(nameof(LocalSnapshotCount))]
+    [NotifyPropertyChangedFor(nameof(PendingCloudUploadCount))]
     public partial IReadOnlyList<LocalSnapshotItemViewModel> SnapshotItems { get; set; } = [];
 
     [ObservableProperty]
@@ -188,6 +369,7 @@ public partial class MainViewModel : ViewModelBase
     public partial IReadOnlyList<SnapshotRoomFilterItemViewModel> SnapshotRoomFilters { get; set; } = [];
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAssignSelectedSnapshotRoom))]
     public partial SnapshotRoomFilterItemViewModel? SelectedSnapshotRoomFilter { get; set; }
 
     [ObservableProperty]
@@ -200,14 +382,96 @@ public partial class MainViewModel : ViewModelBase
     public partial string SnapshotTimelineSummary { get; set; } = "尚无存档";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveCameraStationsToSelectedSnapshot))]
     public partial LocalSnapshotItemViewModel? SelectedSnapshot { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSnapshotInspector))]
+    [NotifyPropertyChangedFor(nameof(CanSaveCameraStationsToSelectedSnapshot))]
     public partial SnapshotInspectorViewModel? SnapshotInspector { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCameraProfiles))]
+    public partial IReadOnlyList<CameraProfileItemViewModel> CameraProfiles { get; set; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedCameraProfile))]
+    public partial CameraProfileItemViewModel? SelectedCameraProfile { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsWiredCameraMode))]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial bool IsManualCameraMode { get; set; } = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial string CameraProfileName { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial string CameraAperture { get; set; } = "F4";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial string CameraShutterSpeed { get; set; } = "1/125";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial string CameraIso { get; set; } = "640";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial CameraCreativeLookOptionViewModel? SelectedCameraCreativeLook { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookContrast { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookHighlights { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookShadows { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookFade { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookSaturation { get; set; }
+
+    [ObservableProperty]
+    public partial int CameraLookSharpness { get; set; } = 4;
+
+    [ObservableProperty]
+    public partial int CameraLookSharpnessRange { get; set; } = 3;
+
+    [ObservableProperty]
+    public partial int CameraLookClarity { get; set; } = 1;
+
+    [ObservableProperty]
+    public partial string CameraProfileMessage { get; set; } = "手动档案只记录光圈、快门、ISO 和创意外观。";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSaveManualCameraProfile))]
+    public partial bool IsCameraProfileBusy { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsCameraDeleteConfirmationVisible { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDetectedSonyCameras))]
+    public partial IReadOnlyList<SonyCameraDevice> DetectedSonyCameras { get; set; } = [];
+
+    [ObservableProperty]
+    public partial SonyCameraDevice? SelectedSonyCamera { get; set; }
+
+    [ObservableProperty]
+    public partial string SonyCameraConnectionState { get; set; } = "尚未检测 USB 相机";
+
+    [ObservableProperty]
     public partial string SnapshotInspectorMessage { get; set; } = "选择一份存档查看设备、画面模式和滤镜参数";
+
+    [ObservableProperty]
+    public partial string SnapshotComparisonSummary { get; set; } = "选择存档后比较上一份保存";
 
     [ObservableProperty]
     public partial string ObsEndpoint { get; set; } = "ws://127.0.0.1:4455";
@@ -217,6 +481,9 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial string SettingsMessage { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string LocalCheckStatus { get; set; } = "尚未执行本机检查";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasNativeExportAudit))]
@@ -258,6 +525,9 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasMappingSources))]
+    [NotifyPropertyChangedFor(nameof(PendingMappingCount))]
+    [NotifyPropertyChangedFor(nameof(HasPendingMappings))]
+    [NotifyPropertyChangedFor(nameof(RestorePreparationSummary))]
     public partial IReadOnlyList<LocalMappingSourceItemViewModel> MappingSources { get; set; } = [];
 
     [ObservableProperty]
@@ -271,6 +541,15 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial string MappingMessage { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanContinuePreparedRestore))]
+    public partial bool IsRestorePreparationOpen { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanContinuePreparedRestore))]
+    [NotifyPropertyChangedFor(nameof(RestorePreparationSummary))]
+    public partial bool IsMappingContextReady { get; set; }
 
     [ObservableProperty]
     public partial string? PendingImportPath { get; set; }
@@ -308,9 +587,26 @@ public partial class MainViewModel : ViewModelBase
 
     public bool HasSnapshots => SnapshotItems.Count > 0;
 
+    public int LocalSnapshotCount => SnapshotItems.Count(snapshot => !snapshot.IsCloud && !snapshot.IsDesktopFile);
+
+    public bool HasLocalSnapshots => LocalSnapshotCount > 0;
+
+    public int PendingCloudUploadCount => SnapshotItems.Count(snapshot => snapshot.IsUploadPending);
+
+    public bool CanSyncCloudSnapshots => IsAgentConnected && IsAgentCloudEnrolled && !IsBusy;
+
     public bool HasSnapshotRoomFilters => SnapshotRoomFilters.Count > 0;
 
     public bool SupportsLocalAgent => supportsLocalAgent;
+
+    public bool CanInstallCloudCertificate =>
+        OperatingSystem.IsWindows()
+        && CloudTrustService.IsSupportedServiceUrl(CloudServiceUrl)
+        && !IsCloudCertificateInstalled;
+
+    public string CloudConnectButtonText => IsCloudCertificateInstalled
+        ? "连接…"
+        : "安装证书并连接";
 
     public bool HasPendingImport => !string.IsNullOrWhiteSpace(PendingImportPath);
 
@@ -318,9 +614,55 @@ public partial class MainViewModel : ViewModelBase
 
     public bool HasSelectedSnapshot => SelectedSnapshot is not null;
 
+    public string SnapshotCloudStatus => IsCloudConnected
+        ? IsAgentCloudEnrolled ? "云存档自动同步" : "选择直播间并注册本机"
+        : "连接云存档";
+
+    public bool CanAssignSelectedSnapshotRoom =>
+        IsCloudConnected
+        && !IsAgentCloudEnrolled
+        && SelectedSnapshotRoomFilter?.RoomId is not null;
+
     public bool HasSnapshotInspector => SnapshotInspector is not null;
 
+    public bool CanSaveCameraStationsToSelectedSnapshot =>
+        supportsLocalAgent
+        && SelectedSnapshot is { IsCloud: false, IsDesktopFile: false }
+        && SnapshotInspector is not null;
+
+    public bool HasCameraProfiles => CameraProfiles.Count > 0;
+
+    public bool HasSelectedCameraProfile => SelectedCameraProfile is not null;
+
+    public bool HasDetectedSonyCameras => DetectedSonyCameras.Count > 0;
+
+    public bool IsWiredCameraMode => !IsManualCameraMode;
+
+    public bool CanSaveManualCameraProfile =>
+        IsManualCameraMode
+        && !IsCameraProfileBusy
+        && !string.IsNullOrWhiteSpace(CameraProfileName)
+        && !string.IsNullOrWhiteSpace(CameraAperture)
+        && !string.IsNullOrWhiteSpace(CameraShutterSpeed)
+        && !string.IsNullOrWhiteSpace(CameraIso)
+        && SelectedCameraCreativeLook is not null;
+
     public bool HasMappingSources => MappingSources.Count > 0;
+
+    public int PendingMappingCount => MappingSources.Count(source => source.Mapping is null);
+
+    public bool HasPendingMappings => PendingMappingCount > 0;
+
+    public bool CanContinuePreparedRestore =>
+        IsRestorePreparationOpen && IsMappingContextReady && !HasPendingMappings && !IsBusy && SelectedSnapshot is not null;
+
+    public string RestorePreparationSummary => !IsMappingContextReady
+        ? "暂时无法检查目标设备"
+        : MappingSources.Count == 0
+        ? "当前存档没有需要对应的视频来源"
+        : PendingMappingCount == 0
+            ? $"{MappingSources.Count} 个来源已经匹配，可以安全恢复"
+            : $"已自动匹配 {MappingSources.Count - PendingMappingCount} 个，还需选择 {PendingMappingCount} 个";
 
     public bool HasCloudAuthorizationCode => !string.IsNullOrWhiteSpace(CloudAuthorizationCode);
 
@@ -331,24 +673,51 @@ public partial class MainViewModel : ViewModelBase
     public bool CanShowRestoreAction => SupportsLocalAgent
         || SelectedSnapshot?.IsCloud == true && IsCloudConnected;
 
+    public string RestoreActionText => IsRestoringSnapshot ? "正在恢复…" : "恢复所选存档";
+
     public bool HasActivityItems => ActivityItems.Count > 0;
+
+    public IReadOnlyList<ActivityItemViewModel> RecentActivityItems => ActivityItems.Take(4).ToArray();
+
+    public int BatchSelectedRoomCount => CloudRooms.Count(room => room.IsBatchSelected && room.CanBatchSelect);
+
+    public string BatchSelectedCountText => $"已选 {BatchSelectedRoomCount} 个";
 
     public bool IsDisconnected => !IsAgentConnected && !IsCloudConnected;
 
-    public bool IsCloudControlVisible => IsCloudConnected && !IsAgentConnected;
+    public bool IsControlDisconnected => IsDisconnected && !IsShowingCloudManagement;
+
+    public bool IsCloudControlVisible => IsCloudConnected && (IsShowingCloudManagement || !IsAgentConnected);
+
+    public bool IsLocalControlPanelVisible => IsAgentConnected && !IsShowingCloudManagement;
+
+    public bool IsCloudSetupVisible => IsControlVisible && IsShowingCloudManagement && !IsCloudConnected;
+
+    public bool HasLocalAndCloudControl => IsAgentConnected && IsCloudConnected;
+
+    public bool CanOpenCloudManagement => IsAgentConnected && !IsShowingCloudManagement;
+
+    public bool CanReturnToLocalControl => IsAgentConnected && IsShowingCloudManagement;
+
+    public string ControlPageTitle => IsShowingCloudManagement ? "直播间管理" : "当前画面";
+
+    public string ControlPageSubtitle => IsShowingCloudManagement
+        ? "统一保存、查看和管理多台 Windows 直播电脑"
+        : "保存、检查或恢复这台电脑的 OBS 与直播伴侣";
 
     public bool IsControlVisible => SelectedSection == 0;
 
     public bool IsSnapshotsVisible => SelectedSection == 1;
 
-    public bool IsMappingsVisible => SelectedSection == 2;
+    public bool IsCloudWorkspaceVisible => IsControlVisible && IsShowingCloudManagement;
 
-    public bool IsActivityVisible => SelectedSection == 3;
+    public bool IsActivityVisible => SelectedSection == 2;
 
-    public bool IsSettingsVisible => SelectedSection == 4;
+    public bool IsSettingsVisible => SelectedSection == 3;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        await LoadCameraProfilesAsync(cancellationToken);
         if (isDemoMode)
         {
             await LoadDesktopSnapshotLibraryAsync(cancellationToken);
@@ -365,9 +734,18 @@ public partial class MainViewModel : ViewModelBase
 
         if (cloudClient.TryLoadCredentials(out var credentials))
         {
+            if (!CloudTrustService.IsSupportedServiceUrl(credentials.ServiceUri.ToString())
+                && !credentials.ServiceUri.IsLoopback)
+            {
+                cloudClient.ForgetCredentials();
+                CloudConnectionMessage = "旧云端地址已停用，请重新连接内置服务器";
+                return;
+            }
+
             cloudCredentials = credentials;
             CloudServiceUrl = credentials.ServiceUri.ToString();
             await LoadCloudWorkspaceAsync(cancellationToken);
+            await TryAutoEnrollSingleRoomAsync(cancellationToken);
         }
     }
 
@@ -382,14 +760,19 @@ public partial class MainViewModel : ViewModelBase
         CaptureSnapshotCommand.NotifyCanExecuteChanged();
         RestoreSnapshotCommand.NotifyCanExecuteChanged();
         ConfigureObsCommand.NotifyCanExecuteChanged();
+        AutoConfigureObsCommand.NotifyCanExecuteChanged();
         DisableLanDirectoryCommand.NotifyCanExecuteChanged();
         SaveMappingCommand.NotifyCanExecuteChanged();
         TrustAndImportCommand.NotifyCanExecuteChanged();
         CancelPendingImportCommand.NotifyCanExecuteChanged();
         CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
+        BatchCaptureCloudSnapshotsCommand.NotifyCanExecuteChanged();
+        RetryFailedBatchCaptureCommand.NotifyCanExecuteChanged();
+        ContinuePreparedRestoreCommand.NotifyCanExecuteChanged();
         EnrollAgentCommand.NotifyCanExecuteChanged();
         CheckForUpdatesCommand.NotifyCanExecuteChanged();
         InstallUpdateCommand.NotifyCanExecuteChanged();
+        RunLocalCheckAndRepairCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedCloudRoomChanged(CloudRoomItemViewModel? value)
@@ -420,12 +803,20 @@ public partial class MainViewModel : ViewModelBase
         }
 
         cloudCredentials = cloudCredentials with { SelectedOrganizationId = value.Id };
+        batchSelectionInitialized = false;
+        failedBatchCaptureRoomIds = [];
+        HasBatchCaptureFailures = false;
         cloudClient.SaveCredentials(cloudCredentials);
         EnrollAgentCommand.NotifyCanExecuteChanged();
         _ = ChangeOrganizationAsync(CancellationToken.None);
     }
 
     partial void OnIsCloudConnectedChanged(bool value) => EnrollAgentCommand.NotifyCanExecuteChanged();
+
+    partial void OnCloudServiceUrlChanged(string value) => RefreshCloudCertificateStatus();
+
+    partial void OnIsCloudCertificateInstalledChanged(bool value) =>
+        InstallCloudCertificateCommand.NotifyCanExecuteChanged();
 
     partial void OnIsAgentConnectedChanged(bool value) => EnrollAgentCommand.NotifyCanExecuteChanged();
 
@@ -445,7 +836,7 @@ public partial class MainViewModel : ViewModelBase
         CloudRooms = [];
         cloudJobs = [];
         RefreshActivityItems();
-        CloudConnectionMessage = "正在切换 Organization";
+        CloudConnectionMessage = "正在切换直播管理空间";
         await LoadCloudWorkspaceAsync(cancellationToken);
     }
 
@@ -458,13 +849,22 @@ public partial class MainViewModel : ViewModelBase
         MappingTargets = [];
         SelectedMappingSource = null;
         SelectedMappingTarget = null;
+        IsRestorePreparationOpen = false;
         snapshotDetailCancellation?.Cancel();
         snapshotDetailCancellation?.Dispose();
         snapshotDetailCancellation = null;
         SnapshotInspector = null;
+        if (value?.IsCloud != true)
+        {
+            CurrentObsPreview = null;
+            CurrentLiveCompanionPreview = null;
+        }
         SnapshotInspectorMessage = value is null
             ? "选择一份存档查看设备、画面模式和滤镜参数"
             : "正在读取存档参数…";
+        SnapshotComparisonSummary = value is null
+            ? "选择存档后比较上一份保存"
+            : "正在比较上一份存档…";
         if (value is not null)
         {
             if (!isRefreshingSnapshotNavigation)
@@ -479,6 +879,7 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedSnapshotRoomFilterChanged(SnapshotRoomFilterItemViewModel? value)
     {
+        AssignSelectedSnapshotRoomCommand.NotifyCanExecuteChanged();
         if (!isRefreshingSnapshotNavigation)
         {
             RefreshSnapshotTimeline(true);
@@ -509,11 +910,12 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             SnapshotInspectorViewModel inspector;
+            var comparisonSummary = "当前来源没有可用的上一份存档";
             if (snapshot.IsCloud)
             {
                 if (cloudCredentials is null || SelectedOrganization is null)
                 {
-                    SnapshotInspectorMessage = "云端连接或 Organization 已失效";
+                    SnapshotInspectorMessage = "云端连接或直播管理空间已失效";
                     return;
                 }
 
@@ -525,7 +927,9 @@ public partial class MainViewModel : ViewModelBase
                 inspector = new SnapshotInspectorViewModel(
                     detail.Summary.Name,
                     detail.Summary.CreatedAt,
-                    detail.Applications);
+                    detail.Applications,
+                    creativeLooks: CameraCreativeLooks,
+                    cameraStations: detail.CameraStations);
             }
             else if (snapshot.IsDesktopFile)
             {
@@ -536,7 +940,9 @@ public partial class MainViewModel : ViewModelBase
                     detail.CreatedAt,
                     detail.Applications,
                     "签名有效",
-                    FormatSignerFingerprint(file.Inspection.Signer.FingerprintSha256));
+                    FormatSignerFingerprint(file.Inspection.Signer.FingerprintSha256),
+                    CameraCreativeLooks,
+                    detail.CameraStations);
             }
             else
             {
@@ -544,15 +950,28 @@ public partial class MainViewModel : ViewModelBase
                 inspector = new SnapshotInspectorViewModel(
                     detail.Name,
                     detail.CreatedAt,
-                    detail.Applications);
+                    detail.Applications,
+                    creativeLooks: CameraCreativeLooks,
+                    cameraStations: detail.CameraStations);
+                comparisonSummary = await CompareWithPreviousLocalSnapshotAsync(
+                    snapshot,
+                    detail,
+                    cancellationToken);
             }
 
             if (SelectedSnapshot?.Id == snapshot.Id)
             {
                 SnapshotInspector = inspector;
+                ApplySnapshotReadSummary(inspector);
+                SnapshotComparisonSummary = comparisonSummary;
                 SnapshotInspectorMessage = inspector.Applications.Count == 0
                     ? "这份存档没有应用参数"
                     : string.Empty;
+            }
+
+            if (!snapshot.IsCloud && !snapshot.IsDesktopFile)
+            {
+                await LoadLocalSnapshotPreviewsAsync(snapshot.Id, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -565,7 +984,7 @@ public partial class MainViewModel : ViewModelBase
         {
             if (SelectedSnapshot?.Id == snapshot.Id)
             {
-                SnapshotInspectorMessage = exception.Message;
+                SnapshotInspectorMessage = SnapshotOperationError(exception);
             }
         }
     }
@@ -585,6 +1004,17 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedMappingTargetChanged(LocalMappingTargetItemViewModel? value) =>
         SaveMappingCommand.NotifyCanExecuteChanged();
+
+    partial void OnMappingSourcesChanged(IReadOnlyList<LocalMappingSourceItemViewModel> value)
+    {
+        ContinuePreparedRestoreCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsRestorePreparationOpenChanged(bool value) =>
+        ContinuePreparedRestoreCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsMappingContextReadyChanged(bool value) =>
+        ContinuePreparedRestoreCommand.NotifyCanExecuteChanged();
 
     partial void OnPendingImportPathChanged(string? value)
     {
@@ -641,9 +1071,11 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConnectCloudAsync(CancellationToken cancellationToken)
     {
-        if (!Uri.TryCreate(CloudServiceUrl.Trim(), UriKind.Absolute, out var serviceUri))
+        if (!CloudTrustService.IsSupportedServiceUrl(CloudServiceUrl)
+            || !Uri.TryCreate(CloudTrustService.DefaultServiceUrl, UriKind.Absolute, out var serviceUri))
         {
-            CloudConnectionMessage = "请输入有效的云端服务地址";
+            CloudServiceUrl = CloudTrustService.DefaultServiceUrl;
+            CloudConnectionMessage = "当前版本只连接内置的 LiveStudio 云端服务器";
             return;
         }
 
@@ -652,6 +1084,13 @@ public partial class MainViewModel : ViewModelBase
         CloudAuthorizationCode = string.Empty;
         try
         {
+            if (OperatingSystem.IsWindows() && !CloudTrustService.IsBundledRootInstalled())
+            {
+                CloudTrustService.InstallBundledRoot(serviceUri.ToString());
+                RefreshCloudCertificateStatus();
+                CloudConnectionMessage = "服务器证书已安装，正在打开浏览器授权";
+            }
+
             var authorization = await cloudClient.StartAuthorizationAsync(
                 serviceUri,
                 Environment.MachineName,
@@ -680,6 +1119,7 @@ public partial class MainViewModel : ViewModelBase
                     CloudServiceUrl = serviceUri.ToString();
                     CloudConnectionMessage = "授权成功，正在读取直播间";
                     await LoadCloudWorkspaceAsync(cancellationToken);
+                    await TryAutoEnrollSingleRoomAsync(cancellationToken);
                     return;
                 }
 
@@ -688,7 +1128,12 @@ public partial class MainViewModel : ViewModelBase
 
             CloudConnectionMessage = "授权请求已过期，请重新连接";
         }
-        catch (Exception exception) when (exception is HttpRequestException or ArgumentException or InvalidOperationException)
+        catch (Exception exception) when (exception is HttpRequestException
+                                          or ArgumentException
+                                          or InvalidOperationException
+                                          or CryptographicException
+                                          or UnauthorizedAccessException
+                                          or PlatformNotSupportedException)
         {
             CloudConnectionMessage = exception.Message;
         }
@@ -730,6 +1175,7 @@ public partial class MainViewModel : ViewModelBase
         cloudSnapshotItems = [];
         cloudJobs = [];
         RefreshActivityItems();
+        RefreshAvailableSnapshots();
         CloudAuthorizationCode = string.Empty;
         if (!IsAgentConnected)
         {
@@ -757,6 +1203,7 @@ public partial class MainViewModel : ViewModelBase
         }
 
         DesktopCredentialStore.SaveUpdateToken(GitHubUpdateToken);
+        updateAccessToken = null;
         GitHubUpdateToken = string.Empty;
         HasGitHubUpdateToken = true;
         UpdateStatus = "GitHub 更新凭据已安全保存";
@@ -772,6 +1219,7 @@ public partial class MainViewModel : ViewModelBase
         }
 
         DesktopCredentialStore.DeleteUpdateToken();
+        updateAccessToken = null;
         GitHubUpdateToken = string.Empty;
         HasGitHubUpdateToken = false;
         availableUpdate = null;
@@ -791,16 +1239,21 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        if (!DesktopCredentialStore.TryLoadUpdateToken(out var token))
-        {
-            UpdateStatus = "请先保存 GitHub Token";
-            return;
-        }
-
         IsBusy = true;
-        UpdateStatus = "正在检查 GitHub 私有 Release…";
+        UpdateStatus = "正在检查更新…";
         try
         {
+            var token = await ResolveUpdateTokenAsync(cancellationToken);
+            if (token is null)
+            {
+                availableUpdate = null;
+                LatestVersionText = "—";
+                UpdateStatus = "未找到已登录的 GitHub 账号，请在高级设置中添加备用更新授权";
+                InstallUpdateCommand.NotifyCanExecuteChanged();
+                return;
+            }
+
+            updateAccessToken = token;
             availableUpdate = await applicationUpdateService.CheckAsync(token, cancellationToken);
             if (availableUpdate is null)
             {
@@ -821,7 +1274,9 @@ public partial class MainViewModel : ViewModelBase
         {
             availableUpdate = null;
             LatestVersionText = "—";
-            UpdateStatus = $"检查更新失败：{exception.Message}";
+            UpdateStatus = exception.Message.Contains("Release 缺少", StringComparison.Ordinal)
+                    ? "已连接更新服务，但最新发布中还没有可安装的 Windows 更新包"
+                    : $"检查更新失败：{exception.Message}";
             InstallUpdateCommand.NotifyCanExecuteChanged();
         }
         finally
@@ -833,9 +1288,20 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanInstallUpdate))]
     private async Task InstallUpdateAsync(CancellationToken cancellationToken)
     {
-        if (availableUpdate is null
-            || !DesktopCredentialStore.TryLoadUpdateToken(out var token))
+        if (availableUpdate is null)
         {
+            return;
+        }
+
+        var token = updateAccessToken;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = await ResolveUpdateTokenAsync(cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            UpdateStatus = "更新授权已失效，请重新检查更新";
             return;
         }
 
@@ -863,6 +1329,260 @@ public partial class MainViewModel : ViewModelBase
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunLocalCheckAndRepair))]
+    private async Task RunLocalCheckAndRepairAsync(CancellationToken cancellationToken)
+    {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            LocalCheckStatus = "演示模式：执行端、自启动、OBS、直播伴侣、云上传和云下载回读均已模拟通过";
+            return;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            LocalCheckStatus = "本机检查与修复仅在 Windows 直播电脑上执行";
+            return;
+        }
+
+        IsBusy = true;
+        LocalCheckStatus = "正在启动执行端并检查本机环境…";
+        var cloudReadback = "未连接云端";
+        try
+        {
+            var agentStarted = WindowsAgentBootstrapper.EnsureRunning();
+            var state = await WaitForLocalAgentAsync(cancellationToken);
+
+            if (!state.AutoStartEnabled)
+            {
+                LocalCheckStatus = "正在修复 Agent 登录后自动启动…";
+                state = await localAgentClient.ConfigureAutoStartAsync(true, cancellationToken);
+            }
+
+            LocalCheckStatus = "正在检测并修复 OBS 与直播伴侣连接…";
+            state = await localAgentClient.AutoConfigureObsAsync(cancellationToken);
+
+            if (state.IsCloudEnrolled)
+            {
+                LocalCheckStatus = "正在校验并同步本机待上传存档…";
+                await localAgentClient.SyncPendingSnapshotsAsync(cancellationToken);
+                state = await localAgentClient.GetStateAsync(cancellationToken);
+            }
+
+            ApplyAgentState(state);
+            IsBusy = true;
+
+            if (cloudCredentials is not null && SelectedOrganization is not null)
+            {
+                if (IsCloudConnected)
+                {
+                    await LoadCloudWorkspaceAsync(cancellationToken);
+                }
+
+                var cloudSnapshot = cloudSnapshotItems
+                    .Select(item => item.CloudSummary)
+                    .Where(summary => summary is not null)
+                    .OrderByDescending(summary => summary!.CreatedAt)
+                    .FirstOrDefault();
+                if (cloudSnapshot is not null)
+                {
+                    LocalCheckStatus = "正在从云端下载一份存档并核对长度与 SHA-256…";
+                    await VerifyCloudSnapshotReadbackAsync(cloudSnapshot, cancellationToken);
+                    cloudReadback = "云端下载回读通过";
+                }
+                else
+                {
+                    cloudReadback = "云端尚无存档可回读";
+                }
+            }
+
+            var applications = state.Applications.ToDictionary(application => application.Application);
+            var warnings = new List<string>();
+            AddApplicationCheckWarning(warnings, "OBS", applications.GetValueOrDefault(ApplicationKind.Obs));
+            AddApplicationCheckWarning(
+                warnings,
+                "直播伴侣",
+                applications.GetValueOrDefault(ApplicationKind.LiveCompanion));
+            if (!state.CanCapture)
+            {
+                warnings.Add("当前仍不能完整读取两款应用");
+            }
+
+            var startMessage = agentStarted ? "Agent 已重新启动" : "Agent 正常";
+            LocalCheckStatus = warnings.Count == 0
+                ? $"检查并修复完成：{startMessage}、自启动正常、两款应用可读取、{cloudReadback}"
+                : $"检查完成，但仍需处理：{string.Join("；", warnings)}。{cloudReadback}";
+        }
+        catch (Exception exception) when (exception is LocalControlException
+            or IOException
+            or HttpRequestException
+            or InvalidDataException
+            or UnauthorizedAccessException)
+        {
+            LocalCheckStatus = $"检查或修复失败：{exception.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task<LocalAgentState> WaitForLocalAgentAsync(CancellationToken cancellationToken)
+    {
+        Exception? lastError = null;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            try
+            {
+                return await localAgentClient.GetStateAsync(cancellationToken);
+            }
+            catch (Exception exception) when (exception is LocalControlException or IOException)
+            {
+                lastError = exception;
+                await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
+            }
+        }
+
+        throw new IOException("无法连接 LiveStudio Agent，请确认当前 Windows 用户可以启动执行端", lastError);
+    }
+
+    private async Task VerifyCloudSnapshotReadbackAsync(
+        SnapshotSummary snapshot,
+        CancellationToken cancellationToken)
+    {
+        if (cloudCredentials is null || SelectedOrganization is null)
+        {
+            return;
+        }
+
+        var diagnosticsDirectory = Path.Combine(Path.GetTempPath(), "LiveStudio", "Diagnostics");
+        var destinationPath = Path.Combine(diagnosticsDirectory, $"{snapshot.Id:N}-{Guid.NewGuid():N}.lscfg");
+        try
+        {
+            await cloudClient.DownloadSnapshotAsync(
+                cloudCredentials,
+                SelectedOrganization.Id,
+                snapshot,
+                destinationPath,
+                cancellationToken);
+        }
+        finally
+        {
+            if (File.Exists(destinationPath))
+            {
+                File.Delete(destinationPath);
+            }
+        }
+    }
+
+    private static void AddApplicationCheckWarning(
+        List<string> warnings,
+        string applicationName,
+        LocalApplicationState? application)
+    {
+        if (application is null || !application.AdapterAvailable)
+        {
+            warnings.Add($"{applicationName} 适配器不可用");
+        }
+        else if (!application.IsRunning)
+        {
+            warnings.Add($"{applicationName} 未运行");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanInstallCloudCertificate))]
+    private void InstallCloudCertificate()
+    {
+        try
+        {
+            CloudTrustService.InstallBundledRoot(CloudServiceUrl);
+            RefreshCloudCertificateStatus();
+            CloudConnectionMessage = "固定 IP 私有证书已安装，可以连接云存档";
+        }
+        catch (Exception exception) when (exception is CryptographicException
+                                          or InvalidOperationException
+                                          or UnauthorizedAccessException
+                                          or PlatformNotSupportedException)
+        {
+            CloudCertificateStatus = $"证书安装失败：{exception.Message}";
+        }
+    }
+
+    private void RefreshCloudCertificateStatus()
+    {
+        try
+        {
+            if (!CloudTrustService.IsSupportedServiceUrl(CloudServiceUrl))
+            {
+                IsCloudCertificateInstalled = false;
+                CloudCertificateStatus = "内置证书仅用于 LiveStudio 固定 IP 云端";
+                InstallCloudCertificateCommand.NotifyCanExecuteChanged();
+                return;
+            }
+
+            IsCloudCertificateInstalled = CloudTrustService.IsBundledRootInstalled();
+            CloudCertificateStatus = IsCloudCertificateInstalled
+                ? "固定 IP 私有证书已安装"
+                : "首次连接前，请先安装此服务器证书";
+            InstallCloudCertificateCommand.NotifyCanExecuteChanged();
+        }
+        catch (Exception exception) when (exception is CryptographicException
+                                          or InvalidOperationException
+                                          or UnauthorizedAccessException)
+        {
+            IsCloudCertificateInstalled = false;
+            CloudCertificateStatus = $"证书检查失败：{exception.Message}";
+            InstallCloudCertificateCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private async Task LoadLocalSnapshotPreviewsAsync(Guid snapshotId, CancellationToken cancellationToken)
+    {
+        var obsTask = localAgentClient.GetSnapshotPreviewAsync(
+            snapshotId,
+            ApplicationKind.Obs,
+            cancellationToken);
+        var liveCompanionTask = localAgentClient.GetSnapshotPreviewAsync(
+            snapshotId,
+            ApplicationKind.LiveCompanion,
+            cancellationToken);
+        await Task.WhenAll(obsTask, liveCompanionTask);
+        if (SelectedSnapshot?.Id != snapshotId)
+        {
+            return;
+        }
+
+        CurrentObsPreview = CreatePreviewBitmap(await obsTask);
+        CurrentLiveCompanionPreview = CreatePreviewBitmap(await liveCompanionTask);
+    }
+
+    private static Bitmap? CreatePreviewBitmap(LocalSnapshotPreview preview)
+    {
+        if (!preview.Found || preview.Content.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new Bitmap(new MemoryStream(preview.Content, writable: false));
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> ResolveUpdateTokenAsync(CancellationToken cancellationToken)
+    {
+        if (DesktopCredentialStore.TryLoadUpdateToken(out var storedToken))
+        {
+            return storedToken;
+        }
+
+        return await GitHubCredentialProvider.TryGetTokenAsync(cancellationToken);
     }
 
     [RelayCommand]
@@ -971,10 +1691,10 @@ public partial class MainViewModel : ViewModelBase
                 new CreateCaptureJobRequest(
                     SelectedCloudRoom.Id,
                     deviceId,
-                    $"{SelectedCloudRoom.Name} {DateTimeOffset.Now:yyyy-MM-dd HH:mm}"),
+                    DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.CurrentCulture)),
                 cancellationToken);
             ControlStatusTitle = "联合保存任务已下发";
-            ControlStatusDescription = "Windows 执行端会先检查直播状态，再读取并上传联合存档。";
+            ControlStatusDescription = "Windows 执行端会读取、校验并上传联合存档。";
             await LoadCloudWorkspaceAsync(cancellationToken);
         }
         catch (HttpRequestException exception)
@@ -1024,14 +1744,31 @@ public partial class MainViewModel : ViewModelBase
         ControlStatusDescription = "正在读取 OBS 与直播伴侣参数、滤镜和预览图。";
         try
         {
-            var name = $"{DateTime.Now:yyyy-MM-dd HH:mm} 画面存档";
-            await localAgentClient.CaptureAsync(name, cancellationToken);
+            if (!TryCollectCameraStations(
+                    SnapshotInspector?.CameraStations ?? CameraStations,
+                    out var cameraStations,
+                    out var cameraError))
+            {
+                ControlStatusTitle = "相机参数有误";
+                ControlStatusDescription = cameraError;
+                PendingImportMessage = cameraError;
+                return;
+            }
+
+            var name = DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+            var result = await localAgentClient.CaptureAsync(name, cameraStations, cancellationToken);
             await LoadStateAsync(cancellationToken);
+            SelectedSnapshot = SnapshotItems.FirstOrDefault(snapshot => snapshot.Id == result.SnapshotId);
+            SelectedSection = 1;
+            ControlStatusTitle = "当前画面已保存并读取";
+            ControlStatusDescription = "控制室正在显示刚刚读取的 OBS 与直播伴侣画面参数。";
+            PendingImportMessage = "当前画面已保存，并已自动打开新存档";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
             ControlStatusTitle = "保存失败";
             ControlStatusDescription = exception.Message;
+            PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
         {
@@ -1057,6 +1794,13 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        if (!skipNextMappingPreparation
+            && !await PrepareMappingsForRestoreAsync(cancellationToken))
+        {
+            return;
+        }
+
+        skipNextMappingPreparation = false;
         if (SelectedSnapshot.IsCloud)
         {
             await RestoreCloudSnapshotAsync(cancellationToken);
@@ -1064,22 +1808,513 @@ public partial class MainViewModel : ViewModelBase
         }
 
         IsBusy = true;
+        IsRestoringSnapshot = true;
         ControlStatusTitle = $"正在恢复“{SelectedSnapshot.Name}”";
         ControlStatusDescription = "恢复完成前不要关闭 OBS、直播伴侣或 LiveStudio。";
+        PendingImportMessage = $"正在恢复“{SelectedSnapshot.Name}”…";
         try
         {
-            await localAgentClient.RestoreAsync(SelectedSnapshot.Id, cancellationToken);
+            var result = await RestoreLocalSnapshotWithProgressAsync(
+                SelectedSnapshot.Id,
+                SelectedSnapshot.Name,
+                cancellationToken);
             await LoadStateAsync(cancellationToken);
+            ControlStatusTitle = "恢复完成";
+            ControlStatusDescription = $"“{result.Name}”已应用并通过逐字段回读。";
+            PendingImportMessage = $"恢复完成：“{result.Name}”已应用并通过逐字段回读";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
             ControlStatusTitle = "恢复失败";
             ControlStatusDescription = exception.Message;
+            PendingImportMessage = $"恢复失败：{SnapshotOperationError(exception)}";
+            if (exception is LocalControlException { ErrorCode: nameof(JobStatus.MappingRequired) or nameof(JobStatus.UnsupportedDeviceMode) })
+            {
+                MappingMessage = $"目标设备需要重新选择：{exception.Message}";
+                await LoadMappingContextAsync(CancellationToken.None);
+                IsRestorePreparationOpen = true;
+                SelectedMappingSource = MappingSources.FirstOrDefault(source => source.Mapping is null)
+                    ?? (MappingSources.Count > 0 ? MappingSources[0] : null);
+            }
+        }
+        finally
+        {
+            IsRestoringSnapshot = false;
+            IsBusy = false;
+        }
+    }
+
+    private async Task TryAutoEnrollSingleRoomAsync(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows()
+            || !IsAgentConnected
+            || IsAgentCloudEnrolled
+            || cloudCredentials is null
+            || SelectedOrganization is null
+            || CloudRooms is not [var onlyRoom]
+            || onlyRoom.DeviceId is not null)
+        {
+            return;
+        }
+
+        SelectedCloudRoom = onlyRoom;
+        CloudConnectionMessage = $"正在把本机绑定到“{onlyRoom.Name}”";
+        await EnrollAgentAsync(cancellationToken);
+        CloudConnectionMessage = IsAgentCloudEnrolled
+            ? $"已连接 {SelectedOrganization.Name}，本机已绑定到“{onlyRoom.Name}”"
+            : SettingsMessage;
+    }
+
+    [RelayCommand]
+    private async Task SaveSelectedSnapshotCameraStationsAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSnapshot is null || SnapshotInspector is null)
+        {
+            return;
+        }
+
+        if (!CanSaveCameraStationsToSelectedSnapshot)
+        {
+            SnapshotInspector.CameraSaveMessage = SelectedSnapshot.IsCloud
+                ? "云端存档不能直接改写；请点“保存当前画面”生成一份包含新参数的存档"
+                : "导入预览不会改写原文件；请先导入本机后再保存相机参数";
+            return;
+        }
+
+        if (!TryCollectCameraStations(SnapshotInspector.CameraStations, out var stations, out var error))
+        {
+            SnapshotInspector.CameraSaveMessage = error;
+            return;
+        }
+
+        SnapshotInspector.IsSavingCameraStations = true;
+        SnapshotInspector.CameraSaveMessage = "正在把三个机位写入当前画面存档…";
+        try
+        {
+            await localAgentClient.UpdateSnapshotCameraStationsAsync(
+                SelectedSnapshot.Id,
+                stations,
+                cancellationToken);
+            SnapshotInspector.CameraSaveMessage = "三个机位已写入并重新签名；导出和云同步都会携带这些参数";
+            await LoadStateAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException or InvalidOperationException)
+        {
+            SnapshotInspector.CameraSaveMessage = SnapshotOperationError(exception);
+        }
+        finally
+        {
+            if (SnapshotInspector is not null)
+            {
+                SnapshotInspector.IsSavingCameraStations = false;
+            }
+        }
+    }
+
+    private static bool TryCollectCameraStations(
+        IReadOnlyList<CameraStationEditorViewModel> editors,
+        out IReadOnlyList<CameraStationSnapshot> stations,
+        out string error)
+    {
+        var values = new List<CameraStationSnapshot>(3);
+        foreach (var editor in editors.OrderBy(editor => editor.Slot))
+        {
+            if (!editor.TryCreateSnapshot(out var station, out error))
+            {
+                stations = [];
+                error = $"{editor.PositionTitle}：{error}";
+                return false;
+            }
+
+            values.Add(station);
+        }
+
+        stations = values;
+        error = string.Empty;
+        return values.Count == 3;
+    }
+
+    public async Task<bool> CreateCloudRoomAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = name.Trim();
+        if (cloudCredentials is null || SelectedOrganization is null || !IsCloudConnected)
+        {
+            SelectedSection = 3;
+            SettingsMessage = "请先连接云端服务并选择直播管理空间，再新建直播间";
+            return false;
+        }
+
+        if (normalizedName.Length is < 1 or > 100)
+        {
+            PendingImportMessage = "直播间名称必须为 1 至 100 个字符";
+            return false;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var room = await cloudClient.CreateRoomAsync(
+                cloudCredentials,
+                SelectedOrganization.Id,
+                normalizedName,
+                cancellationToken);
+            await LoadCloudWorkspaceAsync(cancellationToken);
+            SelectedCloudRoom = CloudRooms.FirstOrDefault(item => item.Id == room.Id);
+            RefreshSnapshotNavigation();
+            SelectedSnapshotRoomFilter = SnapshotRoomFilters.FirstOrDefault(item => item.RoomId == room.Id);
+            PendingImportMessage = $"已新建“{room.Name}”；选择“设为当前直播间”后，新存档会自动归入并同步到云端";
+            return true;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException)
+        {
+            PendingImportMessage = $"新建直播间失败：{exception.Message}";
+            return false;
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAssignSelectedSnapshotRoom))]
+    private async Task AssignSelectedSnapshotRoomAsync(CancellationToken cancellationToken)
+    {
+        var roomId = SelectedSnapshotRoomFilter?.RoomId;
+        if (roomId is null)
+        {
+            return;
+        }
+
+        SelectedCloudRoom = CloudRooms.FirstOrDefault(room => room.Id == roomId);
+        if (SelectedCloudRoom is null)
+        {
+            PendingImportMessage = "当前直播间不属于已连接的直播管理空间";
+            return;
+        }
+
+        await EnrollAgentAsync(cancellationToken);
+        if (IsAgentCloudEnrolled)
+        {
+            PendingImportMessage = $"本机已分配到“{SelectedCloudRoom.Name}”；以后保存会自动归档并上传云端";
+        }
+    }
+
+    [RelayCommand]
+    private async Task SyncCloudSnapshotsAsync(CancellationToken cancellationToken)
+    {
+        if (!CanSyncCloudSnapshots)
+        {
+            PendingImportMessage = "先把本机注册到一个直播间，再执行云端同步";
+            return;
+        }
+
+        IsBusy = true;
+        PendingImportMessage = "正在校验并上传等待同步的画面存档…";
+        try
+        {
+            var result = await localAgentClient.SyncPendingSnapshotsAsync(cancellationToken);
+            await LoadStateAsync(cancellationToken);
+            if (IsCloudConnected)
+            {
+                await LoadCloudWorkspaceAsync(cancellationToken);
+            }
+
+            PendingImportMessage = result.Message;
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
+        {
+            PendingImportMessage = $"云存档同步失败：{exception.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenCloudSettings()
+    {
+        SelectedSection = 3;
+        SettingsMessage = IsCloudConnected
+            ? "在这里选择直播管理空间，并将当前 Windows 执行端注册到直播间"
+            : "先连接云端服务，再创建直播间和启用自动存档同步";
+    }
+
+    private async Task<bool> PrepareMappingsForRestoreAsync(CancellationToken cancellationToken)
+    {
+        SnapshotInspector?.IsTechnicalPanelOpen = false;
+        IsRestorePreparationOpen = false;
+        await LoadMappingContextAsync(cancellationToken);
+        if (!IsMappingContextReady)
+        {
+            IsRestorePreparationOpen = true;
+            return false;
+        }
+
+        if (MappingSources.Count == 0)
+        {
+            return true;
+        }
+
+        var automaticMatches = MappingSources
+            .Where(source => source.Mapping is null)
+            .Select(source => (Source: source, Target: FindAutomaticMappingTarget(source)))
+            .Where(match => match.Target is not null)
+            .Select(match => (match.Source, Target: match.Target!))
+            .ToArray();
+        if (automaticMatches.Length > 0)
+        {
+            IsBusy = true;
+            try
+            {
+                foreach (var match in automaticMatches)
+                {
+                    await SaveMappingPairAsync(match.Source, match.Target, cancellationToken);
+                }
+            }
+            catch (Exception exception) when (exception is LocalControlException or HttpRequestException or IOException or InvalidOperationException)
+            {
+                MappingMessage = $"自动匹配没有全部保存：{exception.Message}";
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+
+            await LoadMappingContextAsync(cancellationToken);
+        }
+
+        if (!HasPendingMappings)
+        {
+            MappingMessage = $"系统已确认 {MappingSources.Count} 个来源与当前电脑对应";
+            return true;
+        }
+
+        IsRestorePreparationOpen = true;
+        SelectedMappingSource = MappingSources.First(source => source.Mapping is null);
+        MappingMessage = $"有 {PendingMappingCount} 个来源无法安全自动判断，请选择它在目标电脑上的对应来源";
+        return false;
+    }
+
+    private LocalMappingTargetItemViewModel? FindAutomaticMappingTarget(LocalMappingSourceItemViewModel source)
+        => RestoreMappingMatcher.FindAutomaticTarget(source, allMappingTargets);
+
+    private async Task SaveMappingPairAsync(
+        LocalMappingSourceItemViewModel source,
+        LocalMappingTargetItemViewModel target,
+        CancellationToken cancellationToken)
+    {
+        if (SelectedSnapshot is null)
+        {
+            return;
+        }
+
+        if (SelectedSnapshot.IsCloud)
+        {
+            if (cloudCredentials is null
+                || SelectedOrganization is null
+                || SelectedCloudRoom?.DeviceId is not { } deviceId)
+            {
+                throw new InvalidOperationException("尚未选择目标直播间");
+            }
+
+            await cloudClient.SaveMappingAsync(
+                cloudCredentials,
+                SelectedOrganization.Id,
+                deviceId,
+                new SaveDeviceMappingRequest(
+                    source.SourceLogicalId,
+                    source.Application,
+                    target.TargetDeviceId,
+                    target.SourceName,
+                    string.Empty,
+                    false),
+                cancellationToken);
+            return;
+        }
+
+        await localAgentClient.SaveDeviceMappingAsync(
+            new SaveLocalDeviceMappingRequest(
+                SelectedSnapshot.Id,
+                source.SourceLogicalId,
+                source.Application,
+                target.TargetDeviceId,
+                target.SourceName),
+            cancellationToken);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanContinuePreparedRestore))]
+    private async Task ContinuePreparedRestoreAsync(CancellationToken cancellationToken)
+    {
+        if (HasPendingMappings)
+        {
+            return;
+        }
+
+        IsRestorePreparationOpen = false;
+        skipNextMappingPreparation = true;
+        await RestoreSnapshotAsync(cancellationToken);
+    }
+
+    [RelayCommand]
+    private void CancelRestorePreparation()
+    {
+        IsRestorePreparationOpen = false;
+        MappingMessage = "已取消本次恢复准备，没有写入 OBS 或直播伴侣";
+    }
+
+    [RelayCommand]
+    private void SelectAllOnlineRooms()
+    {
+        foreach (var room in CloudRooms)
+        {
+            room.IsBatchSelected = room.CanBatchSelect;
+        }
+    }
+
+    [RelayCommand]
+    private void ShowLocalControl() => IsShowingCloudManagement = false;
+
+    [RelayCommand]
+    private void ShowCloudManagement() => IsShowingCloudManagement = true;
+
+    [RelayCommand]
+    private void OpenCloudWorkspace()
+    {
+        IsShowingCloudManagement = true;
+        SelectedSection = 0;
+        if (!IsCloudConnected)
+        {
+            CloudConnectionMessage = "连接后即可统一管理直播间、电脑和云存档";
+        }
+    }
+
+    [RelayCommand]
+    private void OpenSnapshotRestore() => SelectedSection = 1;
+
+    [RelayCommand]
+    private void ClearBatchRoomSelection()
+    {
+        foreach (var room in CloudRooms)
+        {
+            room.IsBatchSelected = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanBatchCaptureCloudSnapshots))]
+    private async Task BatchCaptureCloudSnapshotsAsync(CancellationToken cancellationToken)
+    {
+        var roomIds = CloudRooms
+            .Where(room => room.IsBatchSelected && room.CanBatchSelect)
+            .Select(room => room.Id)
+            .ToArray();
+        await RunBatchCaptureAsync(roomIds, cancellationToken);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRetryFailedBatchCapture))]
+    private async Task RetryFailedBatchCaptureAsync(CancellationToken cancellationToken) =>
+        await RunBatchCaptureAsync(failedBatchCaptureRoomIds, cancellationToken);
+
+    private async Task RunBatchCaptureAsync(
+        Guid[] roomIds,
+        CancellationToken cancellationToken)
+    {
+        if (roomIds.Length == 0)
+        {
+            return;
+        }
+
+        if (isDemoMode)
+        {
+            BatchCaptureResultText = $"演示：已为 {roomIds.Length} 个直播间创建独立保存任务。";
+            return;
+        }
+
+        if (cloudCredentials is null || SelectedOrganization is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var response = await cloudClient.CreateBatchCaptureJobsAsync(
+                cloudCredentials,
+                SelectedOrganization.Id,
+                new CreateBatchCaptureJobsRequest(
+                    roomIds,
+                    DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.CurrentCulture)),
+                cancellationToken);
+            var failures = response.Results.Where(result => !result.Accepted).ToArray();
+            failedBatchCaptureRoomIds = failures.Select(result => result.RoomId).ToArray();
+            HasBatchCaptureFailures = failures.Length > 0;
+            var failureSummary = failures.Length == 0
+                ? string.Empty
+                : "；" + string.Join("；", failures.Take(3).Select(result => $"{result.RoomName}：{result.Message}"))
+                    + (failures.Length > 3 ? $"；另有 {failures.Length - 3} 个未创建" : string.Empty);
+            BatchCaptureResultText = $"已下发 {response.Accepted} 个保存任务，{response.Rejected} 个未创建{failureSummary}";
+            ControlStatusTitle = response.Accepted > 0 ? "批量保存任务已下发" : "没有创建保存任务";
+            ControlStatusDescription = BatchCaptureResultText;
+            await LoadCloudWorkspaceAsync(cancellationToken);
+            foreach (var room in CloudRooms)
+            {
+                room.IsBatchSelected = failedBatchCaptureRoomIds.Contains(room.Id) && room.CanBatchSelect;
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            HasBatchCaptureFailures = true;
+            failedBatchCaptureRoomIds = roomIds.ToArray();
+            BatchCaptureResultText = $"批量保存未下发：{exception.Message}";
+            ControlStatusTitle = "无法下发批量保存任务";
+            ControlStatusDescription = BatchCaptureResultText;
+        }
+        finally
+        {
+            IsBusy = false;
+            RetryFailedBatchCaptureCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private async Task<LocalSnapshotOperationResult> RestoreLocalSnapshotWithProgressAsync(
+        Guid snapshotId,
+        string snapshotName,
+        CancellationToken cancellationToken)
+    {
+        var restoreTask = localAgentClient.RestoreAsync(snapshotId, cancellationToken);
+        var lastMessage = string.Empty;
+        while (!restoreTask.IsCompleted)
+        {
+            await Task.WhenAny(restoreTask, Task.Delay(500, CancellationToken.None));
+            if (restoreTask.IsCompleted)
+            {
+                break;
+            }
+
+            try
+            {
+                var progress = await localAgentClient.GetOperationProgressAsync(CancellationToken.None);
+                if (progress.IsBusy
+                    && !string.IsNullOrWhiteSpace(progress.Message)
+                    && !string.Equals(progress.Message, lastMessage, StringComparison.Ordinal))
+                {
+                    lastMessage = progress.Message;
+                    ControlStatusTitle = $"正在恢复“{snapshotName}”";
+                    ControlStatusDescription = progress.Message;
+                    PendingImportMessage = $"恢复进度：{progress.Message}";
+                }
+            }
+            catch (Exception exception) when (exception is LocalControlException or IOException)
+            {
+                // The main restore pipe is authoritative. A transient progress-poll failure must
+                // not cancel or duplicate the transaction.
+                _ = exception;
+            }
+        }
+
+        return await restoreTask;
     }
 
     private async Task RestoreCloudSnapshotAsync(CancellationToken cancellationToken)
@@ -1094,7 +2329,7 @@ public partial class MainViewModel : ViewModelBase
 
         IsBusy = true;
         ControlStatusTitle = $"正在向“{SelectedCloudRoom.Name}”下发恢复任务";
-        ControlStatusDescription = "目标电脑会先完成直播状态、设备映射和版本兼容性检查。";
+        ControlStatusDescription = "目标电脑会先完成设备映射和版本兼容性检查。";
         try
         {
             await cloudClient.CreateRestoreJobAsync(
@@ -1200,6 +2435,37 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanConfigureObs))]
+    private async Task AutoConfigureObsAsync(CancellationToken cancellationToken)
+    {
+        if (isDemoMode)
+        {
+            await Task.Yield();
+            SettingsMessage = "演示模式：已模拟自动连接 OBS，未修改本机配置";
+            return;
+        }
+
+        IsBusy = true;
+        SettingsMessage = "正在自动检测并连接 OBS 与直播伴侣…";
+        ControlStatusDescription = "正在启动并核对两款应用；无需填写地址或凭据。";
+        try
+        {
+            var state = await localAgentClient.AutoConfigureObsAsync(cancellationToken);
+            ApplyAgentState(state);
+            SettingsMessage = "OBS 与直播伴侣已自动连接";
+            ControlStatusDescription = "OBS 已连接；直播伴侣配置已读取。没有完成字段验证前可以保存检查，但不能写回还原。";
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException)
+        {
+            SettingsMessage = exception.Message;
+            ControlStatusDescription = exception.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     public async Task ImportSnapshotFileAsync(string path, CancellationToken cancellationToken = default)
     {
         IsBusy = true;
@@ -1235,7 +2501,7 @@ public partial class MainViewModel : ViewModelBase
             or UnauthorizedAccessException
             or SnapshotPackageException)
         {
-            PendingImportMessage = exception.Message;
+            PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
         {
@@ -1365,15 +2631,36 @@ public partial class MainViewModel : ViewModelBase
         PendingImportMessage = "正在校验并导出存档…";
         try
         {
-            var result = await localAgentClient.ExportSnapshotFileAsync(
-                SelectedSnapshot.Id,
-                path,
-                cancellationToken);
-            PendingImportMessage = $"已导出到 {result.Path}";
+            if (SelectedSnapshot.IsCloud)
+            {
+                if (cloudCredentials is null
+                    || SelectedOrganization is null
+                    || SelectedSnapshot.CloudSummary is not { } summary)
+                {
+                    PendingImportMessage = "云端连接已失效，请重新连接后再导出";
+                    return;
+                }
+
+                await cloudClient.DownloadSnapshotAsync(
+                    cloudCredentials,
+                    SelectedOrganization.Id,
+                    summary,
+                    path,
+                    cancellationToken);
+                PendingImportMessage = $"云存档已校验并导出到 {path}";
+            }
+            else
+            {
+                var result = await localAgentClient.ExportSnapshotFileAsync(
+                    SelectedSnapshot.Id,
+                    path,
+                    cancellationToken);
+                PendingImportMessage = $"已导出到 {result.Path}";
+            }
         }
-        catch (Exception exception) when (exception is LocalControlException or IOException)
+        catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
         {
-            PendingImportMessage = exception.Message;
+            PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
         {
@@ -1400,7 +2687,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
-            PendingImportMessage = exception.Message;
+            PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
         {
@@ -1413,6 +2700,18 @@ public partial class MainViewModel : ViewModelBase
     {
         PendingImportPath = null;
         PendingImportMessage = "已取消导入";
+    }
+
+    private static string SnapshotOperationError(Exception exception)
+    {
+        if (exception is SnapshotSensitiveDataException
+            || exception is LocalControlException { ErrorCode: nameof(SnapshotSensitiveDataException) }
+            || exception.Message.Contains("禁止归档敏感字段", StringComparison.Ordinal))
+        {
+            return "这份历史存档含敏感配置，已停止打开、导出和同步。请重新保存当前画面生成安全存档。";
+        }
+
+        return exception.Message;
     }
 
     [RelayCommand(CanExecute = nameof(CanConfigureObs))]
@@ -1444,18 +2743,406 @@ public partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void OpenConnectionSettings() => SelectedSection = 4;
+    private void OpenConnectionSettings() => SelectedSection = 3;
 
     [RelayCommand]
-    private async Task SelectSectionAsync(string section, CancellationToken cancellationToken)
+    private void SelectSection(string section)
     {
         if (int.TryParse(section, out var index))
         {
             SelectedSection = index;
-            if (index == 2)
+        }
+    }
+
+    public async Task RenameSnapshotAsync(
+        LocalSnapshotItemViewModel snapshot,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var normalizedName = name.Trim();
+        if (snapshot.IsDesktopFile || normalizedName.Length is < 1 or > 120)
+        {
+            PendingImportMessage = normalizedName.Length is < 1 or > 120
+                ? "存档名称必须为 1 至 120 个字符"
+                : "当前文件不是受管存档，不能在此修改名称";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            if (snapshot.IsCloud)
             {
-                await LoadMappingContextAsync(cancellationToken);
+                if (cloudCredentials is null || SelectedOrganization is null)
+                {
+                    PendingImportMessage = "云端连接已失效，请重新连接后再重命名";
+                    return;
+                }
+
+                await cloudClient.RenameSnapshotAsync(
+                    cloudCredentials,
+                    SelectedOrganization.Id,
+                    snapshot.Id,
+                    normalizedName,
+                    cancellationToken);
+                await LoadCloudWorkspaceAsync(cancellationToken);
             }
+            else
+            {
+                await localAgentClient.RenameSnapshotAsync(snapshot.Id, normalizedName, cancellationToken);
+                await LoadStateAsync(cancellationToken);
+            }
+
+            SelectedSnapshot = SnapshotItems.FirstOrDefault(item => item.Id == snapshot.Id);
+            PendingImportMessage = $"已将存档改名为“{normalizedName}”";
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
+        {
+            PendingImportMessage = SnapshotOperationError(exception);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ShowManualCameraMode() => IsManualCameraMode = true;
+
+    [RelayCommand]
+    private void ShowWiredCameraMode() => IsManualCameraMode = false;
+
+    [RelayCommand]
+    private void OpenSonyCameraSdkPage() => systemBrowser.Open(
+        new Uri("https://support.d-imaging.sony.co.jp/app/sdk/en/"));
+
+    [RelayCommand]
+    private async Task SaveCameraStationAsync(
+        CameraStationEditorViewModel? station,
+        CancellationToken cancellationToken)
+    {
+        if (station?.SelectedCreativeLook is null)
+        {
+            return;
+        }
+
+        if (!station.TryGetCreativeLookSettings(out var lookSettings, out var lookError))
+        {
+            station.StatusText = lookError;
+            return;
+        }
+
+        if (!CameraProfileInput.TryNormalize(
+                station.Name,
+                station.Aperture,
+                station.ShutterSpeed,
+                station.Iso,
+                station.SelectedCreativeLook.Code,
+                lookSettings,
+                out var input,
+                out var error))
+        {
+            station.StatusText = error;
+            return;
+        }
+
+        IsCameraProfileBusy = true;
+        try
+        {
+            var id = station.ProfileId ?? Guid.NewGuid();
+            var saved = new CameraProfile(
+                id,
+                input.Name,
+                DateTimeOffset.Now,
+                CameraProfileMode.Manual,
+                input.Aperture,
+                input.ShutterSpeed,
+                input.Iso,
+                input.CreativeLook,
+                CreativeLookSettings: input.CreativeLookSettings,
+                StationSlot: station.Slot);
+            var profiles = CameraProfiles
+                .Select(item => item.Profile)
+                .Where(profile => profile.Id != id && profile.StationSlot != station.Slot)
+                .Append(saved)
+                .OrderByDescending(profile => profile.UpdatedAt)
+                .ToArray();
+            await cameraProfileStore.SaveAsync(profiles, cancellationToken);
+            ApplyCameraProfiles(profiles, selectedId: null);
+            ApplyCameraStations(profiles);
+            CameraProfileMessage = $"已保存“{saved.Name}”的完整相机参数";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            station.StatusText = $"保存失败：{exception.Message}";
+        }
+        finally
+        {
+            IsCameraProfileBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteCameraStationAsync(
+        CameraStationEditorViewModel? station,
+        CancellationToken cancellationToken)
+    {
+        if (station is null)
+        {
+            return;
+        }
+
+        if (station.ProfileId is not { } profileId)
+        {
+            station.Reset();
+            return;
+        }
+
+        IsCameraProfileBusy = true;
+        var deletedName = station.Name;
+        try
+        {
+            var profiles = CameraProfiles
+                .Where(item => item.Id != profileId)
+                .Select(item => item.Profile)
+                .ToArray();
+            await cameraProfileStore.SaveAsync(profiles, cancellationToken);
+            ApplyCameraProfiles(profiles, selectedId: null);
+            ApplyCameraStations(profiles);
+            CameraProfileMessage = $"已删除“{deletedName}”";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            station.StatusText = $"删除失败：{exception.Message}";
+        }
+        finally
+        {
+            IsCameraProfileBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void NewCameraProfile()
+    {
+        SelectedCameraProfile = null;
+        CameraProfileName = string.Empty;
+        CameraAperture = "F4";
+        CameraShutterSpeed = "1/125";
+        CameraIso = "640";
+        SelectedCameraCreativeLook = CameraCreativeLooks[0];
+        ApplyCameraCreativeLookSettings(CameraCreativeLookSettings.StandardDefault);
+        IsManualCameraMode = true;
+        CameraProfileMessage = "填写曝光参数和创意外观完整参数后保存；档案名称可使用直播间名称。";
+    }
+
+    [RelayCommand]
+    private async Task SaveManualCameraProfileAsync(CancellationToken cancellationToken)
+    {
+        if (!CanSaveManualCameraProfile || SelectedCameraCreativeLook is null)
+        {
+            CameraProfileMessage = "请填写档案名称、光圈、快门、ISO 和创意外观";
+            return;
+        }
+
+        if (!CameraProfileInput.TryNormalize(
+                CameraProfileName,
+                CameraAperture,
+                CameraShutterSpeed,
+                CameraIso,
+                SelectedCameraCreativeLook.Code,
+                new CameraCreativeLookSettings(
+                    CameraLookContrast,
+                    CameraLookHighlights,
+                    CameraLookShadows,
+                    CameraLookFade,
+                    CameraLookSaturation,
+                    CameraLookSharpness,
+                    CameraLookSharpnessRange,
+                    CameraLookClarity),
+                out var input,
+                out var error))
+        {
+            CameraProfileMessage = error;
+            return;
+        }
+
+        IsCameraProfileBusy = true;
+        try
+        {
+            var id = SelectedCameraProfile?.Id ?? Guid.NewGuid();
+            var saved = new CameraProfile(
+                id,
+                input.Name,
+                DateTimeOffset.Now,
+                CameraProfileMode.Manual,
+                input.Aperture,
+                input.ShutterSpeed,
+                input.Iso,
+                input.CreativeLook,
+                CreativeLookSettings: input.CreativeLookSettings);
+            var profiles = CameraProfiles
+                .Select(item => item.Profile)
+                .Where(profile => profile.Id != id)
+                .Append(saved)
+                .OrderByDescending(profile => profile.UpdatedAt)
+                .ToArray();
+            await cameraProfileStore.SaveAsync(profiles, cancellationToken);
+            ApplyCameraProfiles(profiles, id);
+            CameraProfileMessage = $"已保存“{saved.Name}”的曝光与创意外观完整参数";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            CameraProfileMessage = $"相机档案保存失败：{exception.Message}";
+        }
+        finally
+        {
+            IsCameraProfileBusy = false;
+        }
+    }
+
+    private void ApplyCameraCreativeLookSettings(CameraCreativeLookSettings settings)
+    {
+        CameraLookContrast = settings.Contrast;
+        CameraLookHighlights = settings.Highlights;
+        CameraLookShadows = settings.Shadows;
+        CameraLookFade = settings.Fade;
+        CameraLookSaturation = settings.Saturation;
+        CameraLookSharpness = settings.Sharpness;
+        CameraLookSharpnessRange = settings.SharpnessRange;
+        CameraLookClarity = settings.Clarity;
+    }
+
+    [RelayCommand]
+    private void RequestDeleteCameraProfile()
+    {
+        if (SelectedCameraProfile is not null)
+        {
+            IsCameraDeleteConfirmationVisible = true;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelDeleteCameraProfile() => IsCameraDeleteConfirmationVisible = false;
+
+    [RelayCommand]
+    private async Task ConfirmDeleteCameraProfileAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedCameraProfile is null)
+        {
+            IsCameraDeleteConfirmationVisible = false;
+            return;
+        }
+
+        IsCameraProfileBusy = true;
+        var deletedName = SelectedCameraProfile.Name;
+        try
+        {
+            var profiles = CameraProfiles
+                .Where(item => item.Id != SelectedCameraProfile.Id)
+                .Select(item => item.Profile)
+                .ToArray();
+            await cameraProfileStore.SaveAsync(profiles, cancellationToken);
+            ApplyCameraProfiles(profiles, profiles.FirstOrDefault()?.Id);
+            if (profiles.Length == 0)
+            {
+                NewCameraProfile();
+            }
+
+            CameraProfileMessage = $"已删除“{deletedName}”";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            CameraProfileMessage = $"相机档案删除失败：{exception.Message}";
+        }
+        finally
+        {
+            IsCameraDeleteConfirmationVisible = false;
+            IsCameraProfileBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DetectSonyCameraAsync(CancellationToken cancellationToken)
+    {
+        IsCameraProfileBusy = true;
+        SonyCameraConnectionState = "正在检测 USB 相机…";
+        try
+        {
+            DetectedSonyCameras = await sonyCameraDetectionService.DetectAsync(cancellationToken);
+            SelectedSonyCamera = DetectedSonyCameras.Count > 0 ? DetectedSonyCameras[0] : null;
+            SonyCameraConnectionState = SelectedSonyCamera is null
+                ? "未检测到 FX3、α7S III 或 FX30；请连接 USB 数据线并选择 PC 遥控模式"
+                : $"已检测到 {SelectedSonyCamera.Name}";
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or JsonException)
+        {
+            DetectedSonyCameras = [];
+            SelectedSonyCamera = null;
+            SonyCameraConnectionState = $"相机检测失败：{exception.Message}";
+        }
+        finally
+        {
+            IsCameraProfileBusy = false;
+        }
+    }
+
+    private async Task LoadCameraProfilesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var profiles = await cameraProfileStore.LoadAsync(cancellationToken);
+            ApplyCameraProfiles(profiles, profiles.Count > 0 ? profiles[0].Id : null);
+            ApplyCameraStations(profiles);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            CameraProfiles = [];
+            SelectedCameraProfile = null;
+            ApplyCameraStations([]);
+            CameraProfileMessage = $"相机档案读取失败：{exception.Message}";
+        }
+    }
+
+    private void ApplyCameraProfiles(IReadOnlyList<CameraProfile> profiles, Guid? selectedId)
+    {
+        CameraProfiles = profiles
+            .OrderByDescending(profile => profile.UpdatedAt)
+            .Select(profile => new CameraProfileItemViewModel(profile))
+            .ToArray();
+        SelectedCameraProfile = selectedId is { } id
+            ? CameraProfiles.FirstOrDefault(profile => profile.Id == id)
+            : null;
+    }
+
+    private void ApplyCameraStations(IReadOnlyList<CameraProfile> profiles)
+    {
+        foreach (var station in CameraStations)
+        {
+            station.Reset();
+        }
+
+        var assignedIds = new HashSet<Guid>();
+        foreach (var profile in profiles.Where(profile => profile.StationSlot is >= 0 and <= 2))
+        {
+            var station = CameraStations[profile.StationSlot!.Value];
+            if (station.ProfileId is null)
+            {
+                station.Apply(profile);
+                assignedIds.Add(profile.Id);
+            }
+        }
+
+        var availableStations = new Queue<CameraStationEditorViewModel>(
+            CameraStations.Where(station => station.ProfileId is null));
+        foreach (var legacyProfile in profiles.Where(profile => !assignedIds.Contains(profile.Id)))
+        {
+            if (!availableStations.TryDequeue(out var station))
+            {
+                break;
+            }
+
+            station.Apply(legacyProfile);
         }
     }
 
@@ -1466,12 +3153,14 @@ public partial class MainViewModel : ViewModelBase
         {
             if (SelectedSnapshot is null)
             {
+                IsMappingContextReady = false;
                 MappingMessage = "先在画面存档中选择一份演示存档";
                 return;
             }
 
             var roomNumber = DemoWorkspaceData.GetRoomNumber(SelectedSnapshot.RoomName);
             ApplyMappingContext(DemoWorkspaceData.CreateMappingContext(SelectedSnapshot.Id, roomNumber));
+            IsMappingContextReady = true;
             MappingMessage = "演示模式 · 已回读存档来源、目标采集卡和完整视频模式";
             return;
         }
@@ -1484,23 +3173,27 @@ public partial class MainViewModel : ViewModelBase
 
         if (SelectedSnapshot is null)
         {
+            IsMappingContextReady = false;
             MappingMessage = "先在画面存档中选择一份存档";
             return;
         }
 
         IsBusy = true;
+        IsMappingContextReady = false;
         MappingMessage = "正在回读存档来源和目标采集设备…";
         try
         {
             ApplyMappingContext(await localAgentClient.GetMappingContextAsync(
                 SelectedSnapshot.Id,
                 cancellationToken));
+            IsMappingContextReady = true;
             MappingMessage = MappingSources.Count == 0
                 ? "这份存档没有可映射的视频来源"
                 : "选择存档来源和当前电脑上的目标来源";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            IsMappingContextReady = false;
             MappingMessage = exception.Message;
         }
         finally
@@ -1547,6 +3240,7 @@ public partial class MainViewModel : ViewModelBase
             var selectedSourceId = SelectedMappingSource.SourceLogicalId;
             ApplyMappingContext(context, selectedSourceId);
             MappingMessage = "设备映射已保存并通过当前能力校验";
+            AdvanceRestorePreparation();
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
@@ -1562,6 +3256,7 @@ public partial class MainViewModel : ViewModelBase
     {
         if (SelectedSnapshot is null)
         {
+            IsMappingContextReady = false;
             MappingMessage = "先在画面存档中选择一份云端存档";
             return;
         }
@@ -1570,11 +3265,13 @@ public partial class MainViewModel : ViewModelBase
             || SelectedOrganization is null
             || SelectedCloudRoom?.DeviceId is not { } deviceId)
         {
+            IsMappingContextReady = false;
             MappingMessage = "先在控制室选择一台已注册的 Windows 直播电脑";
             return;
         }
 
         IsBusy = true;
+        IsMappingContextReady = false;
         MappingMessage = "正在读取存档来源和目标 Agent 设备能力…";
         try
         {
@@ -1597,7 +3294,7 @@ public partial class MainViewModel : ViewModelBase
             var state = await stateTask;
             var mappings = (await mappingsTask).Where(mapping => mapping.DeviceId == deviceId).ToArray();
             var sources = detail.Applications.SelectMany(application => application.Sources
-                    .Where(source => source.Device is not null)
+                    .Where(source => !string.IsNullOrWhiteSpace(source.Device?.InterfaceHint))
                     .Select(source => new LocalMappingSource(
                         source.LogicalId,
                         application.Kind,
@@ -1618,12 +3315,14 @@ public partial class MainViewModel : ViewModelBase
                     source.CurrentMode))
                 .ToArray() ?? [];
             ApplyMappingContext(new LocalMappingContext(SelectedSnapshot.Id, sources, targets));
+            IsMappingContextReady = true;
             MappingMessage = sources.Length == 0
                 ? "这份存档没有可映射的视频来源"
                 : "选择存档来源和目标 Agent 已回读的采集来源";
         }
         catch (HttpRequestException exception)
         {
+            IsMappingContextReady = false;
             MappingMessage = exception.Message;
         }
         finally
@@ -1659,6 +3358,26 @@ public partial class MainViewModel : ViewModelBase
         await LoadCloudMappingContextAsync(cancellationToken);
         SelectedMappingSource = MappingSources.FirstOrDefault(source => source.SourceLogicalId == selectedSourceId);
         MappingMessage = "设备映射已保存，恢复时仍会再次校验目标格式和滤镜能力";
+        AdvanceRestorePreparation();
+    }
+
+    private void AdvanceRestorePreparation()
+    {
+        if (!IsRestorePreparationOpen)
+        {
+            return;
+        }
+
+        var next = MappingSources.FirstOrDefault(source => source.Mapping is null);
+        if (next is not null)
+        {
+            SelectedMappingSource = next;
+            MappingMessage = $"已保存一个来源，还需选择 {PendingMappingCount} 个";
+            return;
+        }
+
+        MappingMessage = $"全部 {MappingSources.Count} 个来源已经对应，可以继续恢复";
+        ContinuePreparedRestoreCommand.NotifyCanExecuteChanged();
     }
 
     private async Task RunDemoOperationAsync(
@@ -1707,6 +3426,12 @@ public partial class MainViewModel : ViewModelBase
     private bool CanCaptureCloudSnapshot() =>
         IsCloudConnected && SelectedCloudRoom is { Online: true, DeviceId: not null } && !IsBusy;
 
+    private bool CanBatchCaptureCloudSnapshots() =>
+        IsCloudConnected && BatchSelectedRoomCount > 0 && !IsBusy;
+
+    private bool CanRetryFailedBatchCapture() =>
+        IsCloudConnected && failedBatchCaptureRoomIds.Length > 0 && !IsBusy;
+
     private bool CanEnrollAgent() =>
         OperatingSystem.IsWindows()
         && IsAgentConnected
@@ -1728,7 +3453,9 @@ public partial class MainViewModel : ViewModelBase
 
     private bool CanConfigureObs() => (isDemoMode || OperatingSystem.IsWindows()) && !IsBusy;
 
-    private bool CanCheckForUpdates() => (isDemoMode || HasGitHubUpdateToken) && !IsBusy;
+    private bool CanRunLocalCheckAndRepair() => supportsLocalAgent && !IsBusy;
+
+    private bool CanCheckForUpdates() => !IsBusy;
 
     private bool CanInstallUpdate() =>
         OperatingSystem.IsWindows() && availableUpdate is not null && !IsBusy;
@@ -1772,30 +3499,41 @@ public partial class MainViewModel : ViewModelBase
                 cancellationToken);
             Organizations = workspace.Organizations;
             SelectedOrganization = workspace.SelectedOrganization;
-            OrganizationName = SelectedOrganization?.Name ?? "尚无 Organization";
+            OrganizationName = SelectedOrganization?.Name ?? "尚无直播管理空间";
             if (SelectedOrganization is not null
                 && cloudCredentials.SelectedOrganizationId != SelectedOrganization.Id)
             {
                 cloudCredentials = cloudCredentials with { SelectedOrganizationId = SelectedOrganization.Id };
                 cloudClient.SaveCredentials(cloudCredentials);
             }
-            CloudRooms = workspace.Rooms.Select(room => new CloudRoomItemViewModel(room)).ToArray();
+            var selectedBatchRoomIds = CloudRooms
+                .Where(room => room.IsBatchSelected)
+                .Select(room => room.Id)
+                .ToHashSet();
+            var cloudRooms = workspace.Rooms.Select(room => new CloudRoomItemViewModel(room)).ToArray();
+            foreach (var room in cloudRooms)
+            {
+                room.PropertyChanged += OnCloudRoomPropertyChanged;
+                room.IsBatchSelected = room.CanBatchSelect
+                    && (!batchSelectionInitialized || selectedBatchRoomIds.Contains(room.Id));
+            }
+            CloudRooms = cloudRooms;
+            ApplyKnownRoomNames();
+            batchSelectionInitialized = true;
+            NotifyBatchSelectionChanged();
             cloudJobs = workspace.Jobs;
             RefreshActivityItems();
             SelectedCloudRoom = CloudRooms.FirstOrDefault(room => room.Id == selectedRoomId)
                 ?? (CloudRooms.Count > 0 ? CloudRooms[0] : null);
-            if (!IsAgentConnected)
-            {
-                cloudSnapshotItems = workspace.Snapshots
-                    .Select(snapshot => new LocalSnapshotItemViewModel(snapshot))
-                    .ToArray();
-                RefreshAvailableSnapshots();
-            }
+            cloudSnapshotItems = workspace.Snapshots
+                .Select(snapshot => new LocalSnapshotItemViewModel(snapshot))
+                .ToArray();
+            RefreshAvailableSnapshots();
 
             IsCloudConnected = true;
             CloudStatus = "已连接";
             CloudConnectionMessage = SelectedOrganization is null
-                ? "账号下尚无 Organization，请先在云端控制台创建"
+                ? "账号下尚无直播管理空间，请联系服务器管理员"
                 : $"已连接 {SelectedOrganization.Name}";
             if (!IsAgentConnected)
             {
@@ -1816,12 +3554,14 @@ public partial class MainViewModel : ViewModelBase
             }
 
             CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
+            BatchCaptureCloudSnapshotsCommand.NotifyCanExecuteChanged();
             RestoreSnapshotCommand.NotifyCanExecuteChanged();
         }
         catch (HttpRequestException exception)
         {
             IsCloudConnected = false;
             cloudSnapshotItems = [];
+            RefreshAvailableSnapshots();
             CloudConnectionMessage = $"无法读取云端：{exception.Message}";
             if (!IsAgentConnected)
             {
@@ -1903,9 +3643,17 @@ public partial class MainViewModel : ViewModelBase
             Organizations = [DemoWorkspaceData.Organization];
             SelectedOrganization = DemoWorkspaceData.Organization;
             OrganizationName = DemoWorkspaceData.Organization.Name;
-            CloudRooms = DemoWorkspaceData.CreateRooms()
+            var demoRooms = DemoWorkspaceData.CreateRooms()
                 .Select(room => new CloudRoomItemViewModel(room))
                 .ToArray();
+            foreach (var room in demoRooms)
+            {
+                room.PropertyChanged += OnCloudRoomPropertyChanged;
+                room.IsBatchSelected = room.CanBatchSelect;
+            }
+            CloudRooms = demoRooms;
+            batchSelectionInitialized = true;
+            NotifyBatchSelectionChanged();
             cloudJobs = DemoWorkspaceData.CreateJobs();
             RefreshActivityItems();
             SelectedCloudRoom = CloudRooms[0];
@@ -1924,7 +3672,7 @@ public partial class MainViewModel : ViewModelBase
         CloudServiceUrl = "https://demo.livestudio.local";
         CloudStatus = "演示已连接";
         CloudConnectionMessage = "演示模式 · 14 个直播间、设备、存档和任务均来自本机，不连接真实云端";
-        ConnectionSubtitle = "LiveStudio 演示 Organization · 14 个直播间 · 本地安全演示";
+        ConnectionSubtitle = "LiveStudio 演示空间 · 14 个直播间 · 本地安全演示";
         HasGitHubUpdateToken = true;
         LatestVersionText = CurrentVersionText;
         UpdateStatus = "演示状态 · GitHub 私有 Release、SHA-256 和签名校验链路已配置";
@@ -1955,6 +3703,7 @@ public partial class MainViewModel : ViewModelBase
         }
 
         CaptureCloudSnapshotCommand.NotifyCanExecuteChanged();
+        BatchCaptureCloudSnapshotsCommand.NotifyCanExecuteChanged();
         CaptureSnapshotCommand.NotifyCanExecuteChanged();
         RestoreSnapshotCommand.NotifyCanExecuteChanged();
         ConfigureObsCommand.NotifyCanExecuteChanged();
@@ -1995,34 +3744,37 @@ public partial class MainViewModel : ViewModelBase
     {
         IsAgentConnected = true;
         ConnectionSubtitle = state.StatusMessage;
-        ControlStatusTitle = state.CanCapture ? "本机画面已准备好" : state.StatusMessage;
+        ControlStatusTitle = state.CanCapture ? "OBS 已连接，直播伴侣配置已读取" : state.StatusMessage;
         ControlStatusDescription = state.CanCapture
-            ? "可以保存当前联合配置，或从画面存档中选择一个版本恢复。"
-            : "LiveStudio 只会在直播状态、适配器和设备能力全部确认后允许写入。";
+            ? "保存不会停止应用；还原会事务重启两款应用并逐字段回读。"
+            : "LiveStudio 会在适配器和设备能力确认后允许写入。";
         AgentStatus = state.IsBusy ? "正在执行任务" : "已连接";
         CloudStatus = state.IsCloudEnrolled ? "已注册" : "未注册";
         IsAgentCloudEnrolled = state.IsCloudEnrolled;
-        ConfigurationStatus = state.CanCapture ? "可保存" : "未就绪";
+        ConfigurationStatus = state.CanCapture ? "已读取" : "读取失败";
         LanSharedDirectory = state.LanSharedDirectory ?? "未配置";
         LanSyncStatus = state.LanSyncStatus;
         CanControlLocalApplications = state.CanCapture;
         CanRestoreLocalApplications = state.CanRestore;
         IsBusy = state.IsBusy;
         IsAgentAutoStartEnabled = state.AutoStartEnabled;
-        SnapshotItems = state.Snapshots
-            .Select(snapshot => new LocalSnapshotItemViewModel(snapshot))
+        localSnapshotItems = state.Snapshots
+            .Select(snapshot => new LocalSnapshotItemViewModel(
+                snapshot,
+                ResolveRoomName(snapshot.RoomId)))
             .ToArray();
-        RefreshSnapshotNavigation();
+        RefreshAvailableSnapshots();
         localOperations = state.Operations;
         RefreshActivityItems();
         SnapshotCountText = $"{SnapshotItems.Count} 份";
         ObsStatus = GetApplicationStatus(state, ApplicationKind.Obs);
         LiveCompanionStatus = GetApplicationStatus(state, ApplicationKind.LiveCompanion);
+        ApplyApplicationRuntimeState(state);
         if (SelectedSnapshot is not null)
         {
             SelectedSnapshot = SnapshotItems.FirstOrDefault(item => item.Id == SelectedSnapshot.Id);
         }
-        else if (SnapshotItems.Count > 0 && SelectedSection == 1)
+        else if (SnapshotItems.Count > 0)
         {
             SelectedSnapshot = SnapshotItems[0];
         }
@@ -2040,6 +3792,16 @@ public partial class MainViewModel : ViewModelBase
         AgentStatus = "不可用";
         ObsStatus = "未连接";
         LiveCompanionStatus = "未连接";
+        ObsVersionText = "版本未知";
+        ObsConnectionState = "未连接";
+        ObsStreamingState = "推流状态未知";
+        ObsRecordingState = "录制状态未知";
+        ObsReadSummary = "尚未读取画面存档";
+        LiveCompanionVersionText = "版本未知";
+        LiveCompanionConnectionState = "未连接";
+        LiveCompanionLiveState = "开播状态未知";
+        LiveCompanionAccessState = "当前不能还原";
+        LiveCompanionReadSummary = "尚未读取画面存档";
         CloudStatus = "未连接";
         IsAgentCloudEnrolled = false;
         ConfigurationStatus = "尚未同步";
@@ -2050,6 +3812,7 @@ public partial class MainViewModel : ViewModelBase
         if (isWindows)
         {
             SelectedSnapshot = null;
+            localSnapshotItems = [];
             SnapshotItems = [];
             SnapshotRoomFilters = [];
             SnapshotTimelineItems = [];
@@ -2091,14 +3854,11 @@ public partial class MainViewModel : ViewModelBase
 
     private void RefreshAvailableSnapshots()
     {
-        if (IsAgentConnected)
-        {
-            return;
-        }
-
         var selected = SelectedSnapshot;
-        SnapshotItems = desktopSnapshotItems
-            .Concat(cloudSnapshotItems)
+        var primary = IsAgentConnected ? localSnapshotItems : desktopSnapshotItems;
+        var primaryIds = primary.Select(snapshot => snapshot.Id).ToHashSet();
+        SnapshotItems = primary
+            .Concat(cloudSnapshotItems.Where(snapshot => !primaryIds.Contains(snapshot.Id)))
             .ToArray();
         SnapshotCountText = $"{SnapshotItems.Count} 份";
         RefreshSnapshotNavigation(selected);
@@ -2107,17 +3867,35 @@ public partial class MainViewModel : ViewModelBase
     private void RefreshSnapshotNavigation(LocalSnapshotItemViewModel? preferredSnapshot = null)
     {
         var selectedRoomId = SelectedSnapshotRoomFilter?.RoomId;
-        var filters = SnapshotItems
+        var snapshotGroups = SnapshotItems
             .GroupBy(snapshot => snapshot.RoomId)
-            .Select(group =>
-            {
-                var newest = group.OrderByDescending(snapshot => snapshot.CreatedAtValue).First();
-                return new SnapshotRoomFilterItemViewModel(
-                    group.Key,
-                    newest.RoomName,
-                    group.Count(),
-                    GetRoomSortOrder(newest.RoomName));
-            })
+            .Select(group => (group.Key, Snapshots: group.ToArray()))
+            .ToArray();
+        var filters = new List<SnapshotRoomFilterItemViewModel>();
+        foreach (var room in CloudRooms)
+        {
+            var roomSnapshots = snapshotGroups.FirstOrDefault(group => group.Key == room.Id).Snapshots;
+            filters.Add(new SnapshotRoomFilterItemViewModel(
+                room.Id,
+                room.Name,
+                roomSnapshots?.Length ?? 0,
+                GetRoomSortOrder(room.Name)));
+        }
+
+        foreach (var group in snapshotGroups.Where(group =>
+                     group.Key is null || CloudRooms.All(room => room.Id != group.Key)))
+        {
+            var newest = group.Snapshots.OrderByDescending(snapshot => snapshot.CreatedAtValue).First();
+            filters.Add(new SnapshotRoomFilterItemViewModel(
+                group.Key,
+                newest.RoomName,
+                group.Snapshots.Length,
+                GetRoomSortOrder(newest.RoomName)));
+        }
+
+        var orderedFilters = filters
+            .GroupBy(filter => filter.RoomId)
+            .Select(group => group.First())
             .OrderBy(filter => filter.SortOrder)
             .ThenBy(filter => filter.Name, StringComparer.CurrentCulture)
             .ToArray();
@@ -2125,9 +3903,9 @@ public partial class MainViewModel : ViewModelBase
         isRefreshingSnapshotNavigation = true;
         try
         {
-            SnapshotRoomFilters = filters;
-            SelectedSnapshotRoomFilter = filters.FirstOrDefault(filter => filter.RoomId == selectedRoomId)
-                ?? filters.FirstOrDefault();
+            SnapshotRoomFilters = orderedFilters;
+            SelectedSnapshotRoomFilter = orderedFilters.FirstOrDefault(filter => filter.RoomId == selectedRoomId)
+                ?? orderedFilters.FirstOrDefault();
         }
         finally
         {
@@ -2206,6 +3984,265 @@ public partial class MainViewModel : ViewModelBase
 
     private static string GetApplicationStatus(LocalAgentState state, ApplicationKind application) =>
         state.Applications.FirstOrDefault(item => item.Application == application)?.StatusMessage ?? "适配器不可用";
+
+    private void ApplyApplicationRuntimeState(LocalAgentState state)
+    {
+        var obs = state.Applications.FirstOrDefault(application => application.Application == ApplicationKind.Obs);
+        ObsVersionText = obs is null || string.Equals(obs.Version, "unknown", StringComparison.OrdinalIgnoreCase)
+            ? "版本未知"
+            : $"版本 {obs.Version}";
+        ObsConnectionState = obs switch
+        {
+            null => "读取失败",
+            { AdapterAvailable: false } => "读取失败",
+            { IsRunning: true } => "已连接",
+            _ => "未运行"
+        };
+        ObsStreamingState = obs?.CanDetermineLiveState == true
+            ? obs.IsStreaming ? "正在推流" : "未推流"
+            : "推流状态未知";
+        ObsRecordingState = obs?.CanDetermineLiveState == true
+            ? obs.IsRecording ? "正在录制" : "未录制"
+            : "录制状态未知";
+
+        var companion = state.Applications.FirstOrDefault(application =>
+            application.Application == ApplicationKind.LiveCompanion);
+        LiveCompanionVersionText = companion is null
+                                   || string.Equals(companion.Version, "unknown", StringComparison.OrdinalIgnoreCase)
+            ? "版本未知"
+            : $"版本 {companion.Version}";
+        LiveCompanionConnectionState = companion switch
+        {
+            null => "读取失败",
+            { AdapterAvailable: false } => "读取失败",
+            { IsRunning: true } => "已读取",
+            _ => "未运行"
+        };
+        LiveCompanionLiveState = companion?.CanDetermineLiveState == true
+            ? companion.IsStreaming ? "正在开播" : "未开播"
+            : "开播状态未知";
+    }
+
+    private string? ResolveRoomName(Guid? roomId) => roomId is { } id
+        ? CloudRooms.FirstOrDefault(room => room.Id == id)?.Name
+        : null;
+
+    private void ApplyKnownRoomNames()
+    {
+        foreach (var snapshot in SnapshotItems)
+        {
+            snapshot.ApplyRoomName(ResolveRoomName(snapshot.RoomId));
+        }
+
+        RefreshSnapshotNavigation(SelectedSnapshot);
+    }
+
+    private void OnCloudRoomPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(CloudRoomItemViewModel.IsBatchSelected))
+        {
+            NotifyBatchSelectionChanged();
+        }
+    }
+
+    private void NotifyBatchSelectionChanged()
+    {
+        OnPropertyChanged(nameof(BatchSelectedRoomCount));
+        OnPropertyChanged(nameof(BatchSelectedCountText));
+        BatchCaptureCloudSnapshotsCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ApplySnapshotReadSummary(SnapshotInspectorViewModel inspector)
+    {
+        var obs = inspector.Applications.FirstOrDefault(application => application.IsObs);
+        if (obs is not null)
+        {
+            var filterCount = obs.Sources.Sum(source => source.Filters.Count);
+            ObsReadSummary = $"已读取 {obs.Sources.Count} 个来源 · {filterCount} 个滤镜";
+        }
+
+        var companion = inspector.Applications.FirstOrDefault(application => application.IsLiveCompanion);
+        if (companion is not null)
+        {
+            LiveCompanionReadSummary = $"已读取 {companion.NativeDocumentCount} 份原生文档 · {companion.ReadFieldCount} 个字段";
+            LiveCompanionAccessState = companion.AdapterStatus;
+        }
+    }
+
+    public async Task DeleteSelectedSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        if (SelectedSnapshot is null || SelectedSnapshot.IsDesktopFile)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            SnapshotInspector?.IsTechnicalPanelOpen = false;
+            var selectedId = SelectedSnapshot.Id;
+            var selectedIndex = SnapshotTimelineItems
+                .Select((item, index) => (item.Snapshot.Id, index))
+                .FirstOrDefault(item => item.Id == selectedId)
+                .index;
+            var adjacentId = SnapshotTimelineItems.Count > 1
+                ? SnapshotTimelineItems[selectedIndex < SnapshotTimelineItems.Count - 1
+                    ? selectedIndex + 1
+                    : selectedIndex - 1].Snapshot.Id
+                : (Guid?)null;
+            var deletedCloudSnapshot = SelectedSnapshot.IsCloud;
+            if (deletedCloudSnapshot)
+            {
+                if (cloudCredentials is null || SelectedOrganization is null)
+                {
+                    PendingImportMessage = "云端连接已失效，请重新连接后再删除";
+                    return;
+                }
+
+                await cloudClient.DeleteSnapshotAsync(
+                    cloudCredentials,
+                    SelectedOrganization.Id,
+                    selectedId,
+                    cancellationToken);
+                await LoadCloudWorkspaceAsync(cancellationToken);
+            }
+            else
+            {
+                if (!SupportsLocalAgent)
+                {
+                    return;
+                }
+
+                await localAgentClient.DeleteSnapshotAsync(selectedId, cancellationToken);
+                await LoadStateAsync(cancellationToken);
+            }
+            if (adjacentId is { } id)
+            {
+                SelectedSnapshot = SnapshotItems.FirstOrDefault(snapshot => snapshot.Id == id)
+                    ?? SelectedSnapshot;
+            }
+
+            PendingImportMessage = SnapshotItems.Count == 0
+                ? "当前存档已删除；存档列表现在为空"
+                : deletedCloudSnapshot
+                    ? "云存档及其云端预览和无引用素材已进入安全清理队列"
+                    : $"当前存档已删除；已选择相邻存档（剩余 {SnapshotItems.Count} 份）";
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
+        {
+            PendingImportMessage = SnapshotOperationError(exception);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    public async Task DeleteAllSnapshotsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!SupportsLocalAgent || LocalSnapshotCount == 0)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            SnapshotInspector?.IsTechnicalPanelOpen = false;
+            var result = await localAgentClient.DeleteAllSnapshotsAsync(cancellationToken);
+            await LoadStateAsync(cancellationToken);
+            SelectedSnapshot = null;
+            SnapshotInspector = null;
+            PendingImportMessage = $"已永久清空全部 {result.DeletedCount} 份画面存档；现在可以重新保存当前画面";
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException)
+        {
+            PendingImportMessage = SnapshotOperationError(exception);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task<string> CompareWithPreviousLocalSnapshotAsync(
+        LocalSnapshotItemViewModel current,
+        CombinedSnapshot currentDetail,
+        CancellationToken cancellationToken)
+    {
+        var ordered = SnapshotItems
+            .Where(snapshot => !snapshot.IsCloud
+                               && !snapshot.IsDesktopFile
+                               && snapshot.RoomId == current.RoomId)
+            .OrderByDescending(snapshot => snapshot.CreatedAtValue)
+            .ToArray();
+        var currentIndex = Array.FindIndex(ordered, snapshot => snapshot.Id == current.Id);
+        if (currentIndex < 0 || currentIndex + 1 >= ordered.Length)
+        {
+            return "这是当前直播间的第一份可比较存档";
+        }
+
+        CombinedSnapshot previousDetail;
+        try
+        {
+            previousDetail = await localAgentClient.GetSnapshotDetailAsync(
+                ordered[currentIndex + 1].Id,
+                cancellationToken);
+        }
+        catch (LocalControlException exception)
+        {
+            return exception.ErrorCode == nameof(SnapshotSensitiveDataException)
+                ? "上一份历史存档含敏感配置，已跳过比较"
+                : "上一份存档暂时无法读取，已跳过比较";
+        }
+        catch (IOException)
+        {
+            return "上一份存档暂时无法读取，已跳过比较";
+        }
+        var differences = SnapshotParameterComparer.Compare(
+            ToSnapshotDetail(previousDetail),
+            ToSnapshotDetail(currentDetail));
+        if (differences.Count == 0)
+        {
+            return "与上一份存档相比没有参数变化";
+        }
+
+        var obsChanges = differences.Count(difference =>
+            difference.Label.StartsWith("OBS /", StringComparison.Ordinal));
+        var companionChanges = differences.Count(difference =>
+            difference.Label.StartsWith("直播伴侣 /", StringComparison.Ordinal));
+        var cameraChanges = differences.Count(difference =>
+            difference.Label.StartsWith("相机参数 /", StringComparison.Ordinal));
+        var changedApplications = new List<string>(3);
+        if (obsChanges > 0)
+        {
+            changedApplications.Add($"OBS {obsChanges} 项变化");
+        }
+
+        if (companionChanges > 0)
+        {
+            changedApplications.Add($"直播伴侣 {companionChanges} 项变化");
+        }
+
+        if (cameraChanges > 0)
+        {
+            changedApplications.Add($"相机参数 {cameraChanges} 项变化");
+        }
+
+        return $"与上一份相比：{string.Join(" · ", changedApplications)}";
+    }
+
+    private static SnapshotDetail ToSnapshotDetail(CombinedSnapshot snapshot) => new(
+        new SnapshotSummary(
+            snapshot.Id,
+            snapshot.RoomId,
+            snapshot.Name,
+            snapshot.CreatedAt,
+            0,
+            string.Empty),
+        snapshot.Applications,
+        new Dictionary<ApplicationKind, Uri>(),
+        snapshot.CameraStations);
 
     private static string GetCloudApplicationStatus(DeviceManagementState state, ApplicationKind application)
     {

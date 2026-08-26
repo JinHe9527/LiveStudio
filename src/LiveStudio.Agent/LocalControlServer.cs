@@ -15,9 +15,11 @@ public sealed class LocalControlServer(
     LocalRestoreService restoreService,
     SnapshotTransferService transferService,
     AgentObsConfigurationStore obsConfiguration,
+    ObsAutomaticConnectionService obsAutomaticConnection,
     LanSnapshotConfigurationStore lanConfiguration,
     LanSnapshotWorker lanSnapshotWorker,
     IObsDeviceCatalog obsDeviceCatalog,
+    ApplicationOperationGate applicationOperationGate,
     CloudAgentRuntime cloudRuntime,
     ILogger<LocalControlServer> logger) : BackgroundService
 {
@@ -100,15 +102,25 @@ public sealed class LocalControlServer(
                 LocalControlMethod.CaptureSnapshot => await CaptureAsync(request, cancellationToken),
                 LocalControlMethod.RestoreSnapshot => await RestoreAsync(request, cancellationToken),
                 LocalControlMethod.ConfigureObs => await ConfigureObsAsync(request, cancellationToken),
+                LocalControlMethod.AutoConfigureObs => await AutoConfigureObsAsync(request, cancellationToken),
                 LocalControlMethod.ConfigureLanDirectory => await ConfigureLanDirectoryAsync(request, cancellationToken),
                 LocalControlMethod.ConfigureAutoStart => await ConfigureAutoStartAsync(request, cancellationToken),
                 LocalControlMethod.EnrollDevice => await EnrollDeviceAsync(request, cancellationToken),
                 LocalControlMethod.GetMappingContext => await GetMappingContextAsync(request, cancellationToken),
                 LocalControlMethod.GetSnapshotDetail => await GetSnapshotDetailAsync(request, cancellationToken),
+                LocalControlMethod.GetSnapshotPreview => await GetSnapshotPreviewAsync(request, cancellationToken),
                 LocalControlMethod.SaveDeviceMapping => await SaveDeviceMappingAsync(request, cancellationToken),
                 LocalControlMethod.InspectSnapshotFile => await InspectSnapshotFileAsync(request, cancellationToken),
                 LocalControlMethod.ImportSnapshotFile => await ImportSnapshotFileAsync(request, cancellationToken),
                 LocalControlMethod.ExportSnapshotFile => await ExportSnapshotFileAsync(request, cancellationToken),
+                LocalControlMethod.RenameSnapshot => await RenameSnapshotAsync(request, cancellationToken),
+                LocalControlMethod.UpdateSnapshotCameraStations => await UpdateSnapshotCameraStationsAsync(request, cancellationToken),
+                LocalControlMethod.DeleteSnapshot => await DeleteSnapshotAsync(request, cancellationToken),
+                LocalControlMethod.DeleteAllSnapshots => await DeleteAllSnapshotsAsync(request, cancellationToken),
+                LocalControlMethod.SyncPendingSnapshots => await SyncPendingSnapshotsAsync(request, cancellationToken),
+                LocalControlMethod.GetOperationProgress => LocalControlProtocol.CreateSuccess(
+                    request.RequestId,
+                    new LocalOperationProgress(operationLock.CurrentCount == 0, GetOperationMessage())),
                 _ => LocalControlProtocol.CreateFailure(
                     request.RequestId,
                     "UnsupportedMethod",
@@ -179,9 +191,11 @@ public sealed class LocalControlServer(
         var hasLocalIdentity = credentialStore.TryLoad(out var credentials);
         var isEnrolled = credentials?.IsCloudEnrolled == true;
         var adaptersReady = applicationStates.All(state => state.AdapterAvailable);
-        var applicationsSafe = applicationStates.All(state =>
-            state.CanDetermineLiveState && !state.IsStreaming && !state.IsRecording);
-        var canCapture = hasLocalIdentity && adaptersReady && applicationsSafe && !isBusy;
+        var canCapture = hasLocalIdentity && adaptersReady && !isBusy;
+        var canRestore = hasLocalIdentity
+            && adaptersReady
+            && snapshots.Count > 0
+            && !isBusy;
         var statusMessage = GetOperationMessage();
         if (!hasLocalIdentity)
         {
@@ -191,16 +205,12 @@ public sealed class LocalControlServer(
         {
             statusMessage = "OBS 或直播伴侣适配器尚未就绪";
         }
-        else if (!applicationsSafe)
-        {
-            statusMessage = "应用未连接、正在直播，或无法可靠读取直播状态";
-        }
 
         return new LocalAgentState(
             Environment.MachineName,
             isEnrolled,
             canCapture,
-            canCapture && snapshots.Count > 0,
+            canRestore,
             isBusy,
             await WindowsStartupRegistration.IsEnabledAsync(),
             statusMessage,
@@ -213,7 +223,8 @@ public sealed class LocalControlServer(
                 snapshot.CreatedAt,
                 snapshot.Length,
                 snapshot.Uploaded,
-                snapshot.UploadEligible)).ToArray(),
+                snapshot.UploadEligible,
+                snapshot.RoomId)).ToArray(),
             operations.Select(operation => new LocalOperationSummary(
                 operation.Id,
                 operation.Kind,
@@ -256,7 +267,10 @@ public sealed class LocalControlServer(
             SetOperationMessage("正在联合保存 OBS 与直播伴侣参数");
             try
             {
-                var snapshot = await captureService.CaptureAsync(capture.Name.Trim(), cancellationToken);
+                var snapshot = await captureService.CaptureAsync(
+                    capture.Name.Trim(),
+                    capture.CameraStations,
+                    cancellationToken);
                 var completedAt = DateTimeOffset.UtcNow;
                 await snapshotIndex.SaveOperationAsync(
                     operation with
@@ -395,6 +409,31 @@ public sealed class LocalControlServer(
             await GetStateAsync(cancellationToken));
     }
 
+    private async Task<LocalControlResponse> AutoConfigureObsAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!await operationLock.WaitAsync(0, cancellationToken))
+        {
+            throw new InvalidOperationException("本机执行端正在执行其他任务，请稍后重试");
+        }
+
+        try
+        {
+            using var operationLease = await applicationOperationGate.EnterAsync(cancellationToken);
+            await obsAutomaticConnection.ConnectAsync(cancellationToken);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+
+        SetOperationMessage("OBS 与直播伴侣已自动连接并完成状态回读");
+        return LocalControlProtocol.CreateSuccess(
+            request.RequestId,
+            await GetStateAsync(cancellationToken));
+    }
+
     private async Task<LocalControlResponse> RefreshCurrentStateAsync(
         LocalControlRequest request,
         CancellationToken cancellationToken)
@@ -407,6 +446,23 @@ public sealed class LocalControlServer(
         return LocalControlProtocol.CreateSuccess(
             request.RequestId,
             await GetStateAsync(cancellationToken));
+    }
+
+    private async Task<LocalControlResponse> SyncPendingSnapshotsAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await cloudRuntime.SyncSnapshotsAsync(cancellationToken);
+        if (result is null)
+        {
+            return LocalControlProtocol.CreateFailure(
+                request.RequestId,
+                "CloudRuntimeUnavailable",
+                "Agent 尚未连接云端，请先完成直播间注册");
+        }
+
+        SetOperationMessage(result.Message);
+        return LocalControlProtocol.CreateSuccess(request.RequestId, result);
     }
 
     private async Task<LocalControlResponse> ConfigureLanDirectoryAsync(
@@ -495,6 +551,29 @@ public sealed class LocalControlServer(
         return LocalControlProtocol.CreateSuccess(request.RequestId, package.Snapshot);
     }
 
+    private async Task<LocalControlResponse> GetSnapshotPreviewAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        const int maximumInlinePreviewLength = 680 * 1024;
+        var query = LocalControlProtocol.DeserializePayload<GetLocalSnapshotPreviewRequest>(request.Payload);
+        var package = await transferService.ReadLocalAsync(query.SnapshotId, cancellationToken);
+        var preview = package.Snapshot.Previews.FirstOrDefault(candidate =>
+            candidate.Application == query.Application);
+        if (preview is null
+            || !package.Files.TryGetValue(preview.PackagePath, out var file)
+            || file.Content.Length > maximumInlinePreviewLength)
+        {
+            return LocalControlProtocol.CreateSuccess(
+                request.RequestId,
+                new LocalSnapshotPreview(false, string.Empty, []));
+        }
+
+        return LocalControlProtocol.CreateSuccess(
+            request.RequestId,
+            new LocalSnapshotPreview(true, file.MediaType, file.Content.ToArray()));
+    }
+
     private async Task<LocalControlResponse> SaveDeviceMappingAsync(
         LocalControlRequest request,
         CancellationToken cancellationToken)
@@ -569,11 +648,13 @@ public sealed class LocalControlServer(
         var mappingBySource = mappings.ToDictionary(
             mapping => (mapping.Application, mapping.SourceLogicalId));
         var sources = package.Snapshot.Applications
-            .SelectMany(application => application.Sources.Select(source => new LocalMappingSource(
+            .SelectMany(application => application.Sources
+                .Where(RequiresDeviceMapping)
+                .Select(source => new LocalMappingSource(
                 source.LogicalId,
                 application.Kind,
                 source.Name,
-                source.Device?.FriendlyName ?? "未识别设备",
+                source.Device!.FriendlyName,
                 source.Mode,
                 mappingBySource.GetValueOrDefault((application.Kind, source.LogicalId)))))
             .OrderBy(source => source.Application)
@@ -585,9 +666,13 @@ public sealed class LocalControlServer(
             await CaptureMappingTargetsAsync(cancellationToken));
     }
 
+    internal static bool RequiresDeviceMapping(VideoSource source) =>
+        !string.IsNullOrWhiteSpace(source.Device?.InterfaceHint);
+
     private async Task<IReadOnlyList<LocalMappingTarget>> CaptureMappingTargetsAsync(
         CancellationToken cancellationToken)
     {
+        using var operationLease = await applicationOperationGate.EnterAsync(cancellationToken);
         var targets = new List<LocalMappingTarget>();
         foreach (var adapter in adapters.Values)
         {
@@ -638,6 +723,93 @@ public sealed class LocalControlServer(
         return LocalControlProtocol.CreateSuccess(request.RequestId, result);
     }
 
+    private async Task<LocalControlResponse> DeleteSnapshotAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        var deletion = LocalControlProtocol.DeserializePayload<DeleteLocalSnapshotRequest>(request.Payload);
+        await operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await transferService.DeleteAsync(deletion.SnapshotId, cancellationToken);
+            SetOperationMessage("已永久删除选中的画面存档");
+            return LocalControlProtocol.CreateSuccess(request.RequestId, result);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+    }
+
+    private async Task<LocalControlResponse> RenameSnapshotAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        var rename = LocalControlProtocol.DeserializePayload<RenameLocalSnapshotRequest>(request.Payload);
+        var name = rename.Name.Trim();
+        if (name.Length is < 1 or > 120)
+        {
+            return LocalControlProtocol.CreateFailure(
+                request.RequestId,
+                "InvalidSnapshotName",
+                "存档名称不能为空且不能超过 120 个字符");
+        }
+
+        await operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await transferService.RenameAsync(rename.SnapshotId, name, cancellationToken);
+            SetOperationMessage($"已将存档改名为“{name}”");
+            return LocalControlProtocol.CreateSuccess(request.RequestId, result);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+    }
+
+    private async Task<LocalControlResponse> UpdateSnapshotCameraStationsAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        var update = LocalControlProtocol.DeserializePayload<UpdateSnapshotCameraStationsRequest>(request.Payload);
+        if (!await operationLock.WaitAsync(0, cancellationToken))
+        {
+            return LocalControlProtocol.CreateFailure(request.RequestId, "AgentBusy", "本机执行端正在执行其他任务");
+        }
+
+        try
+        {
+            var result = await transferService.UpdateCameraStationsAsync(
+                update.SnapshotId,
+                update.CameraStations,
+                cancellationToken);
+            SetOperationMessage("三个机位参数已写入当前画面存档");
+            return LocalControlProtocol.CreateSuccess(request.RequestId, result);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+    }
+
+    private async Task<LocalControlResponse> DeleteAllSnapshotsAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        await operationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await transferService.DeleteAllAsync(cancellationToken);
+            SetOperationMessage($"已永久删除 {result.DeletedCount} 份画面存档");
+            return LocalControlProtocol.CreateSuccess(request.RequestId, result);
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+    }
+
     private string GetOperationMessage()
     {
         lock (stateLock)
@@ -658,7 +830,7 @@ public sealed class LocalControlServer(
     {
         if (!status.CanDetermineLiveState)
         {
-            return status.IsRunning ? "无法确认直播状态" : "未连接";
+            return status.IsRunning ? "已读取 · 只读备份可用" : "未运行 · 可读取磁盘配置";
         }
 
         if (status.IsStreaming)

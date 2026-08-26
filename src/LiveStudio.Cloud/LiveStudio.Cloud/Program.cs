@@ -26,6 +26,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityRedirectManager>();
+builder.Services.AddScoped<InitialAccountRegistrationService>();
 var dataProtection = builder.Services.AddDataProtection()
     .SetApplicationName("LiveStudio.Cloud");
 if (builder.Configuration["DataProtection:KeyPath"] is { Length: > 0 } keyPath)
@@ -64,6 +65,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
         options.SignIn.RequireConfirmedAccount = false;
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
     })
+    .AddErrorDescriber<ChineseIdentityErrorDescriber>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
     .AddDefaultTokenProviders();
@@ -95,6 +97,13 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 builder.Services.AddProblemDetails();
+builder.Services.AddOptions<ServiceLimitsOptions>()
+    .Bind(builder.Configuration.GetSection(ServiceLimitsOptions.SectionName))
+    .Validate(options => options.MaximumManagedDevices is >= 1 and <= 1000,
+        "ServiceLimits:MaximumManagedDevices 必须为 1 到 1000")
+    .Validate(options => options.MaximumLiveRooms is >= 1 and <= 1000,
+        "ServiceLimits:MaximumLiveRooms 必须为 1 到 1000")
+    .ValidateOnStart();
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("postgresql", tags: ["ready"])
     .AddCheck<ObjectStorageHealthCheck>("object-storage", tags: ["ready"]);
@@ -119,6 +128,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddSignalR();
 builder.Services.AddScoped<OrganizationAccessService>();
+builder.Services.AddScoped<FirstWorkspaceBootstrapper>();
 builder.Services.AddSingleton<DeviceConnectionRegistry>();
 builder.Services.AddOptions<ObjectStorageOptions>()
     .Bind(builder.Configuration.GetSection(ObjectStorageOptions.SectionName))

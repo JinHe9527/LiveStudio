@@ -1,8 +1,9 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using LiveStudio.Contracts;
 
 namespace LiveStudio.Desktop.ViewModels;
 
-public sealed class CloudRoomItemViewModel(LiveRoomSummary room)
+public sealed partial class CloudRoomItemViewModel(LiveRoomSummary room) : ObservableObject
 {
     public Guid Id { get; } = room.Id;
 
@@ -13,6 +14,11 @@ public sealed class CloudRoomItemViewModel(LiveRoomSummary room)
     public bool Online { get; } = room.Online;
 
     public bool HasConfigurationDrift { get; } = room.HasConfigurationDrift;
+
+    public bool CanBatchSelect { get; } = room.Online && room.DeviceId is not null;
+
+    [ObservableProperty]
+    public partial bool IsBatchSelected { get; set; }
 
     public string Status { get; } = room.Online ? "在线" : "离线";
 
@@ -92,10 +98,11 @@ public sealed class ActivityItemViewModel
         JobStatus.Verifying => "正在验证",
         JobStatus.Succeeded => "已完成",
         JobStatus.DeviceOffline => "设备离线",
-        JobStatus.BlockedByLiveSession => "直播中已阻止",
+        JobStatus.BlockedByLiveSession => "历史任务已停止",
         JobStatus.MappingRequired => "需要设备映射",
         JobStatus.UnsupportedDeviceMode => "设备格式不支持",
         JobStatus.MissingFilter => "缺少滤镜",
+        JobStatus.MissingAsset => "缺少滤镜素材",
         JobStatus.IncompatibleVersion => "版本不兼容",
         JobStatus.FailedRolledBack => "失败，已回滚",
         JobStatus.RollbackFailed => "回滚失败",

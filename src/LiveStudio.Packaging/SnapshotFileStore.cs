@@ -39,7 +39,9 @@ public sealed class SnapshotFileStore(string directoryPath)
                 or UnauthorizedAccessException
                 or SnapshotPackageException)
             {
-                errors.Add($"{Path.GetFileName(packagePath)}：{exception.Message}");
+                errors.Add(exception is SnapshotSensitiveDataException
+                    ? "历史存档含敏感配置，已停止读取；请重新保存当前画面生成安全存档"
+                    : $"{Path.GetFileName(packagePath)}：{exception.Message}");
             }
         }
 

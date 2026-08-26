@@ -11,18 +11,18 @@
             </StackPanel>
             <Button Grid.Column="1" Classes="toolbar-action" VerticalAlignment="Center"
                     Command="{Binding LoadMappingContextCommand}">重新检测</Button>
-            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#16FFFFFF" />
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
         <Grid Grid.Row="1" Margin="28,0" ColumnDefinitions="Auto,*" ColumnSpacing="10">
-            <Ellipse Width="6" Height="6" Fill="#73767D" VerticalAlignment="Center" />
+            <Ellipse Width="6" Height="6" Fill="{DynamicResource TertiaryTextBrush}" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1" Classes="transfer-message" VerticalAlignment="Center"
                        Text="{Binding MappingMessage}" TextTrimming="CharacterEllipsis" />
-            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="#12FFFFFF" />
+            <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
         <Grid Grid.Row="2" IsVisible="{Binding HasMappingSources}" ColumnDefinitions="0.32*,0.68*">
-            <Grid RowDefinitions="36,*" Background="#222224">
+            <Grid RowDefinitions="36,*" Background="{DynamicResource ArchiveSidebarBrush}">
                 <TextBlock Margin="20,0" Classes="column-heading" VerticalAlignment="Center" Text="存档来源" />
                 <ListBox Grid.Row="1" Margin="12,0,12,14"
                          ItemsSource="{Binding MappingSources}"
@@ -41,34 +41,34 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
-                <Border Grid.RowSpan="2" Width="1" HorizontalAlignment="Right" Background="#16FFFFFF" />
+                <Border Grid.RowSpan="2" Width="1" HorizontalAlignment="Right" Background="{DynamicResource ArchiveSeparatorBrush}" />
             </Grid>
 
             <ScrollViewer Grid.Column="1">
                 <StackPanel MaxWidth="760" Margin="32,28" HorizontalAlignment="Stretch">
                     <TextBlock Classes="settings-section" Text="存档要求" />
-                    <Border Margin="0,10,0,0" Height="1" Background="#18FFFFFF" />
+                    <Border Margin="0,10,0,0" Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="62" ColumnDefinitions="150,*">
                         <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="来源" />
                         <TextBlock Grid.Column="1" Classes="settings-title" VerticalAlignment="Center"
                                    Text="{Binding SelectedMappingSource.SourceName}" />
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="62" ColumnDefinitions="150,*">
                         <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="设备" />
                         <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center"
                                    Text="{Binding SelectedMappingSource.DeviceName}" />
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="62" ColumnDefinitions="150,*">
                         <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="画面格式" />
                         <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center"
                                    Text="{Binding SelectedMappingSource.RequiredMode}" />
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
 
                     <TextBlock Margin="0,30,0,10" Classes="settings-section" Text="目标电脑" />
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="72" ColumnDefinitions="150,*">
                         <StackPanel VerticalAlignment="Center" Spacing="3">
                             <TextBlock Classes="settings-title" Text="采集来源" />
@@ -88,20 +88,20 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="62" ColumnDefinitions="150,*" IsVisible="{Binding SelectedMappingTarget}">
                         <TextBlock Classes="settings-copy" VerticalAlignment="Center" Text="当前画面格式" />
                         <TextBlock Grid.Column="1" Classes="settings-value" VerticalAlignment="Center"
                                    Text="{Binding SelectedMappingTarget.CurrentMode}" />
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                     <Grid MinHeight="62" ColumnDefinitions="*,Auto">
                         <TextBlock Classes="settings-copy" VerticalAlignment="Center"
                                    Text="保存前会校验分辨率、FPS、像素格式和色彩模式" />
                         <Button Grid.Column="1" Classes="standard accent" VerticalAlignment="Center"
                                 Command="{Binding SaveMappingCommand}">保存映射</Button>
                     </Grid>
-                    <Border Height="1" Background="#18FFFFFF" />
+                    <Border Height="1" Background="{DynamicResource ArchiveSeparatorBrush}" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -110,7 +110,7 @@
                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
             <Path Width="32" Height="32" Margin="0,0,0,5" HorizontalAlignment="Center"
                   Data="M6,7 A2,2 0 1 0 6,3 A2,2 0 0 0 6,7 M18,21 A2,2 0 1 0 18,17 A2,2 0 0 0 18,21 M8,5 L11,5 A3,3 0 0 1 14,8 L14,16 A3,3 0 0 0 17,19 M6,7 L6,19 L16,19"
-                  Stretch="Uniform" Stroke="#6CA6FF" StrokeThickness="1.35" />
+                  Stretch="Uniform" Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.35" />
             <TextBlock Classes="empty-heading" Text="选择一份画面存档" TextAlignment="Center" />
             <TextBlock Classes="empty-body" Text="映射以存档中的逻辑来源为起点，不会盲目套用源电脑的设备路径。"
                        TextAlignment="Center" TextWrapping="Wrap" />

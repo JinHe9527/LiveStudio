@@ -27,6 +27,7 @@ public enum JobStatus
     MappingRequired,
     UnsupportedDeviceMode,
     MissingFilter,
+    MissingAsset,
     IncompatibleVersion,
     FailedRolledBack,
     RollbackFailed

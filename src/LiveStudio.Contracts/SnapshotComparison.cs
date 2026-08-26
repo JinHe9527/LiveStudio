@@ -102,6 +102,25 @@ public static class SnapshotParameterComparer
             }
         }
 
+        foreach (var station in detail.CameraStations ?? [])
+        {
+            var key = $"Camera/{station.Slot}";
+            var label = $"相机参数 / {station.Name}";
+            Add(values, $"{key}/name", $"{label} / 机位名称", station.Name);
+            Add(values, $"{key}/aperture", $"{label} / 光圈", station.Aperture);
+            Add(values, $"{key}/shutter", $"{label} / 快门", station.ShutterSpeed);
+            Add(values, $"{key}/iso", $"{label} / ISO", station.Iso);
+            Add(values, $"{key}/look", $"{label} / 创意外观", station.CreativeLook);
+            Add(values, $"{key}/look/contrast", $"{label} / 对比度", FormatNumber(station.CreativeLookSettings.Contrast));
+            Add(values, $"{key}/look/highlights", $"{label} / 高光", FormatNumber(station.CreativeLookSettings.Highlights));
+            Add(values, $"{key}/look/shadows", $"{label} / 阴影", FormatNumber(station.CreativeLookSettings.Shadows));
+            Add(values, $"{key}/look/fade", $"{label} / 褪色", FormatNumber(station.CreativeLookSettings.Fade));
+            Add(values, $"{key}/look/saturation", $"{label} / 饱和度", FormatNumber(station.CreativeLookSettings.Saturation));
+            Add(values, $"{key}/look/sharpness", $"{label} / 锐度", FormatNumber(station.CreativeLookSettings.Sharpness));
+            Add(values, $"{key}/look/sharpness-range", $"{label} / 锐度范围", FormatNumber(station.CreativeLookSettings.SharpnessRange));
+            Add(values, $"{key}/look/clarity", $"{label} / 清晰度", FormatNumber(station.CreativeLookSettings.Clarity));
+        }
+
         return values;
     }
 
@@ -110,6 +129,9 @@ public static class SnapshotParameterComparer
         string key,
         string label,
         string value) => values[key] = new SnapshotParameterValue(label, value);
+
+    private static string FormatNumber(int value) =>
+        value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private static string ApplicationName(ApplicationKind application) => application == ApplicationKind.Obs
         ? "OBS"
