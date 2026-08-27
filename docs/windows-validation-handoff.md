@@ -812,7 +812,7 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 
 单机时间线不再显示历史云端 `已同步/等待上传/仅本机` 状态，只显示真实文件大小。设置页不再用 Agent 存活状态冒充两款应用均已连接，而是分别显示 OBS 与直播伴侣的实际读取/运行状态；真实客户端显示 OBS“已连接”、直播伴侣“已读取”。800×600 窗口中 OBS、直播伴侣、相机参数、保存、恢复和左下设置均位于窗口边界内且可用，时间线文本中旧同步状态为 0 项。色卡与 LUT 已由项目所有者明确确认为原创并允许自由使用，仓库授权说明同步纳入 MIT。
 
-工程格式已经统一，`.gitattributes` 固定源码与配置文本为 LF，内置 LUT/PNG 继续保持逐字节 `-text`；普通 CI 与标签 Release 均增加 `dotnet format --verify-no-changes`。最终 Release 还原和整仓构建为 0 错误、0 警告；LiveStudio.Core.Tests 232 项、LiveStudio.Agent.Tests 24 项，共 256 项全部通过；云端集成项目 Release 编译通过；全部直接和传递 NuGet 包均无已知漏洞；`dotnet format --verify-no-changes`、`git diff --check` 与 `git fsck --full` 通过。
+工程格式已经统一，`.gitattributes` 固定源码与配置文本为 LF，内置色卡整个目录（包括清单、LUT 和 PNG）保持逐字节 `-text -eol`；普通 CI 与标签 Release 均增加 `dotnet format --verify-no-changes`。最终 Release 还原和整仓构建为 0 错误、0 警告；LiveStudio.Core.Tests 232 项、LiveStudio.Agent.Tests 24 项，共 256 项全部通过；云端集成项目 Release 编译通过；全部直接和传递 NuGet 包均无已知漏洞；`dotnet format --verify-no-changes`、`git diff --check` 与 `git fsck --full` 通过。
 
 本节没有改变跨硬件证据等级。当前机器仍缺少天创恒达或美乐威 4KPro 实体采集卡，直播伴侣精确版本的覆盖继续为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`；正式标记跨硬件验证仍需第二台不同实体采集卡电脑完成规定循环。
 
