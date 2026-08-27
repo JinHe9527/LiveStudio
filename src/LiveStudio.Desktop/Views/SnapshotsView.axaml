@@ -7,10 +7,10 @@
     <Grid ColumnDefinitions="200,*">
         <Border Classes="archive-timeline">
             <Grid RowDefinitions="Auto,*">
-                <StackPanel Margin="16,14,12,10" Spacing="3">
-                    <TextBlock Classes="archive-label" FontWeight="SemiBold" Text="本机画面存档" />
-                    <TextBlock Classes="archive-meta" Text="{Binding SnapshotTimelineSummary}" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                <Grid Margin="16,14,12,10" ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="archive-label" FontWeight="SemiBold" Text="本机存档" />
+                    <TextBlock Grid.Column="1" Classes="archive-meta" Text="{Binding SnapshotCountText}" />
+                </Grid>
                 <ListBox Grid.Row="1" Margin="6,0,6,8" Classes="archive-list" ItemsSource="{Binding SnapshotTimelineItems}"
                          SelectedItem="{Binding SelectedSnapshotTimelineItem}" IsVisible="{Binding HasSnapshots}">
                     <ListBox.Styles>
@@ -50,30 +50,35 @@
 
         <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Background="{DynamicResource ArchiveContentBrush}">
             <Border Classes="archive-header">
-                <WrapPanel Margin="16,8" MinHeight="40" VerticalAlignment="Center">
-                    <StackPanel Width="164" Margin="0,0,10,0" VerticalAlignment="Center" Spacing="1">
-                        <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
-                    </StackPanel>
-                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal" Spacing="2">
-                        <ListBox Classes="archive-segment" ItemsSource="{Binding SnapshotInspector.Applications}"
-                                 SelectedItem="{Binding SnapshotInspector.SelectedApplication}"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                            <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
-                            <ListBox.ItemTemplate><DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
-                                <TextBlock MinWidth="76" Padding="10,5" TextAlignment="Center" Classes="archive-label" Text="{Binding ShortName}" />
-                            </DataTemplate></ListBox.ItemTemplate>
-                        </ListBox>
-                        <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
-                                Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
-                    </StackPanel>
-                    <StackPanel Margin="0,2,0,2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
-                        <Button Classes="archive-icon" Command="{Binding RefreshStateCommand}" AutomationProperties.Name="刷新" ToolTip.Tip="刷新">↻</Button>
-                        <Button Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
+                <Grid Margin="16,7,16,8" RowDefinitions="Auto,Auto" RowSpacing="7">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel MinWidth="120" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                            <ListBox Classes="archive-segment" ItemsSource="{Binding SnapshotInspector.Applications}"
+                                     SelectedItem="{Binding SnapshotInspector.SelectedApplication}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                                <ListBox.ItemTemplate><DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
+                                    <TextBlock MinWidth="70" Padding="10,5" TextAlignment="Center" Classes="archive-label" Text="{Binding ShortName}" />
+                                </DataTemplate></ListBox.ItemTemplate>
+                            </ListBox>
+                            <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
+                                    Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
+                        </StackPanel>
+                    </Grid>
+                    <WrapPanel Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Margin="0,0,6,0" Classes="archive-icon" Command="{Binding RefreshStateCommand}"
+                                AutomationProperties.Name="刷新" ToolTip.Tip="刷新">↻</Button>
+                        <Button Margin="0,0,6,0" Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
                                 Click="ImportAndApplySnapshotClicked">导入并应用</Button>
-                        <Button Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}" Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
-                        <Button Classes="archive-primary" IsVisible="{Binding CanShowRestoreAction}" Command="{Binding RestoreSnapshotCommand}"
-                                Content="{Binding RestoreActionText}" AutomationProperties.Name="恢复所选存档" />
+                        <Button Margin="0,0,6,0" Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
+                                Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
+                        <Button Margin="0,0,6,0" Classes="archive-primary" IsVisible="{Binding CanShowRestoreAction}"
+                                Command="{Binding RestoreSnapshotCommand}" Content="{Binding RestoreActionText}"
+                                AutomationProperties.Name="恢复所选存档" />
                         <Button Classes="archive-icon" AutomationProperties.Name="更多操作">•••
                             <Button.Flyout><MenuFlyout>
                                 <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
@@ -85,8 +90,8 @@
                                 <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
                             </MenuFlyout></Button.Flyout>
                         </Button>
-                    </StackPanel>
-                </WrapPanel>
+                    </WrapPanel>
+                </Grid>
             </Border>
 
             <StackPanel Grid.Row="1">

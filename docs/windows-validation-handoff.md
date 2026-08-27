@@ -772,3 +772,5 @@ OBS 与直播伴侣版本、来源/滤镜/字段统计、推流录制状态、�
 - `C:\Users\WYZB\AppData\Local\Temp\livestudio-backup-restore-redesign-light.png`
 
 本节只调整桌面信息架构、中文文案和入口显隐，不改变 `.lscfg`、OBS/直播伴侣捕获、相机参数绑定或事务恢复执行链，也没有执行破坏性真机恢复。跨物理采集卡证据继续保持 `Mapped=1028`、`Verified=0`。
+
+默认 1240×780 窗口复验随后发现三处纯布局问题并已修正：存档页原自由换行工具栏改为明确的上下两层，名称与 OBS/直播伴侣/相机分段位于第一层，刷新、导入、保存、恢复和更多操作位于第二层；时间线顶部只显示“本机存档”和数量，不再显示“未分配直播间”。设置页有限宽说明文字固定左对齐，自动运行状态和按钮统一垂直居中。Windows 标题栏已经显示应用图标与名称，因此侧栏重复的 LiveStudio 品牌块被移除。最终截图为 `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshots-default-fixed.png`、`livestudio-settings-default-final.png` 和 `livestudio-home-default-fixed.png`。
