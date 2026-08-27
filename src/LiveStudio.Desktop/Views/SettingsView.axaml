@@ -5,15 +5,15 @@
              x:Class="LiveStudio.Desktop.Views.SettingsView"
              x:DataType="vm:MainViewModel">
     <Grid RowDefinitions="52,*">
-        <Grid Margin="28,0" ColumnDefinitions="*,Auto">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+        <Grid Margin="28,0" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+            <Button Classes="settings-back" VerticalAlignment="Center"
+                    Command="{Binding SelectSectionCommand}" CommandParameter="1">←  返回存档管理</Button>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
                 <ToggleButton x:Name="BasicSettingsTab" Classes="settings-tab" IsChecked="True"
                               Click="BasicSettingsTabClicked">基础设置</ToggleButton>
                 <ToggleButton x:Name="ActivitySettingsTab" Classes="settings-tab"
                               Click="ActivitySettingsTabClicked">操作记录</ToggleButton>
             </StackPanel>
-            <Button Grid.Column="1" Classes="title-nav" VerticalAlignment="Center"
-                    Command="{Binding SelectSectionCommand}" CommandParameter="1">返回存档管理</Button>
             <Border Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
