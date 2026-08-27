@@ -1,6 +1,9 @@
 # Keep source and configuration text stable across Windows and Linux runners.
 * text=auto eol=lf
 
-# The complete OBS color-card bundle, including its manifest, is integrity-checked byte-for-byte.
-# Never allow Git to rewrite line endings in any bundled asset.
-src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/** -text -eol
+# The OBS color-card manifest has a canonical LF representation.
+src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/manifest.json text eol=lf
+
+# LUTs and reference images are integrity-checked byte-for-byte.
+src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/cube/** -text -eol
+src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/png/** -text -eol

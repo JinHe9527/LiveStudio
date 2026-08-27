@@ -12,7 +12,7 @@ public sealed class BuiltInColorCardCatalog : IObsAssetPathResolver
     internal const string ExpectedSourceArchiveSha256 =
         "2f06cd00ee745207ca5b352bf4edbe3f8c738d2d11e04a3f46a730ee1bd3cf33";
     internal const string ExpectedManifestSha256 =
-        "59b8ffd612a44e5080bbd38476fc8c1f8e1636ba9f7eda8a8ff95f218c56f63a";
+        "823f0d4caf4ba9aa7fe546b479942a575e056e6d926c910f651a398132cc51c8";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string bundleRoot;
