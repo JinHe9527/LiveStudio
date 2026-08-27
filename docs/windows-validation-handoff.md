@@ -740,3 +740,21 @@ SDK 2.02 头文件明确提供 `CrDeviceProperty_Iris`、`CrDeviceProperty_Shutt
 本节没有改变恢复证据等级。当前机器仍只有 `OBS Virtual Camera`，没有天创恒达或美乐威 4KPro 物理采集卡；直播伴侣签名定义仍为 `Mapped=1028`、`Verified=0`。代码可提交和下发到受控直播间试运行，但在第二台不同物理采集卡电脑完成规定循环前，不得把它标记为跨硬件百分之百验证版，也不得自动对不匹配的直播伴侣版本写入。
 
 最终质量门：Release 还原与整仓构建成功，0 错误、0 警告；LiveStudio.Core.Tests 223 项、LiveStudio.Agent.Tests 22 项，共 245 项全部通过；云端 PostgreSQL/MinIO 集成项目 Release 编译通过，但本机没有隔离的 Docker 数据库，未对会重置数据的集成套件执行生产连接；全部直接与传递 NuGet 包无已知漏洞；敏感信息扫描与 `git diff --check` 通过。
+
+## 31. 2026-08-27 单机基础版、存档导入应用与公开更新
+
+本节按使用者最新产品方向暂时收起第 26、29、30 节的多直播间桌面入口。左侧不再显示“直播间管理”，画面存档时间线不再显示直播间选择、新建、设为当前、云同步或云设置；已有云端实现与凭据保持不变，供后续开发重新开放，但桌面启动不再主动连接云端。“本机检查与修复”也已收窄为 Agent、自启动、OBS 和直播伴侣本机连接，不再隐式上传存档或下载云端文件。设置页删除高级设置层级、OBS 手动凭据、原生差异实验、局域网目录、云端注册和 GitHub Token，只保留外观、一键连接、本机检查修复、自启动与软件更新。
+
+画面存档页新增常驻“导入并应用”。选择 `.lscfg` 后仍先验证结构、逐文件 SHA-256、包签名和敏感字段；未知签名者必须由使用者核对公钥指纹并明确选择“信任、导入并应用”。导入成功后按包内 ID 选中本机受管存档，只在当前执行端允许恢复时继续调用原有设备映射、Preflight、事务写入、逐字段回读和失败回滚；当前版本、适配器或设备条件不满足时只完成导入并给出原因，不会绕过恢复命令的安全条件。更多菜单继续保留“仅导入存档”和“导出所选存档”，用于只归档不立即恢复的场景。
+
+GitHub 仓库在提交历史敏感信息扫描未发现私钥、真实 `.env`、Token、密码或云端 Secret 后改为公开。软件更新不再读取 GitHub CLI、Windows Credential Manager 或备用 Token，而是匿名访问公开 Releases；下载后仍强制核对配套 SHA-256、固定 Publisher 和证书指纹。发布工作流在标签触发时改为执行整套 Core 与 Agent 测试以及传递依赖漏洞检查。当前公开仓库的最新既有 Release 尚未包含 `LiveStudio-Windows-x64.msix` 与 `.sha256`，真实设置页检查能够匿名连接并准确提示“最新发布中还没有可安装的 Windows 更新包”；本节遵守发布纪律，没有创建标签、Release 或安装包。
+
+真机界面已在浅色 1256×819、浅色 900×700 和深色 900×700 检查。900px 宽度首次暴露存档工具栏和 OBS 滤镜参数裁切，现改为工具栏自动换行、滤镜名称自适应宽度且参数在剩余空间内换行；最终窄窗口可看到 LUT 强度、亮度键、色值、色彩校正和锐化全部真实值，不产生水平滚动。截图：
+
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-basic-settings.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-basic-settings-900.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-basic-settings-dark-900.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-local-snapshots.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-local-snapshots-900-fixed.png`
+
+本节没有新增物理采集卡证据，也没有重新执行破坏性来源删除恢复；OBS、直播伴侣恢复能力继续引用第 19–25 节当前精确版本的既有真机证据，跨硬件状态仍为 `Mapped=1028`、`Verified=0`。最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；所有直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。

@@ -33,7 +33,8 @@ jobs:
         run: |
           dotnet restore LiveStudio.slnx
           dotnet build LiveStudio.slnx --configuration Release --no-restore --nologo
-          dotnet test tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj --configuration Release --no-build --nologo
+          dotnet test LiveStudio.slnx --configuration Release --no-build --nologo
+          dotnet list LiveStudio.slnx package --vulnerable --include-transitive
 
       - name: 导入内部代码签名证书
         shell: pwsh

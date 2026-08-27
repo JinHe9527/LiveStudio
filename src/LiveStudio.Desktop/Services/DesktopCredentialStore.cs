@@ -26,8 +26,6 @@ public sealed class DesktopCredentialStore : IDesktopCredentialStore
 {
     private const string CredentialTarget = "LiveStudio/Desktop/Cloud";
     private const string CredentialAccount = "default";
-    private const string UpdateCredentialTarget = "LiveStudio/Desktop/GitHubUpdates";
-    private const string UpdateCredentialAccount = "github";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public void Save(DesktopCloudCredentials credentials)
@@ -93,72 +91,6 @@ public sealed class DesktopCredentialStore : IDesktopCredentialStore
         else
         {
             throw new PlatformNotSupportedException("桌面云端凭据只支持 Windows 和 macOS");
-        }
-    }
-
-    public static void SaveUpdateToken(string token)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(token);
-        var content = Encoding.UTF8.GetBytes(token.Trim());
-        try
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                WindowsCredentialApi.Write(UpdateCredentialTarget, UpdateCredentialAccount, content);
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                MacKeychainApi.Write(UpdateCredentialTarget, UpdateCredentialAccount, content);
-            }
-            else
-            {
-                throw new PlatformNotSupportedException("更新凭据只支持 Windows 和 macOS");
-            }
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(content);
-        }
-    }
-
-    public static bool TryLoadUpdateToken([NotNullWhen(true)] out string? token)
-    {
-        byte[]? content;
-        var found = OperatingSystem.IsWindows()
-            ? WindowsCredentialApi.TryRead(UpdateCredentialTarget, out content)
-            : OperatingSystem.IsMacOS()
-                ? MacKeychainApi.TryRead(UpdateCredentialTarget, UpdateCredentialAccount, out content)
-                : throw new PlatformNotSupportedException("更新凭据只支持 Windows 和 macOS");
-        if (!found || content is null)
-        {
-            token = null;
-            return false;
-        }
-
-        try
-        {
-            token = Encoding.UTF8.GetString(content);
-            return !string.IsNullOrWhiteSpace(token);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(content);
-        }
-    }
-
-    public static void DeleteUpdateToken()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            WindowsCredentialApi.Delete(UpdateCredentialTarget);
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            MacKeychainApi.Delete(UpdateCredentialTarget, UpdateCredentialAccount);
-        }
-        else
-        {
-            throw new PlatformNotSupportedException("更新凭据只支持 Windows 和 macOS");
         }
     }
 

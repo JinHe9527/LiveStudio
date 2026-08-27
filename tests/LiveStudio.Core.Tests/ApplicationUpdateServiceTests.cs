@@ -7,7 +7,7 @@ namespace LiveStudio.Core.Tests;
 public sealed class ApplicationUpdateServiceTests
 {
     [Fact]
-    public async Task CheckAsyncReturnsNewerPrivateReleaseAndUsesBearerToken()
+    public async Task CheckAsyncReturnsNewerPublicReleaseWithoutAuthorization()
     {
         HttpRequestMessage? capturedRequest = null;
         var handler = new RouteHandler(request =>
@@ -27,13 +27,12 @@ public sealed class ApplicationUpdateServiceTests
         });
         var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
 
-        var release = await service.CheckAsync("private-token", CancellationToken.None);
+        var release = await service.CheckAsync(CancellationToken.None);
 
         Assert.NotNull(release);
         Assert.Equal(new Version(0, 2, 0), release.Version);
         Assert.Equal("https://api.github.com/repos/owner/repository/releases/latest", capturedRequest?.RequestUri?.ToString());
-        Assert.Equal("Bearer", capturedRequest?.Headers.Authorization?.Scheme);
-        Assert.Equal("private-token", capturedRequest?.Headers.Authorization?.Parameter);
+        Assert.Null(capturedRequest?.Headers.Authorization);
     }
 
     [Fact]
@@ -49,9 +48,21 @@ public sealed class ApplicationUpdateServiceTests
             """));
         var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
 
-        var release = await service.CheckAsync("private-token", CancellationToken.None);
+        var release = await service.CheckAsync(CancellationToken.None);
 
         Assert.Null(release);
+    }
+
+    [Fact]
+    public async Task CheckAsyncExplainsWhenPublicRepositoryHasNoRelease()
+    {
+        var handler = new RouteHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CheckAsync(CancellationToken.None));
+
+        Assert.Equal("公开更新服务中还没有已发布版本", exception.Message);
     }
 
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)

@@ -7,32 +7,9 @@
     <Grid ColumnDefinitions="200,*">
         <Border Classes="archive-timeline">
             <Grid RowDefinitions="Auto,*">
-                <StackPanel Margin="12,12,12,8" Spacing="4">
-                    <Grid ColumnDefinitions="*,28" ColumnSpacing="4">
-                        <ComboBox Classes="room-picker" ItemsSource="{Binding SnapshotRoomFilters}"
-                                  SelectedItem="{Binding SelectedSnapshotRoomFilter}" AutomationProperties.Name="选择直播间">
-                            <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:SnapshotRoomFilterItemViewModel">
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                    <TextBlock Classes="archive-label" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Classes="archive-meta" Text="{Binding SnapshotCount}" />
-                                </Grid>
-                            </DataTemplate></ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <Button Grid.Column="1" Classes="archive-icon" Click="CreateRoomClicked"
-                                AutomationProperties.Name="新建直播间" ToolTip.Tip="新建直播间">＋</Button>
-                    </Grid>
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
-                        <TextBlock Classes="archive-meta" Margin="4,0" Text="{Binding SnapshotTimelineSummary}" TextTrimming="CharacterEllipsis" />
-                        <Button Grid.Column="1" Padding="4,0" MinHeight="20" Classes="toolbar-action"
-                                IsVisible="{Binding CanAssignSelectedSnapshotRoom}"
-                                Command="{Binding AssignSelectedSnapshotRoomCommand}">设为当前</Button>
-                    </Grid>
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
-                        <TextBlock Classes="archive-meta" Margin="4,0" Text="{Binding SnapshotCloudStatus}" TextTrimming="CharacterEllipsis" />
-                        <Button Grid.Column="1" Padding="4,0" MinHeight="20" Classes="toolbar-action"
-                                IsVisible="{Binding IsAgentCloudEnrolled}" IsEnabled="{Binding CanSyncCloudSnapshots}"
-                                Command="{Binding SyncCloudSnapshotsCommand}">立即同步</Button>
-                    </Grid>
+                <StackPanel Margin="16,14,12,10" Spacing="3">
+                    <TextBlock Classes="archive-label" FontWeight="SemiBold" Text="本机画面存档" />
+                    <TextBlock Classes="archive-meta" Text="{Binding SnapshotTimelineSummary}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
                 <ListBox Grid.Row="1" Margin="6,0,6,8" Classes="archive-list" ItemsSource="{Binding SnapshotTimelineItems}"
                          SelectedItem="{Binding SelectedSnapshotTimelineItem}" IsVisible="{Binding HasSnapshots}">
@@ -71,14 +48,14 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1" RowDefinitions="56,Auto,*" Background="{DynamicResource ArchiveContentBrush}">
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Background="{DynamicResource ArchiveContentBrush}">
             <Border Classes="archive-header">
-                <Grid Margin="16,8" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                <WrapPanel Margin="16,8" MinHeight="40" VerticalAlignment="Center">
+                    <StackPanel Width="164" Margin="0,0,10,0" VerticalAlignment="Center" Spacing="1">
                         <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal" Spacing="2">
                         <ListBox Classes="archive-segment" ItemsSource="{Binding SnapshotInspector.Applications}"
                                  SelectedItem="{Binding SnapshotInspector.SelectedApplication}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
@@ -90,26 +67,26 @@
                         <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
                                 Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                    <StackPanel Margin="0,2,0,2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
                         <Button Classes="archive-icon" Command="{Binding RefreshStateCommand}" AutomationProperties.Name="刷新" ToolTip.Tip="刷新">↻</Button>
+                        <Button Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
+                                Click="ImportAndApplySnapshotClicked">导入并应用</Button>
                         <Button Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}" Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
                         <Button Classes="archive-primary" IsVisible="{Binding CanShowRestoreAction}" Command="{Binding RestoreSnapshotCommand}"
                                 Content="{Binding RestoreActionText}" AutomationProperties.Name="恢复所选存档" />
                         <Button Classes="archive-icon" AutomationProperties.Name="更多操作">•••
                             <Button.Flyout><MenuFlyout>
-                                <MenuItem Header="打开存档…" Click="ImportSnapshotClicked" />
+                                <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
                                 <MenuItem Header="导出所选存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked" />
                                 <MenuItem Header="重命名…" IsEnabled="{Binding HasSelectedSnapshot}" Click="RenameCurrentSnapshotClicked" />
                                 <Separator />
                                 <MenuItem Header="技术信息" Click="TechnicalInfoClicked" />
                                 <MenuItem Header="删除当前存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="DeleteCurrentSnapshotClicked" />
-                                <Separator />
-                                <MenuItem Header="云存档设置…" Click="CloudSettingsClicked" />
                                 <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
                             </MenuFlyout></Button.Flyout>
                         </Button>
                     </StackPanel>
-                </Grid>
+                </WrapPanel>
             </Border>
 
             <StackPanel Grid.Row="1">
@@ -125,7 +102,8 @@
                         <TextBlock Grid.Column="1" Classes="archive-value" VerticalAlignment="Center" Text="{Binding PendingImportMessage}" TextWrapping="Wrap" />
                         <StackPanel Grid.Column="2" IsVisible="{Binding HasPendingImport}" Orientation="Horizontal" Spacing="6">
                             <Button Classes="archive-secondary" Command="{Binding CancelPendingImportCommand}">取消</Button>
-                            <Button Classes="archive-primary" Command="{Binding TrustAndImportCommand}">信任并导入</Button>
+                            <Button Classes="archive-primary" Command="{Binding TrustAndImportCommand}"
+                                    Content="{Binding PendingImportActionText}" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -173,21 +151,21 @@
                                                 <TextBlock Classes="archive-section" Text="滤镜链" />
                                                 <ItemsControl ItemsSource="{Binding Filters}">
                                                     <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:SnapshotFilterViewModel">
-                                                        <Border Classes="archive-filter" Margin="0,0,0,6"><Grid ColumnDefinitions="36,180,*" ColumnSpacing="10">
+                                                        <Border Classes="archive-filter" Margin="0,0,0,6"><Grid ColumnDefinitions="32,Auto,*" ColumnSpacing="10">
                                                             <TextBlock Classes="archive-meta" VerticalAlignment="Center" Text="{Binding Order}" />
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                                                 <TextBlock Classes="archive-label" Text="{Binding Name}" />
                                                                 <TextBlock Classes="archive-meta" Text="{Binding Kind}" IsVisible="{Binding HasKindDetail}" />
                                                             </StackPanel>
-                                                            <WrapPanel Grid.Column="2" VerticalAlignment="Center">
+                                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                                 <ItemsControl ItemsSource="{Binding Settings}">
                                                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                                     <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:SnapshotSettingViewModel">
                                                                         <TextBlock Margin="0,0,12,2" Classes="archive-value" Text="{Binding Summary}" />
                                                                     </DataTemplate></ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
-                                                                <TextBlock Margin="0,0,12,2" Classes="archive-value" Text="{Binding AssetsSummary}" IsVisible="{Binding HasAssets}" />
-                                                            </WrapPanel>
+                                                                <TextBlock Margin="0,0,12,2" Classes="archive-value" Text="{Binding AssetsSummary}" IsVisible="{Binding HasAssets}" TextWrapping="Wrap" />
+                                                            </StackPanel>
                                                         </Grid></Border>
                                                     </DataTemplate></ItemsControl.ItemTemplate>
                                                 </ItemsControl>

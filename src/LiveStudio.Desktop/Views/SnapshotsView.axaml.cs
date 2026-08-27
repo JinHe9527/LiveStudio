@@ -177,6 +177,16 @@ public partial class SnapshotsView : UserControl
 
     private async void ImportSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
     {
+        await ChooseSnapshotToImportAsync(applyAfterImport: false);
+    }
+
+    private async void ImportAndApplySnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        await ChooseSnapshotToImportAsync(applyAfterImport: true);
+    }
+
+    private async Task ChooseSnapshotToImportAsync(bool applyAfterImport)
+    {
         if (DataContext is not MainViewModel viewModel
             || TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storageProvider)
         {
@@ -185,7 +195,7 @@ public partial class SnapshotsView : UserControl
 
         var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "打开画面存档",
+            Title = applyAfterImport ? "导入并应用画面存档" : "导入画面存档",
             AllowMultiple = false,
             FileTypeFilter = [SnapshotFileType],
             SuggestedFileType = SnapshotFileType
@@ -193,7 +203,7 @@ public partial class SnapshotsView : UserControl
         var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (!string.IsNullOrWhiteSpace(path))
         {
-            await viewModel.ImportSnapshotFileAsync(path);
+            await viewModel.ImportSnapshotFileAsync(path, applyAfterImport);
         }
     }
 

@@ -1,31 +1,41 @@
 # LiveStudio 直播画面配置中心
 
-LiveStudio 用于保存、查看并事务化恢复同一台 Windows 电脑上的 OBS 与抖音直播伴侣画面参数。范围严格限定为设备选择、分辨率、FPS、像素格式、色彩空间、色彩范围、视频滤镜、滤镜顺序和滤镜素材；不处理相机机身参数、音频、场景布局、账号、Cookie、Token 或推流密钥。
+源代码采用 [MIT License](LICENSE)；内置色卡与 LUT 素材不在 MIT 授权范围内，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+LiveStudio 用于保存、查看并事务化恢复同一台 Windows 电脑上的 OBS 与抖音直播伴侣画面参数。范围严格限定为设备选择、分辨率、FPS、像素格式、色彩空间、色彩范围、视频滤镜、滤镜顺序和滤镜素材；相机机身参数当前只随存档手动记录，不会通过 HDMI 自动写入相机。软件不处理音频、场景布局、账号、Cookie、Token 或推流密钥。
 
 ## 软件内更新
 
-Windows 客户端从本项目的 GitHub Releases 检查更新。因为源代码仓库和 Release 都是私有资源，第一次使用时需要在左下角“设置”中保存一个只授予本仓库 `Contents: Read-only` 权限的 Fine-grained Token。Token 仅进入 Windows Credential Manager 或 macOS Keychain，不写入配置、日志、存档或云端。
+Windows 客户端直接从本项目的公开 GitHub Releases 检查更新，不需要登录 GitHub，也不需要填写 Token。在设置页点击“检查更新”和“下载并安装”即可完成更新。客户端会先校验配套的 SHA-256 文件，再核对安装包固定发布证书，验证通过后才退出 Desktop 和 Agent、安装并重新启动。
 
-之后在设置页点击“检查更新”和“下载、安装并重启”即可完成更新。客户端会先校验 Release 中配套的 SHA-256 文件，再退出 Desktop 和 Agent、覆盖程序文件并重新启动。推送 `v主版本.次版本.修订号` 标签会由 GitHub Actions 自动测试、构建并创建 Windows x64 Release。
+推送 `v主版本.次版本.修订号` 标签会由 GitHub Actions 自动执行完整 Release 构建、全部单元测试、依赖漏洞检查和 MSIX 签名复验，再创建 Windows x64 Release。
+
+## 单机直播间使用
+
+当前桌面产品只展示单机直播间工作流，直播间统一管理入口暂时隐藏：
+
+1. 每台直播电脑单独安装 LiveStudio，在“设置”中点击“一键连接”。
+2. 在“画面存档”保存当前 OBS、直播伴侣和手动相机参数。
+3. 通过右上角更多菜单把所选存档导出为 `.lscfg`。
+4. 在另一台直播电脑点击“导入并应用”，选择该文件。LiveStudio 会先验证结构、逐文件哈希、签名、版本、素材和设备对应，再进入现有事务恢复与逐字段回读；任一检查不通过都不会静默写入。
 
 ## 当前实现
 
 - `.lscfg`：不可变 ZIP 容器、逐文件 SHA-256、ECDSA P-256 签名、素材归档、敏感字段拒绝与路径安全检查。
 - 恢复引擎：统一 Preflight、事务快照、停止、应用、启动、逐项验证、Commit/Rollback；任一验证失败即回滚。
 - OBS：基于 obs-websocket 5.x 的来源、视频模式、滤镜、顺序、启用状态、素材和预览图读写适配器。
-- 直播伴侣：Windows Agent 可以探测 `StreamingTool` 和 `%APPDATA%\webcast_mate` 的候选结构，并审计原生导出 ZIP；正式恢复只接受匹配版本和结构指纹的签名适配定义。当前执行端已实现 `JsonFile` 的事务读写框架，真实生产版本适配仍需 Windows 真机证据。
-- Windows Agent：同用户会话运行、Windows Credential Manager 凭据、SQLite 本地索引、断网待上传、SignalR 通知、REST 任务租约和心跳。
+- 直播伴侣：正式恢复只接受匹配版本和结构指纹的签名适配定义。当前 12.8.1.454484231 精确签名版本已在本机完成保存、来源重建、事务恢复、逐字段回读和故障回滚；跨物理采集卡证据仍未完成，因此状态保持 `Mapped`，不能标记为跨设备 `Verified`。
+- Windows Agent：同用户会话运行、Windows Credential Manager 凭据、SQLite 本地索引和本机恢复事务。
 - 本机控制：Windows 桌面端通过仅限当前用户的 Named Pipe 读取 Agent、OBS、直播伴侣和存档状态，发起真实联合保存与事务恢复；OBS 密码只写入 Credential Manager。
-- 远程任务：Capture Job 实际执行读取、打包、签名与上传；Restore Job 下载后核对长度、SHA-256 和源设备签名，再使用目标设备映射执行验证与回滚。
-- 桌面产品：基于 Avalonia 的 Windows/macOS 共用客户端。Windows 是本机保存与恢复的主平台；macOS 提供正式的存档、设备和远程任务管理能力。
-- 云端：ASP.NET Core 10、Blazor WebAssembly 交互、Identity、PostgreSQL、S3/MinIO、SignalR、Organization 隔离、RBAC、审计、设备注册、存档与远程任务 API。
+- 远程任务与云端：实现保留在代码中供后续开发，当前基础版不在桌面界面展示，也不会在启动时主动连接云端。
+- 桌面产品：基于 Avalonia 的 Windows 客户端，当前以本机保存、导出、导入和事务恢复为主。
 - 对象生命周期：存档包使用 8 MiB S3 Multipart Upload；删除存档时保留共享素材，独占素材、预览和包文件通过持久化删除队列重试清理。
 - 桌面 UI：采用 Apple Pro App 的 Split View、Sidebar、Toolbar 和 Inspector 结构，以细分隔线组织信息，不使用卡片式 Dashboard 或 Emoji 图标。
 - 私有部署：PostgreSQL、MinIO、云服务与 Caddy 的 Docker Compose 编排。
 
 ## 不能伪造的发布门槛
 
-直播伴侣没有公开稳定配置 API。当前实验扫描可以把候选设备、分辨率、FPS、像素格式、色彩、滤镜、美颜和曲线子树展示为探测结果，但这种结果没有签名适配定义，只允许读取，不能用于写入。仓库目前没有经过真实生产版本完整验证的直播伴侣签名适配定义；`JsonFile` 执行框架会在缺少文件、JSON Pointer 或回读不一致时失败并恢复原文件字节，Registry、SQLite 和 LevelDB 仍需根据真机存储边界实现。正式标记“已验证版本”必须在两台不同采集卡电脑上完成至少 20 次循环。
+直播伴侣没有公开稳定配置 API。未匹配签名适配定义的版本只允许读取和生成探测证据，不能写入。当前精确签名版本的 `JsonFile` 执行框架会在缺少文件、JSON Pointer 或回读不一致时失败并恢复原文件字节；Registry、SQLite 和 LevelDB 仍需根据真机存储边界实现。正式标记“已验证版本”仍必须在两台不同物理采集卡电脑上完成至少 20 次循环。
 
 桌面端发布前必须分别在 Windows 和 macOS 构建、签名并验证真实顶层窗口。Windows 版本还必须验证 Agent、OBS 与直播伴侣的同用户会话通信；macOS 版本必须验证存档浏览、设备管理和远程任务链路。
 
@@ -67,10 +77,9 @@ docker compose up --build
 
 安装 MSIX 后，Agent 会在当前 Windows 登录用户会话内运行。首次使用时：
 
-1. 打开 LiveStudio 桌面端，在“连接与设置”中连接云端并通过浏览器授权。
-2. 选择 Organization 和尚未绑定设备的直播间。
-3. 点击“注册到所选直播间”。桌面端向云端申请一次性注册凭据，再通过当前用户专属 Named Pipe 交给本机 Agent。
-4. 在同一页面启用“登录后自动启动 Agent”。
+1. 打开 LiveStudio，在“设置”中点击“一键连接”。
+2. 点击“本机检查与修复”，核对执行端、自启动、OBS 和直播伴侣连接。
+3. 在“画面存档”保存、导出或导入并应用 `.lscfg`。
 
 设备 secret 与存档签名私钥只保存在 Windows Credential Manager，不上传云端。开发阶段保留 `Agent enroll` CLI 仅用于探测机自动化，不是产品主流程。
 

@@ -33,7 +33,6 @@ public partial class MainViewModel : ViewModelBase
     private bool isLoadingCloudWorkspace;
     private bool isRefreshingSnapshotNavigation;
     private ApplicationUpdateRelease? availableUpdate;
-    private string? updateAccessToken;
     private Guid[] failedBatchCaptureRoomIds = [];
     private bool batchSelectionInitialized;
     private bool skipNextMappingPreparation;
@@ -503,12 +502,6 @@ public partial class MainViewModel : ViewModelBase
     public partial bool HasNativeExportBaseline { get; set; }
 
     [ObservableProperty]
-    public partial string GitHubUpdateToken { get; set; } = string.Empty;
-
-    [ObservableProperty]
-    public partial bool HasGitHubUpdateToken { get; set; }
-
-    [ObservableProperty]
     public partial string UpdateStatus { get; set; } = "尚未检查更新";
 
     [ObservableProperty]
@@ -553,6 +546,10 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial string? PendingImportPath { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PendingImportActionText))]
+    public partial bool PendingImportApplyAfterImport { get; set; }
 
     [ObservableProperty]
     public partial string PendingImportMessage { get; set; } = string.Empty;
@@ -609,6 +606,8 @@ public partial class MainViewModel : ViewModelBase
         : "安装证书并连接";
 
     public bool HasPendingImport => !string.IsNullOrWhiteSpace(PendingImportPath);
+
+    public string PendingImportActionText => PendingImportApplyAfterImport ? "信任、导入并应用" : "信任并导入";
 
     public bool HasTransferMessage => !string.IsNullOrWhiteSpace(PendingImportMessage);
 
@@ -725,28 +724,13 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        HasGitHubUpdateToken = DesktopCredentialStore.TryLoadUpdateToken(out _);
         await LoadStateAsync(cancellationToken);
         if (!supportsLocalAgent)
         {
             await LoadDesktopSnapshotLibraryAsync(cancellationToken);
         }
 
-        if (cloudClient.TryLoadCredentials(out var credentials))
-        {
-            if (!CloudTrustService.IsSupportedServiceUrl(credentials.ServiceUri.ToString())
-                && !credentials.ServiceUri.IsLoopback)
-            {
-                cloudClient.ForgetCredentials();
-                CloudConnectionMessage = "旧云端地址已停用，请重新连接内置服务器";
-                return;
-            }
-
-            cloudCredentials = credentials;
-            CloudServiceUrl = credentials.ServiceUri.ToString();
-            await LoadCloudWorkspaceAsync(cancellationToken);
-            await TryAutoEnrollSingleRoomAsync(cancellationToken);
-        }
+        // 单机基础版不主动连接云端。保留已有云端实现和本机凭据，待直播间管理重新开放时继续使用。
     }
 
     partial void OnCanControlLocalApplicationsChanged(bool value) =>
@@ -821,9 +805,6 @@ public partial class MainViewModel : ViewModelBase
     partial void OnIsAgentConnectedChanged(bool value) => EnrollAgentCommand.NotifyCanExecuteChanged();
 
     partial void OnIsAgentCloudEnrolledChanged(bool value) => EnrollAgentCommand.NotifyCanExecuteChanged();
-
-    partial void OnHasGitHubUpdateTokenChanged(bool value) =>
-        CheckForUpdatesCommand.NotifyCanExecuteChanged();
 
     private async Task ChangeOrganizationAsync(CancellationToken cancellationToken)
     {
@@ -1188,49 +1169,6 @@ public partial class MainViewModel : ViewModelBase
         CloudConnectionMessage = disconnectMessage;
     }
 
-    [RelayCommand]
-    private void SaveGitHubUpdateToken()
-    {
-        if (string.IsNullOrWhiteSpace(GitHubUpdateToken))
-        {
-            UpdateStatus = "请输入具有该私有仓库 Contents 只读权限的 GitHub Token";
-            return;
-        }
-
-        if (isDemoMode)
-        {
-            GitHubUpdateToken = string.Empty;
-            HasGitHubUpdateToken = true;
-            UpdateStatus = "演示模式·凭据已模拟保存，未写入系统凭据库";
-            return;
-        }
-
-        DesktopCredentialStore.SaveUpdateToken(GitHubUpdateToken);
-        updateAccessToken = null;
-        GitHubUpdateToken = string.Empty;
-        HasGitHubUpdateToken = true;
-        UpdateStatus = "GitHub 更新凭据已安全保存";
-    }
-
-    [RelayCommand]
-    private void DeleteGitHubUpdateToken()
-    {
-        if (isDemoMode)
-        {
-            UpdateStatus = "演示模式·不会删除本机真实 GitHub 凭据";
-            return;
-        }
-
-        DesktopCredentialStore.DeleteUpdateToken();
-        updateAccessToken = null;
-        GitHubUpdateToken = string.Empty;
-        HasGitHubUpdateToken = false;
-        availableUpdate = null;
-        LatestVersionText = "—";
-        UpdateStatus = "GitHub 更新凭据已移除";
-        InstallUpdateCommand.NotifyCanExecuteChanged();
-    }
-
     [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
     private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
     {
@@ -1246,18 +1184,7 @@ public partial class MainViewModel : ViewModelBase
         UpdateStatus = "正在检查更新…";
         try
         {
-            var token = await ResolveUpdateTokenAsync(cancellationToken);
-            if (token is null)
-            {
-                availableUpdate = null;
-                LatestVersionText = "—";
-                UpdateStatus = "未找到已登录的 GitHub 账号，请在高级设置中添加备用更新授权";
-                InstallUpdateCommand.NotifyCanExecuteChanged();
-                return;
-            }
-
-            updateAccessToken = token;
-            availableUpdate = await applicationUpdateService.CheckAsync(token, cancellationToken);
+            availableUpdate = await applicationUpdateService.CheckAsync(cancellationToken);
             if (availableUpdate is null)
             {
                 LatestVersionText = CurrentVersionText;
@@ -1296,25 +1223,12 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        var token = updateAccessToken;
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            token = await ResolveUpdateTokenAsync(cancellationToken);
-        }
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            UpdateStatus = "更新授权已失效，请重新检查更新";
-            return;
-        }
-
         IsBusy = true;
         UpdateStatus = $"正在下载并校验 {availableUpdate.TagName}…";
         try
         {
             var prepared = await applicationUpdateService.PrepareAsync(
                 availableUpdate,
-                token,
                 cancellationToken);
             UpdateStatus = "更新包校验完成，正在重启安装";
             ApplicationUpdateService.LaunchInstaller(prepared);
@@ -1340,7 +1254,7 @@ public partial class MainViewModel : ViewModelBase
         if (isDemoMode)
         {
             await Task.Yield();
-            LocalCheckStatus = "演示模式：执行端、自启动、OBS、直播伴侣、云上传和云下载回读均已模拟通过";
+            LocalCheckStatus = "演示模式：执行端、自启动、OBS 和直播伴侣本机连接均已模拟通过";
             return;
         }
 
@@ -1352,7 +1266,6 @@ public partial class MainViewModel : ViewModelBase
 
         IsBusy = true;
         LocalCheckStatus = "正在启动执行端并检查本机环境…";
-        var cloudReadback = "未连接云端";
         try
         {
             var agentStarted = WindowsAgentBootstrapper.EnsureRunning();
@@ -1367,39 +1280,8 @@ public partial class MainViewModel : ViewModelBase
             LocalCheckStatus = "正在检测并修复 OBS 与直播伴侣连接…";
             state = await localAgentClient.AutoConfigureObsAsync(cancellationToken);
 
-            if (state.IsCloudEnrolled)
-            {
-                LocalCheckStatus = "正在校验并同步本机待上传存档…";
-                await localAgentClient.SyncPendingSnapshotsAsync(cancellationToken);
-                state = await localAgentClient.GetStateAsync(cancellationToken);
-            }
-
             ApplyAgentState(state);
             IsBusy = true;
-
-            if (cloudCredentials is not null && SelectedOrganization is not null)
-            {
-                if (IsCloudConnected)
-                {
-                    await LoadCloudWorkspaceAsync(cancellationToken);
-                }
-
-                var cloudSnapshot = cloudSnapshotItems
-                    .Select(item => item.CloudSummary)
-                    .Where(summary => summary is not null)
-                    .OrderByDescending(summary => summary!.CreatedAt)
-                    .FirstOrDefault();
-                if (cloudSnapshot is not null)
-                {
-                    LocalCheckStatus = "正在从云端下载一份存档并核对长度与 SHA-256…";
-                    await VerifyCloudSnapshotReadbackAsync(cloudSnapshot, cancellationToken);
-                    cloudReadback = "云端下载回读通过";
-                }
-                else
-                {
-                    cloudReadback = "云端尚无存档可回读";
-                }
-            }
 
             var applications = state.Applications.ToDictionary(application => application.Application);
             var warnings = new List<string>();
@@ -1415,8 +1297,8 @@ public partial class MainViewModel : ViewModelBase
 
             var startMessage = agentStarted ? "Agent 已重新启动" : "Agent 正常";
             LocalCheckStatus = warnings.Count == 0
-                ? $"检查并修复完成：{startMessage}、自启动正常、两款应用可读取、{cloudReadback}"
-                : $"检查完成，但仍需处理：{string.Join("；", warnings)}。{cloudReadback}";
+                ? $"检查并修复完成：{startMessage}、自启动正常、两款应用可读取"
+                : $"检查完成，但仍需处理：{string.Join("；", warnings)}";
         }
         catch (Exception exception) when (exception is LocalControlException
             or IOException
@@ -1576,16 +1458,6 @@ public partial class MainViewModel : ViewModelBase
         {
             return null;
         }
-    }
-
-    private static async Task<string?> ResolveUpdateTokenAsync(CancellationToken cancellationToken)
-    {
-        if (DesktopCredentialStore.TryLoadUpdateToken(out var storedToken))
-        {
-            return storedToken;
-        }
-
-        return await GitHubCredentialProvider.TryGetTokenAsync(cancellationToken);
     }
 
     [RelayCommand]
@@ -2542,10 +2414,14 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    public async Task ImportSnapshotFileAsync(string path, CancellationToken cancellationToken = default)
+    public async Task ImportSnapshotFileAsync(
+        string path,
+        bool applyAfterImport = false,
+        CancellationToken cancellationToken = default)
     {
         IsBusy = true;
         PendingImportPath = null;
+        PendingImportApplyAfterImport = applyAfterImport;
         PendingImportMessage = "正在检查存档结构、哈希和签名…";
         try
         {
@@ -2564,13 +2440,14 @@ public partial class MainViewModel : ViewModelBase
             if (!preview.SignerTrusted)
             {
                 PendingImportPath = path;
-                PendingImportMessage = $"存档“{preview.Name}”的签名者尚未受信任。公钥指纹：{preview.SignerFingerprintSha256}";
+                PendingImportMessage = applyAfterImport
+                    ? $"存档“{preview.Name}”来自另一台电脑。确认指纹后，将信任签名者、导入并应用：{preview.SignerFingerprintSha256}"
+                    : $"存档“{preview.Name}”的签名者尚未受信任。公钥指纹：{preview.SignerFingerprintSha256}";
                 return;
             }
 
             var result = await localAgentClient.ImportSnapshotFileAsync(path, false, cancellationToken);
-            PendingImportMessage = $"已导入“{result.Name}”";
-            await LoadStateAsync(cancellationToken);
+            await CompleteImportedSnapshotAsync(result, applyAfterImport, cancellationToken);
         }
         catch (Exception exception) when (exception is LocalControlException
             or IOException
@@ -2758,8 +2635,7 @@ public partial class MainViewModel : ViewModelBase
         {
             var result = await localAgentClient.ImportSnapshotFileAsync(path, true, cancellationToken);
             PendingImportPath = null;
-            PendingImportMessage = $"已信任签名者并导入“{result.Name}”";
-            await LoadStateAsync(cancellationToken);
+            await CompleteImportedSnapshotAsync(result, PendingImportApplyAfterImport, cancellationToken);
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
@@ -2775,6 +2651,7 @@ public partial class MainViewModel : ViewModelBase
     private void CancelPendingImport()
     {
         PendingImportPath = null;
+        PendingImportApplyAfterImport = false;
         PendingImportMessage = "已取消导入";
     }
 
@@ -2827,6 +2704,41 @@ public partial class MainViewModel : ViewModelBase
         if (int.TryParse(section, out var index))
         {
             SelectedSection = index;
+        }
+    }
+
+    private async Task CompleteImportedSnapshotAsync(
+        SnapshotTransferResult result,
+        bool applyAfterImport,
+        CancellationToken cancellationToken)
+    {
+        await LoadStateAsync(cancellationToken);
+        SelectedSnapshot = SnapshotItems.FirstOrDefault(snapshot => snapshot.Id == result.SnapshotId);
+        SelectedSection = 1;
+        if (SelectedSnapshot is null)
+        {
+            PendingImportMessage = $"已导入“{result.Name}”，但暂时无法在本机存档列表中打开";
+            return;
+        }
+
+        if (!applyAfterImport)
+        {
+            PendingImportMessage = $"已导入并打开“{result.Name}”";
+            return;
+        }
+
+        IsBusy = false;
+        if (!CanRestoreSnapshot())
+        {
+            PendingImportMessage = $"已导入“{result.Name}”，但当前电脑尚未通过恢复条件检查；请先执行“本机检查与修复”";
+            return;
+        }
+
+        PendingImportMessage = $"已导入“{result.Name}”，正在检查设备对应并应用…";
+        await RestoreSnapshotAsync(cancellationToken);
+        if (IsRestorePreparationOpen)
+        {
+            PendingImportMessage = $"已导入“{result.Name}”；确认来源与设备对应后即可继续应用";
         }
     }
 
@@ -3749,9 +3661,8 @@ public partial class MainViewModel : ViewModelBase
         CloudStatus = "演示已连接";
         CloudConnectionMessage = "演示模式 · 14 个直播间、设备、存档和任务均来自本机，不连接真实云端";
         ConnectionSubtitle = "LiveStudio 演示空间 · 14 个直播间 · 本地安全演示";
-        HasGitHubUpdateToken = true;
         LatestVersionText = CurrentVersionText;
-        UpdateStatus = "演示状态 · GitHub 私有 Release、SHA-256 和签名校验链路已配置";
+        UpdateStatus = "演示状态 · 公开 Release、SHA-256 和签名校验链路已配置";
         LanSharedDirectory = @"\\演示文件服务器\LiveStudio\Snapshots";
         LanSyncStatus = "已同步";
         LanSettingsMessage = "演示状态 · 局域网目录与云端使用同一种不可变 .lscfg 格式";

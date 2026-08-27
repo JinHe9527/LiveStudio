@@ -39,13 +39,17 @@ public sealed class ApplicationUpdateService(
     public string CurrentVersionText => applicationVersion.ToString(3);
 
     public async Task<ApplicationUpdateRelease?> CheckAsync(
-        string token,
         CancellationToken cancellationToken)
     {
-        using var client = CreateClient(token);
+        using var client = CreateClient();
         using var response = await client.GetAsync(
             $"repos/{repositoryOwner}/{repositoryName}/releases/latest",
             cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException("公开更新服务中还没有已发布版本");
+        }
+
         response.EnsureSuccessStatusCode();
         var release = await response.Content.ReadFromJsonAsync<GitHubRelease>(cancellationToken)
             ?? throw new InvalidOperationException("GitHub 没有返回 Release 信息");
@@ -70,7 +74,6 @@ public sealed class ApplicationUpdateService(
 
     public async Task<PreparedApplicationUpdate> PrepareAsync(
         ApplicationUpdateRelease release,
-        string token,
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -86,7 +89,7 @@ public sealed class ApplicationUpdateService(
         Directory.CreateDirectory(updateRoot);
         var packagePath = Path.Combine(updateRoot, WindowsAssetName);
         var checksumPath = Path.Combine(updateRoot, ChecksumAssetName);
-        using var client = CreateClient(token);
+        using var client = CreateClient();
         await DownloadAssetAsync(client, release.PackageApiUrl, packagePath, cancellationToken);
         await DownloadAssetAsync(client, release.ChecksumApiUrl, checksumPath, cancellationToken);
         await VerifyChecksumAsync(packagePath, checksumPath, cancellationToken);
@@ -133,13 +136,11 @@ public sealed class ApplicationUpdateService(
         _ = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动更新安装程序");
     }
 
-    private HttpClient CreateClient(string token)
+    private HttpClient CreateClient()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(token);
         var client = messageHandler is null ? new HttpClient() : new HttpClient(messageHandler, false);
         client.BaseAddress = new Uri("https://api.github.com/");
         client.DefaultRequestHeaders.UserAgent.ParseAdd("LiveStudio-Updater");
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Trim());
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
         return client;
