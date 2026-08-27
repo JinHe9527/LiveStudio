@@ -41,8 +41,12 @@ internal static class Program
 
             if (verifyOnly)
             {
-                AuthenticodeTrustVerifier.Verify(Environment.ProcessPath!);
-                AuthenticodeTrustVerifier.Verify(context.Payload.PackagePath);
+                AuthenticodeTrustVerifier.Verify(
+                    Environment.ProcessPath!,
+                    allowUntrustedInternalRoot: true);
+                AuthenticodeTrustVerifier.Verify(
+                    context.Payload.PackagePath,
+                    allowUntrustedInternalRoot: true);
                 VerifyInstallationPrerequisites();
                 return 0;
             }

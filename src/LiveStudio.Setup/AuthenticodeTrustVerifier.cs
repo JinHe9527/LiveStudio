@@ -11,10 +11,11 @@ internal static class AuthenticodeTrustVerifier
     private const uint WinTrustDataStateActionIgnore = 0;
     private const uint WinTrustDataRevocationCheckNone = 0x00000010;
     private const uint WinTrustDataUiContextExecute = 0;
+    private const uint CertificateUntrustedRoot = 0x800B0109;
     private static readonly Guid WinTrustActionGenericVerifyV2 = new(
         "00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
-    internal static void Verify(string filePath)
+    internal static void Verify(string filePath, bool allowUntrustedInternalRoot = false)
     {
         var resolvedPath = Path.GetFullPath(filePath);
         if (!File.Exists(resolvedPath))
@@ -46,9 +47,10 @@ internal static class AuthenticodeTrustVerifier
                 new IntPtr(-1),
                 WinTrustActionGenericVerifyV2,
                 ref trustData);
-            if (result != 0)
+            var resultCode = unchecked((uint)result);
+            if (result != 0
+                && !(allowUntrustedInternalRoot && resultCode == CertificateUntrustedRoot))
             {
-                var resultCode = unchecked((uint)result);
                 var reason = new Win32Exception(result).Message;
                 throw new InvalidDataException(
                     $"Windows 签名信任校验失败：0x{resultCode:X8} {reason}");
