@@ -786,9 +786,9 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 - `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-actions-only.png`
 - `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshot-only-narrow.png`
 - `C:\Users\WYZB\AppData\Local\Temp\livestudio-activity-inside-settings-final.png`
-- `C:\Users\WYZB\AppData\Local\Temp\livestudio-settings-safe-area.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-settings-moved-to-timeline.png`
 
-标题栏右侧的设置入口随后由透明纯文字改为带齿轮图标、背景和边框的独立按钮，并扩大与 Windows 系统按钮之间的安全间距；鼠标指针停在按钮右侧时不再遮住“设置”文字。
+设置入口最终移出 Windows 系统标题栏，放入左侧“本机存档”栏头部；标题栏右侧只保留保存、恢复和更多操作，不再让设置与系统按钮或标题栏指针区域发生遮挡。
 
 本节只改变桌面信息架构、入口显隐和操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
 

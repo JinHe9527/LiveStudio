@@ -26,7 +26,7 @@
     <Grid RowDefinitions="36,*">
         <Border Grid.Row="0" Classes="app-titlebar"
                 WindowDecorationProperties.ElementRole="TitleBar">
-            <Grid Margin="104,0,164,0">
+            <Grid Margin="104,0,146,0">
                 <Grid IsVisible="{Binding IsSnapshotsVisible}" ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <TextBlock VerticalAlignment="Center" Classes="title-context"
                                Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
@@ -49,15 +49,6 @@
                                 <MenuItem Header="删除当前存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="DeleteCurrentSnapshotClicked" />
                                 <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
                             </MenuFlyout></Button.Flyout>
-                        </Button>
-                        <Button Classes="title-settings" Command="{Binding SelectSectionCommand}" CommandParameter="3"
-                                AutomationProperties.Name="设置">
-                            <Grid ColumnDefinitions="14,Auto" ColumnSpacing="6">
-                                <Path Width="14" Height="14" VerticalAlignment="Center" Stretch="Uniform"
-                                      Stroke="{DynamicResource SecondaryTextBrush}" StrokeThickness="1.4"
-                                      Data="M12,8 A4,4 0 1 0 12,16 A4,4 0 0 0 12,8 M4,12 L2,12 M22,12 L20,12 M12,4 L12,2 M12,22 L12,20 M5.6,5.6 L4.2,4.2 M19.8,19.8 L18.4,18.4 M18.4,5.6 L19.8,4.2 M4.2,19.8 L5.6,18.4" />
-                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="设置" />
-                            </Grid>
                         </Button>
                     </StackPanel>
                 </Grid>
