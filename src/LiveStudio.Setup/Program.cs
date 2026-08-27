@@ -145,7 +145,7 @@ internal static class Program
         throw "安装版本不正确：$($installed.Version)"
     }
     Start-Process explorer.exe "shell:AppsFolder\$($installed.PackageFamilyName)!LiveStudio"
-} $args[0] $args[1]
+} $env:LIVESTUDIO_SETUP_ARG_0 $env:LIVESTUDIO_SETUP_ARG_1
 """;
         RunPowerShell(script, packagePath, packageVersion.ToString());
     }
@@ -162,7 +162,7 @@ if (-not (Get-Command Add-AppxPackage -ErrorAction Stop)) {
         RunPowerShell(script);
     }
 
-    private static void RunPowerShell(string script, params string[] arguments)
+    internal static void RunPowerShell(string script, params string[] arguments)
     {
         var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var windowsPowerShellRoot = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0");
@@ -188,15 +188,16 @@ if (-not (Get-Command Add-AppxPackage -ErrorAction Stop)) {
             new[] { systemModules, programFilesModules, existingModulePath }
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase));
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            startInfo.Environment[$"LIVESTUDIO_SETUP_ARG_{index}"] = arguments[index];
+        }
+
         startInfo.ArgumentList.Add("-NoLogo");
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-NonInteractive");
         startInfo.ArgumentList.Add("-Command");
         startInfo.ArgumentList.Add(script);
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("无法启动 Windows 安装服务");

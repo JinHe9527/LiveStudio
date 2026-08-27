@@ -77,6 +77,17 @@ public sealed class InstallerPayloadTests
         }
     }
 
+    [Fact]
+    public void RunPowerShellPreservesArgumentsWithSpacesAndChineseCharacters()
+    {
+        const string argument = @"C:\直播素材\带 空格\LiveStudio-Windows-x64.msix";
+
+        Program.RunPowerShell(
+            "if ($env:LIVESTUDIO_SETUP_ARG_0 -cne $env:LIVESTUDIO_SETUP_ARG_1) { throw '参数不一致' }",
+            argument,
+            argument);
+    }
+
     private static string CreatePackage(string publisher, string version)
     {
         var path = Path.Combine(Path.GetTempPath(), $"LiveStudio-Setup-Test-{Guid.NewGuid():N}.msix");

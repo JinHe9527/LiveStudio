@@ -831,3 +831,5 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 `v0.1.8` 的 Release 在一键安装器自检阶段停留超过本机正常耗时，确认是非交互 Runner 上的失败提示框阻塞；流程在创建 Release 前被人工取消，因此没有公开产物。自检模式现禁止显示任何窗口，最多等待 60 秒，失败时把 `%ProgramData%\LiveStudio\Installer\install.log` 原因直接写入 Actions 日志；真实首次安装仍保留用户可见的成功或失败提示。
 
 `v0.1.9` 随后在创建 Release 前明确返回 `0x800B0109`：一次性 Runner 的内部自签名根不在本机信任链。发布自检现只在 Signer 指纹和 Publisher 已固定匹配时接受该精确的内部根错误，与外层 SignTool 规则一致；坏摘要、未签名、错误证书及任何其他 WinVerifyTrust 错误仍失败。真实首次安装不启用此例外：证书写入 `Local Machine\Trusted People` 后，EXE 和 MSIX 必须由 WinVerifyTrust 返回完全成功才会执行 Appx 安装。
+
+`v0.1.10` 的云端构建、签名和内置资源自检全部通过，但从公开 Release 下载后执行首次安装时，Windows PowerShell 没有把 `-Command` 后的独立参数填入脚本 `$args`，导致 `Add-AppxPackage -Path` 收到空值；包未安装，版本已立即标记为预发布并撤回。安装器现通过进程环境变量传递 MSIX 路径和目标版本，避免命令行重新解析路径；专门测试覆盖含中文和空格的参数，修复版本必须再次从公开 Release 下载并完成真实首次安装后才可下发。
