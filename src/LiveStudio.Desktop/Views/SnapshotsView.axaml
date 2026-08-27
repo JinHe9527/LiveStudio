@@ -327,23 +327,28 @@
                     <Grid Margin="4,2,4,0" ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <StackPanel Spacing="1">
                             <TextBlock Classes="archive-section" Text="三机位参考画面" />
-                            <TextBlock Classes="archive-meta" Text="每个机位放一张实际画面截图，换直播间时可直接对照构图和色彩" />
+                            <TextBlock Classes="archive-meta" Text="9:16 竖屏参考图 · 每个机位一张，换直播间时直接对照构图和色彩" />
                         </StackPanel>
                         <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Classes="archive-meta" Text="PNG / JPG · 每张不超过 8 MB" />
                     </Grid>
                     <ItemsControl ItemsSource="{Binding SnapshotInspector.CameraStations}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><controls:AdaptiveUniformPanel MinItemWidth="250" MaxColumns="3" ItemHeight="220" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:CameraStationEditorViewModel">
-                            <Border Margin="3" CornerRadius="10" Classes="camera-image-drop"
+                            <Border Width="216" Height="384" Margin="6" CornerRadius="10" Classes="camera-image-drop"
                                     Tag="{Binding}" DragDrop.AllowDrop="True"
                                     DragDrop.DragOver="CameraReferenceImageDragOver"
                                     DragDrop.Drop="CameraReferenceImageDropped">
                                 <Grid ClipToBounds="True">
                                     <Button Classes="camera-image-picker" Tag="{Binding}"
+                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                             Click="CameraReferenceImageClicked"
                                             AutomationProperties.Name="{Binding ReferenceImageTitle}">
                                         <Grid>
-                                            <Image Source="{Binding ReferenceImage}" Stretch="UniformToFill"
+                                            <Image Source="{Binding ReferenceImage}" Stretch="Uniform"
                                                    IsVisible="{Binding HasReferenceImage}" />
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                                         IsVisible="{Binding IsReferenceImageEmpty}" Spacing="7">
