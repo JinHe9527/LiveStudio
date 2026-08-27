@@ -49,6 +49,11 @@ public partial class MainWindow : Window
         _ = SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0, FrameChangedFlags);
     }
 
+    private void MinimizeWindowClicked(object? sender, RoutedEventArgs eventArgs) =>
+        WindowState = WindowState.Minimized;
+
+    private void CloseWindowClicked(object? sender, RoutedEventArgs eventArgs) => Close();
+
     private async void ImportAndApplySnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
         await SnapshotsPage.ImportSnapshotFromTitleBarAsync(applyAfterImport: true);
 
