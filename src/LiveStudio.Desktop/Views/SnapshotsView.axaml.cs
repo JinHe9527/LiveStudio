@@ -117,6 +117,37 @@ public partial class SnapshotsView : UserControl
         }
     }
 
+    private async void ImportAndApplySnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await ChooseSnapshotToImportAsync(applyAfterImport: true);
+
+    private async void ImportSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await ChooseSnapshotToImportAsync(applyAfterImport: false);
+
+    private async void ExportSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await ExportSelectedSnapshotFromTitleBarAsync();
+
+    private async void ExportTimelineSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MainViewModel viewModel
+            && sender is MenuItem { Tag: LocalSnapshotItemViewModel snapshot })
+        {
+            viewModel.SelectedSnapshot = snapshot;
+            await ExportSelectedSnapshotFromTitleBarAsync();
+        }
+    }
+
+    private async void RenameCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await RenameSelectedSnapshotFromTitleBarAsync();
+
+    private void TechnicalInfoClicked(object? sender, RoutedEventArgs eventArgs) =>
+        OpenTechnicalInformation();
+
+    private async void DeleteCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await DeleteSelectedSnapshotFromTitleBarAsync();
+
+    private async void DeleteAllSnapshotsClicked(object? sender, RoutedEventArgs eventArgs) =>
+        await DeleteAllSnapshotsFromTitleBarAsync();
+
     private void SnapshotsViewKeyDown(object? sender, KeyEventArgs eventArgs)
     {
         if (!eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control)

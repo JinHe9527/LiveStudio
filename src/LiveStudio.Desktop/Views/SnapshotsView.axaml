@@ -6,6 +6,15 @@
              Background="{DynamicResource ArchiveContentBrush}">
     <Grid ColumnDefinitions="200,*">
         <Border Classes="archive-timeline">
+            <Border.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="导入并应用…" Click="ImportAndApplySnapshotClicked" />
+                    <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
+                    <Separator />
+                    <MenuItem Header="刷新" Command="{Binding RefreshStateCommand}" />
+                    <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
+                </ContextMenu>
+            </Border.ContextMenu>
             <Grid RowDefinitions="Auto,*,Auto">
                 <Grid Margin="16,10,12,8" ColumnDefinitions="*,Auto" ColumnSpacing="6">
                     <TextBlock Classes="archive-label" FontWeight="SemiBold" Text="本机存档" />
@@ -22,8 +31,14 @@
                         <Border Background="Transparent" HorizontalAlignment="Stretch">
                             <Border.ContextMenu>
                                 <ContextMenu>
+                                    <MenuItem Header="导入并应用…" Click="ImportAndApplySnapshotClicked" />
+                                    <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
+                                    <Separator />
+                                    <MenuItem Header="导出…" Tag="{Binding Snapshot}" Click="ExportTimelineSnapshotClicked" />
                                     <MenuItem Header="重命名…" Tag="{Binding Snapshot}" Click="RenameTimelineSnapshotClicked" />
                                     <MenuItem Header="删除…" Tag="{Binding Snapshot}" Click="DeleteTimelineSnapshotClicked" />
+                                    <Separator />
+                                    <MenuItem Header="清空本机存档…" Click="DeleteAllSnapshotsClicked" />
                                 </ContextMenu>
                             </Border.ContextMenu>
                             <StackPanel HorizontalAlignment="Stretch">
@@ -58,7 +73,7 @@
 
         <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Background="{DynamicResource ArchiveContentBrush}">
             <Border Classes="archive-header">
-                <Grid Margin="16,7,16,8" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <Grid Margin="16,7,16,8" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                     <StackPanel MinWidth="0" VerticalAlignment="Center" Spacing="1">
                         <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
@@ -74,6 +89,27 @@
                         </ListBox>
                         <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
                                 Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="5">
+                        <Button Classes="title-action" IsVisible="{Binding SupportsLocalAgent}"
+                                Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
+                        <Button Classes="title-action-primary" IsVisible="{Binding CanShowRestoreAction}"
+                                Command="{Binding RestoreSnapshotCommand}" Content="{Binding RestoreActionText}"
+                                AutomationProperties.Name="恢复所选存档" />
+                        <Button Classes="title-icon" AutomationProperties.Name="更多操作" Content="⋯">
+                            <Button.Flyout><MenuFlyout>
+                                <MenuItem Header="刷新" Command="{Binding RefreshStateCommand}" />
+                                <MenuItem Header="导入并应用…" IsVisible="{Binding SupportsLocalAgent}" Click="ImportAndApplySnapshotClicked" />
+                                <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
+                                <Separator />
+                                <MenuItem Header="导出所选存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked" />
+                                <MenuItem Header="重命名…" IsEnabled="{Binding HasSelectedSnapshot}" Click="RenameCurrentSnapshotClicked" />
+                                <Separator />
+                                <MenuItem Header="技术信息" Click="TechnicalInfoClicked" />
+                                <MenuItem Header="删除当前存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="DeleteCurrentSnapshotClicked" />
+                                <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
+                            </MenuFlyout></Button.Flyout>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Border>

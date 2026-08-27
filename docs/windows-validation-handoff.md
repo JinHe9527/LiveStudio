@@ -792,6 +792,8 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 
 扩展标题栏曾导致最大化后操作区被系统命中测试吞掉，自绘边框又造成最大化尺寸和圆角异常。窗口现恢复完整 Windows 原生装饰，不再把应用按钮放进系统标题栏；普通窗口缩放、最小化、最大化/还原、双击标题栏和关闭均由 Windows 处理。真机 UI Automation 已实际点击左下角“设置”和普通操作栏中的“返回存档管理”，并确认可以往返；原生最大化后 `IsZoomed=True`，保存、恢复、更多和左下角设置仍存在、可见且可用。
 
+为避免原生标题栏、存档操作栏和详情标题形成三排，独立存档操作栏随后被删除：存档名称、OBS/直播伴侣/相机参数、保存、恢复和更多操作合并到详情顶部同一排，原生 Windows 标题栏之下不再有重复标题。800×600 真机窄窗口中逐个检查六个控件，均位于窗口边界内且无重叠；“更多”使用垂直居中的省略图标。左侧时间线支持整区右键，空白处显示导入并应用、仅导入、刷新和清空；具体存档项额外显示导出、重命名和删除。截图为 `C:\Users\WYZB\AppData\Local\Temp\livestudio-timeline-context-open.png` 与 `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshot-item-context-open.png`。
+
 本节只改变桌面信息架构、入口显隐和操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
 
 最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；全部直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。
