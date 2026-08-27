@@ -11,7 +11,7 @@ permissions:
 jobs:
   windows-release:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v6
@@ -83,12 +83,28 @@ jobs:
             -ExpectedCertificateThumbprint $env:LIVESTUDIO_CERTIFICATE_THUMBPRINT `
             -ReportPath (Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.signature.txt')
 
+      - name: 构建并验证一键安装器
+        shell: pwsh
+        run: |
+          $setup = .\deploy\windows\Build-Setup.ps1 `
+            -PackagePath (Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.msix') `
+            -ChecksumPath (Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.msix.sha256') `
+            -CertificatePath (Join-Path $PWD 'artifacts\LiveStudio-Signing.cer') `
+            -CertificateThumbprint $env:LIVESTUDIO_CERTIFICATE_THUMBPRINT `
+            -TimestampUrl 'http://timestamp.digicert.com' `
+            -OutputDirectory (Join-Path $PWD 'artifacts') | Select-Object -Last 1
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          "$hash  LiveStudio-Setup.exe" | Set-Content -Encoding ascii "$setup.sha256"
+
       - name: 创建 GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
+            artifacts/LiveStudio-Setup.exe `
+            artifacts/LiveStudio-Setup.exe.sha256 `
+            artifacts/LiveStudio-Setup.signature.txt `
             artifacts/LiveStudio-Windows-x64.msix `
             artifacts/LiveStudio-Windows-x64.msix.sha256 `
             artifacts/LiveStudio-Windows-x64.signature.txt `

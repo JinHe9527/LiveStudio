@@ -7,6 +7,7 @@
     <Project Path="src/LiveStudio.Core/LiveStudio.Core.csproj" />
     <Project Path="src/LiveStudio.Desktop/LiveStudio.Desktop.csproj" />
     <Project Path="src/LiveStudio.Packaging/LiveStudio.Packaging.csproj" />
+    <Project Path="src/LiveStudio.Setup/LiveStudio.Setup.csproj" />
   </Folder>
   <Folder Name="/src/LiveStudio.Cloud/">
     <Project Path="src/LiveStudio.Cloud/LiveStudio.Cloud.Client/LiveStudio.Cloud.Client.csproj" />
@@ -15,6 +16,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/LiveStudio.Agent.Tests/LiveStudio.Agent.Tests.csproj" />
     <Project Path="tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj" />
+    <Project Path="tests/LiveStudio.Setup.Tests/LiveStudio.Setup.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/LiveStudio.DemoData/LiveStudio.DemoData.csproj" />

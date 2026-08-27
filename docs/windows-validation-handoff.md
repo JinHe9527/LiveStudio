@@ -817,3 +817,11 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 本节没有改变跨硬件证据等级。当前机器仍缺少天创恒达或美乐威 4KPro 实体采集卡，直播伴侣精确版本的覆盖继续为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`；正式标记跨硬件验证仍需第二台不同实体采集卡电脑完成规定循环。
 
 发布准备新增固定内部 MSIX 签名身份 `CN=LiveStudio Internal`，公钥 SHA-1 指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，有效期至 2031-08-27。PFX 与密码只保存在 GitHub 加密 Secret 和仓库外的本机 DPAPI 备份中；仓库与 Release 只公开 `.cer`。`v0.1.2` 已完整通过还原、编译、测试和证书导入，但 SignTool `/pa` 因自签名根未进入 Runner 的受信任根而按预期阻止创建 Release；`v0.1.3` 和 `v0.1.4` 又确认向无界面 Runner 的 Root 写入会触发系统安全确认，因此均在产物生成前取消。`v0.1.5` 改为不修改 Runner Root，并已严格通过摘要、Signer 指纹和唯一链错误判断，但 PowerShell 保留了已接受的 SignTool 原生退出码，导致步骤在无异常时仍以 1 结束。上述标签保持不可变且没有发布下载。`v0.1.6` 在相同严格判断通过后显式清零原生退出码；坏摘要、未签名、错误证书或其他错误仍立即失败。工作流同时发布 MSIX、SHA-256、签名报告和首次安装所需的公钥证书。固定直播间电脑首次安装公钥后，本机签名状态为 `Valid`，软件内更新继续锁定同一 Publisher 与证书指纹。
+
+## 35. 2026-08-27 一键首次安装
+
+固定直播间电脑不再需要人工下载和导入发布证书。Windows Release 新增单文件 `LiveStudio-Setup.exe`，内部封装同一 Release 的签名 MSIX、SHA-256 和公开证书；双击后只请求一次 Windows 管理员授权，把指纹固定为 `4D42933F643E1E0B649513BCD10A15B485746E1D`、Subject 固定为 `CN=LiveStudio Internal` 的证书加入 `Local Machine\Trusted People`，不写入 `Root`。安装器在导入前核对自身与 MSIX 的 Signer，在导入后要求两份 Authenticode 状态都为 `Valid`，再按包版本执行安装或升级并启动 LiveStudio。同版本重复运行不会重复降级或制造第二份安装。
+
+发布工作流继续保留独立 MSIX、证书和全部校验报告供审计，但对普通直播间使用者只推荐下载 `LiveStudio-Setup.exe`。软件安装后仍沿用既有匿名 GitHub Release 更新链，并在退出当前程序前校验 MSIX SHA-256、固定 Publisher 和固定证书指纹。本轮只改变 Windows 分发与首次安装，不改变 `.lscfg`、OBS/直播伴侣捕获、设备映射、相机记录或事务恢复协议；跨硬件证据仍为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`。
+
+安装器新增 6 项专门测试，覆盖 Release SHA-256 格式、非法校验拒绝、MSIX manifest 版本读取和 Publisher 拒绝。当前本机 Release 构建为 0 错误、0 警告，Core 232 项、Agent 24 项、Setup 6 项，共 262 项全部通过。最终单文件封装、时间戳签名、公开下载后哈希和真机安装状态必须以对应标签的 GitHub Windows Release 工作流为准。

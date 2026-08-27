@@ -35,20 +35,22 @@ $password = Read-Host 'PFX password' -AsSecureString
   -OutputDirectory 'D:\LiveStudio-Signing'
 ```
 
-只把 `.cer` 安装到测试电脑的 `Local Machine\Trusted People`；PFX 和密码不得离开受控的离线备份与 GitHub 加密 Secret。
+PFX 和密码不得离开受控的离线备份与 GitHub 加密 Secret。正式下发由 `LiveStudio-Setup.exe` 在用户确认 UAC 后把固定 `.cer` 加入 `Local Machine\Trusted People`；不得加入 `Root`，也不得接受不同 Publisher 或指纹的证书。
 
 ```powershell
 .\deploy\windows\Build-Msix.ps1 `
   -Version 1.0.0.0 `
   -Architecture x64 `
-  -Publisher 'CN=LiveStudio' `
+  -Publisher 'CN=LiveStudio Internal' `
   -CertificateThumbprint '<SHA1 thumbprint>' `
     -TimestampUrl 'http://timestamp.digicert.com'
 ```
 
 脚本会分别 self-contained publish Desktop 与 Agent，放入 MSIX 的 `Desktop\`、`Agent\` 目录，生成 manifest，使用 SHA-256 签名并执行 `SignTool verify /pa /v`。内部自签名根不会写入一次性构建机的 Root；发布校验只接受签名摘要有效、Signer 指纹完全一致且唯一错误为“内部根尚未受系统信任”的结果。不得将两套 publish 输出直接合并到同一目录。
 
-GitHub Actions Release 发布 `LiveStudio-Windows-x64.msix`、SHA-256、签名验证报告和公开的 `LiveStudio-Signing.cer`。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个测试安装包就不得更换。首次安装前把 Release 中的公钥证书导入测试电脑 `Local Machine\Trusted People`，并人工核对指纹；后续软件内更新继续校验固定 Publisher 和证书指纹。
+GitHub Actions Release 发布推荐下载项 `LiveStudio-Setup.exe` 及其 SHA-256、签名报告，同时保留 `LiveStudio-Windows-x64.msix`、MSIX 校验与签名报告和公开证书供审计。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个安装包就不得更换。
+
+一键安装器把当前 Release 的 MSIX、SHA-256 和公钥证书作为资源封装在同一个签名 EXE 中。运行前检查 EXE 和 MSIX 的 Signer 指纹；提权后只安装完全匹配的证书，再要求两份 Authenticode 状态均为 `Valid`，随后执行 `Add-AppxPackage`。同版本重复运行只启动现有安装，更高版本执行升级。后续软件内更新继续下载 MSIX 并校验固定 Publisher、证书指纹和 SHA-256。
 
 安装后在真实 Windows 用户会话验收：
 

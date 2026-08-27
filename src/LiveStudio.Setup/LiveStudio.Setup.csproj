@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\LiveStudio.Desktop\Assets\LiveStudio.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <LiveStudioPackagePath Condition="'$(LiveStudioPackagePath)' == ''"></LiveStudioPackagePath>
+    <LiveStudioChecksumPath Condition="'$(LiveStudioChecksumPath)' == ''"></LiveStudioChecksumPath>
+    <LiveStudioCertificatePath Condition="'$(LiveStudioCertificatePath)' == ''"></LiveStudioCertificatePath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(LiveStudioPackagePath)' != ''">
+    <EmbeddedResource Include="$(LiveStudioPackagePath)"
+                      LogicalName="LiveStudio.Setup.Payload.LiveStudio-Windows-x64.msix" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LiveStudioChecksumPath)' != ''">
+    <EmbeddedResource Include="$(LiveStudioChecksumPath)"
+                      LogicalName="LiveStudio.Setup.Payload.LiveStudio-Windows-x64.msix.sha256" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LiveStudioCertificatePath)' != ''">
+    <EmbeddedResource Include="$(LiveStudioCertificatePath)"
+                      LogicalName="LiveStudio.Setup.Payload.LiveStudio-Signing.cer" />
+  </ItemGroup>
+</Project>

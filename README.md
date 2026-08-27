@@ -8,7 +8,9 @@ LiveStudio 用于保存、查看并事务化恢复同一台 Windows 电脑上的
 
 Windows 客户端直接从本项目的公开 GitHub Releases 检查更新，不需要登录 GitHub，也不需要填写 Token。在设置页点击“检查更新”和“下载并安装”即可完成更新。客户端会先校验配套的 SHA-256 文件，再核对安装包固定发布证书，验证通过后才退出 Desktop 和 Agent、安装并重新启动。
 
-推送 `v主版本.次版本.修订号` 标签会由 GitHub Actions 自动执行完整 Release 构建、全部单元测试、依赖漏洞检查和 MSIX 签名复验，再创建 Windows x64 Release。
+新电脑首次安装只需下载并双击 Release 中的 `LiveStudio-Setup.exe`。安装器请求一次 Windows 管理员授权，校验自身签名、内置证书、MSIX Publisher 和 SHA-256 后，把固定发布证书加入 `Local Machine\Trusted People`，安装或升级 LiveStudio 并自动启动；不需要手工下载或导入证书。
+
+推送 `v主版本.次版本.修订号` 标签会由 GitHub Actions 自动执行完整 Release 构建、全部单元测试、依赖漏洞检查、MSIX 和一键安装器签名复验，再创建 Windows x64 Release。
 
 ## 单机直播间使用
 
