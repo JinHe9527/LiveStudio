@@ -46,7 +46,7 @@ $password = Read-Host 'PFX password' -AsSecureString
     -TimestampUrl 'http://timestamp.digicert.com'
 ```
 
-脚本会分别 self-contained publish Desktop 与 Agent，放入 MSIX 的 `Desktop\`、`Agent\` 目录，生成 manifest，使用 SHA-256 签名并执行 `SignTool verify /pa /v`。不得将两套 publish 输出直接合并到同一目录。
+脚本会分别 self-contained publish Desktop 与 Agent，放入 MSIX 的 `Desktop\`、`Agent\` 目录，生成 manifest，使用 SHA-256 签名并执行 `SignTool verify /pa /v`。内部自签名根不会写入一次性构建机的 Root；发布校验只接受签名摘要有效、Signer 指纹完全一致且唯一错误为“内部根尚未受系统信任”的结果。不得将两套 publish 输出直接合并到同一目录。
 
 GitHub Actions Release 发布 `LiveStudio-Windows-x64.msix`、SHA-256、签名验证报告和公开的 `LiveStudio-Signing.cer`。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个测试安装包就不得更换。首次安装前把 Release 中的公钥证书导入测试电脑 `Local Machine\Trusted People`，并人工核对指纹；后续软件内更新继续校验固定 Publisher 和证书指纹。
 

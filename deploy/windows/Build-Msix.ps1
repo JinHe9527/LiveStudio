@@ -85,8 +85,10 @@ try {
     & $signTool sign /fd SHA256 /sha1 $CertificateThumbprint /tr $TimestampUrl.AbsoluteUri /td SHA256 $packagePath
     if ($LASTEXITCODE -ne 0) { throw 'MSIX 签名失败。' }
 
-    & $signTool verify /pa /v $packagePath
-    if ($LASTEXITCODE -ne 0) { throw 'MSIX 签名验证失败。' }
+    & (Join-Path $PSScriptRoot 'Test-InternalMsixSignature.ps1') `
+        -PackagePath $packagePath `
+        -ExpectedCertificateThumbprint $CertificateThumbprint `
+        -ReportPath (Join-Path $OutputDirectory 'LiveStudio-signature.txt')
 
     Write-Output $packagePath
 }
