@@ -334,15 +334,17 @@
                     <ItemsControl ItemsSource="{Binding SnapshotInspector.CameraStations}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" />
+                                <controls:AdaptiveUniformPanel MinItemWidth="250" MaxColumns="3" ItemHeight="396" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:CameraStationEditorViewModel">
-                            <Border Width="216" Height="384" Margin="6" CornerRadius="10" Classes="camera-image-drop"
-                                    Tag="{Binding}" DragDrop.AllowDrop="True"
-                                    DragDrop.DragOver="CameraReferenceImageDragOver"
-                                    DragDrop.Drop="CameraReferenceImageDropped">
-                                <Grid ClipToBounds="True">
+                            <Grid>
+                                <Border Width="216" Height="384" Margin="6" CornerRadius="10"
+                                        HorizontalAlignment="Center" Classes="camera-image-drop"
+                                        Tag="{Binding}" DragDrop.AllowDrop="True"
+                                        DragDrop.DragOver="CameraReferenceImageDragOver"
+                                        DragDrop.Drop="CameraReferenceImageDropped">
+                                    <Grid ClipToBounds="True">
                                     <Button Classes="camera-image-picker" Tag="{Binding}"
                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                             Click="CameraReferenceImageClicked"
@@ -377,8 +379,9 @@
                                             Tag="{Binding}" IsVisible="{Binding CanRemoveReferenceImage}"
                                             Click="RemoveCameraReferenceImageClicked"
                                             AutomationProperties.Name="删除参考画面">×</Button>
-                                </Grid>
-                            </Border>
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBlock Classes="archive-meta" Margin="4,0" TextWrapping="Wrap"
