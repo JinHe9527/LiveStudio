@@ -278,7 +278,34 @@ public sealed class LocalSnapshotIndex
     {
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
+        await SaveSnapshotAsync(connection, null, snapshot, cancellationToken);
+    }
+
+    public async Task SaveSnapshotWithMappingsAsync(
+        LocalSnapshotRecord snapshot,
+        IReadOnlyList<DeviceMapping> mappings,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await SaveSnapshotAsync(connection, transaction, snapshot, cancellationToken);
+        foreach (var mapping in mappings)
+        {
+            await SaveMappingAsync(connection, transaction, mapping, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task SaveSnapshotAsync(
+        SqliteConnection connection,
+        System.Data.Common.DbTransaction? transaction,
+        LocalSnapshotRecord snapshot,
+        CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
+        command.Transaction = transaction as SqliteTransaction;
         command.CommandText = """
             INSERT INTO snapshots(id, name, package_path, sha256, length, created_at, uploaded, upload_eligible, room_id)
             VALUES ($id, $name, $path, $sha256, $length, $createdAt, $uploaded, $uploadEligible, $roomId)
@@ -423,7 +450,17 @@ public sealed class LocalSnapshotIndex
     {
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
+        await SaveMappingAsync(connection, null, mapping, cancellationToken);
+    }
+
+    private static async Task SaveMappingAsync(
+        SqliteConnection connection,
+        System.Data.Common.DbTransaction? transaction,
+        DeviceMapping mapping,
+        CancellationToken cancellationToken)
+    {
         var command = connection.CreateCommand();
+        command.Transaction = transaction as SqliteTransaction;
         command.CommandText = """
             INSERT INTO device_mappings(
                 id, organization_id, device_id, source_logical_id, application,

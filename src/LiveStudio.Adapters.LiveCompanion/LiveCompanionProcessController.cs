@@ -85,47 +85,47 @@ public sealed class LiveCompanionProcessController
         }
 
         foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
-        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
-        {
-            using var baseKey = RegistryKey.OpenBaseKey(hive, view);
-            using var uninstall = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall");
-            if (uninstall is null)
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
-                continue;
-            }
-
-            foreach (var subKeyName in uninstall.GetSubKeyNames())
-            {
-                using var entry = uninstall.OpenSubKey(subKeyName);
-                var displayName = entry?.GetValue("DisplayName") as string;
-                if (string.IsNullOrWhiteSpace(displayName)
-                    || !IsLiveCompanionDisplayName(displayName))
+                using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using var uninstall = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall");
+                if (uninstall is null)
                 {
                     continue;
                 }
 
-                var displayIcon = NormalizeExecutablePath(entry?.GetValue("DisplayIcon") as string);
-                if (displayIcon is not null)
+                foreach (var subKeyName in uninstall.GetSubKeyNames())
                 {
-                    return displayIcon;
-                }
-
-                if (entry?.GetValue("InstallLocation") is not string installLocation
-                    || string.IsNullOrWhiteSpace(installLocation))
-                {
-                    continue;
-                }
-
-                foreach (var processName in ProcessNames)
-                {
-                    var candidate = Path.Combine(installLocation, $"{processName}.exe");
-                    if (File.Exists(candidate))
+                    using var entry = uninstall.OpenSubKey(subKeyName);
+                    var displayName = entry?.GetValue("DisplayName") as string;
+                    if (string.IsNullOrWhiteSpace(displayName)
+                        || !IsLiveCompanionDisplayName(displayName))
                     {
-                        return Path.GetFullPath(candidate);
+                        continue;
+                    }
+
+                    var displayIcon = NormalizeExecutablePath(entry?.GetValue("DisplayIcon") as string);
+                    if (displayIcon is not null)
+                    {
+                        return displayIcon;
+                    }
+
+                    if (entry?.GetValue("InstallLocation") is not string installLocation
+                        || string.IsNullOrWhiteSpace(installLocation))
+                    {
+                        continue;
+                    }
+
+                    foreach (var processName in ProcessNames)
+                    {
+                        var candidate = Path.Combine(installLocation, $"{processName}.exe");
+                        if (File.Exists(candidate))
+                        {
+                            return Path.GetFullPath(candidate);
+                        }
                     }
                 }
             }
-        }
 
         return FindVersionedInstallation();
     }

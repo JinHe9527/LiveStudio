@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using LiveStudio.Desktop.Services;
 
 namespace LiveStudio.Core.Tests;
@@ -9,21 +8,20 @@ public sealed class ApplicationUpdateServiceTests
     [Fact]
     public async Task CheckAsyncReturnsNewerPublicReleaseWithoutAuthorization()
     {
-        HttpRequestMessage? capturedRequest = null;
+        var capturedRequests = new List<HttpRequestMessage>();
         var handler = new RouteHandler(request =>
         {
-            capturedRequest = request;
-            return JsonResponse("""
-                {
-                  "tag_name": "v0.2.0",
-                  "name": "LiveStudio v0.2.0",
-                  "published_at": "2026-08-20T08:00:00Z",
-                  "assets": [
-                    { "name": "LiveStudio-Windows-x64.msix", "url": "https://api.github.com/assets/1" },
-                    { "name": "LiveStudio-Windows-x64.msix.sha256", "url": "https://api.github.com/assets/2" }
-                  ]
-                }
-                """);
+            capturedRequests.Add(request);
+            return request.RequestUri?.AbsolutePath switch
+            {
+                "/owner/repository/releases/latest" => Redirect(
+                    "https://github.com/owner/repository/releases/tag/v0.2.0"),
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix" =>
+                    Redirect("https://release-assets.githubusercontent.com/package"),
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix.sha256" =>
+                    Redirect("https://release-assets.githubusercontent.com/checksum"),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+            };
         });
         var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
 
@@ -31,26 +29,28 @@ public sealed class ApplicationUpdateServiceTests
 
         Assert.NotNull(release);
         Assert.Equal(new Version(0, 2, 0), release.Version);
-        Assert.Equal("https://api.github.com/repos/owner/repository/releases/latest", capturedRequest?.RequestUri?.ToString());
-        Assert.Null(capturedRequest?.Headers.Authorization);
+        Assert.Equal(
+            "https://github.com/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix",
+            release.PackageDownloadUrl.ToString());
+        Assert.Equal(3, capturedRequests.Count);
+        Assert.All(capturedRequests, request => Assert.Null(request.Headers.Authorization));
     }
 
     [Fact]
     public async Task CheckAsyncReturnsNullWhenReleaseIsCurrentVersion()
     {
-        var handler = new RouteHandler(_ => JsonResponse("""
-            {
-              "tag_name": "v0.1.0",
-              "name": "LiveStudio v0.1.0",
-              "published_at": "2026-08-20T08:00:00Z",
-              "assets": []
-            }
-            """));
+        var requestCount = 0;
+        var handler = new RouteHandler(_ =>
+        {
+            requestCount++;
+            return Redirect("https://github.com/owner/repository/releases/tag/v0.1.0");
+        });
         var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
 
         var release = await service.CheckAsync(CancellationToken.None);
 
         Assert.Null(release);
+        Assert.Equal(1, requestCount);
     }
 
     [Fact]
@@ -65,10 +65,41 @@ public sealed class ApplicationUpdateServiceTests
         Assert.Equal("公开更新服务中还没有已发布版本", exception.Message);
     }
 
-    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    [Fact]
+    public async Task CheckAsyncExplainsWhenLatestReleaseHasNoInstallablePackage()
     {
-        Content = new StringContent(json, Encoding.UTF8, "application/json"),
-    };
+        var handler = new RouteHandler(request => request.RequestUri?.AbsolutePath switch
+        {
+            "/owner/repository/releases/latest" => Redirect(
+                "https://github.com/owner/repository/releases/tag/v0.2.0"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CheckAsync(CancellationToken.None));
+
+        Assert.Equal("最新发布中还没有 LiveStudio-Windows-x64.msix", exception.Message);
+    }
+
+    [Fact]
+    public async Task CheckAsyncRejectsUntrustedLatestReleaseRedirect()
+    {
+        var handler = new RouteHandler(_ => Redirect("https://example.com/releases/tag/v9.9.9"));
+        var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => service.CheckAsync(CancellationToken.None));
+
+        Assert.Contains("不受信任", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static HttpResponseMessage Redirect(string location)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.Redirect);
+        response.Headers.Location = new Uri(location);
+        return response;
+    }
 
     private sealed class RouteHandler(Func<HttpRequestMessage, HttpResponseMessage> route) : HttpMessageHandler
     {

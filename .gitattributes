@@ -1,3 +1,6 @@
+# Keep source and configuration text stable across Windows and Linux runners.
+* text=auto eol=lf
+
 # OBS LUTs and reference images are integrity-checked byte-for-byte.
 # Never allow Git to rewrite line endings in these bundled assets.
 src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/cube/** -text

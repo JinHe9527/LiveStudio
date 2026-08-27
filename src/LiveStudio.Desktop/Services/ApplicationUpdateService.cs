@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text.Json.Serialization;
 
 namespace LiveStudio.Desktop.Services;
 
@@ -12,8 +10,8 @@ public sealed record ApplicationUpdateRelease(
     string TagName,
     string Name,
     DateTimeOffset PublishedAt,
-    Uri PackageApiUrl,
-    Uri ChecksumApiUrl);
+    Uri PackageDownloadUrl,
+    Uri ChecksumDownloadUrl);
 
 public sealed record PreparedApplicationUpdate(
     ApplicationUpdateRelease Release,
@@ -42,34 +40,25 @@ public sealed class ApplicationUpdateService(
         CancellationToken cancellationToken)
     {
         using var client = CreateClient();
-        using var response = await client.GetAsync(
-            $"repos/{repositoryOwner}/{repositoryName}/releases/latest",
-            cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            throw new InvalidOperationException("公开更新服务中还没有已发布版本");
-        }
-
-        response.EnsureSuccessStatusCode();
-        var release = await response.Content.ReadFromJsonAsync<GitHubRelease>(cancellationToken)
-            ?? throw new InvalidOperationException("GitHub 没有返回 Release 信息");
-        var version = ParseVersion(release.TagName);
+        var releaseUri = await ResolveLatestReleaseUriAsync(client, cancellationToken);
+        var tagName = ExtractReleaseTag(releaseUri);
+        var version = ParseVersion(tagName);
         if (version <= applicationVersion)
         {
             return null;
         }
 
-        var package = release.Assets.FirstOrDefault(asset => asset.Name == WindowsAssetName)
-            ?? throw new InvalidOperationException($"Release 缺少 {WindowsAssetName}");
-        var checksum = release.Assets.FirstOrDefault(asset => asset.Name == ChecksumAssetName)
-            ?? throw new InvalidOperationException($"Release 缺少 {ChecksumAssetName}");
+        var packageUri = CreateReleaseAssetUri(tagName, WindowsAssetName);
+        var checksumUri = CreateReleaseAssetUri(tagName, ChecksumAssetName);
+        await EnsureAssetPublishedAsync(client, packageUri, WindowsAssetName, cancellationToken);
+        await EnsureAssetPublishedAsync(client, checksumUri, ChecksumAssetName, cancellationToken);
         return new ApplicationUpdateRelease(
             version,
-            release.TagName,
-            string.IsNullOrWhiteSpace(release.Name) ? release.TagName : release.Name,
-            release.PublishedAt,
-            package.ApiUrl,
-            checksum.ApiUrl);
+            tagName,
+            $"LiveStudio {tagName}",
+            DateTimeOffset.MinValue,
+            packageUri,
+            checksumUri);
     }
 
     public async Task<PreparedApplicationUpdate> PrepareAsync(
@@ -90,8 +79,8 @@ public sealed class ApplicationUpdateService(
         var packagePath = Path.Combine(updateRoot, WindowsAssetName);
         var checksumPath = Path.Combine(updateRoot, ChecksumAssetName);
         using var client = CreateClient();
-        await DownloadAssetAsync(client, release.PackageApiUrl, packagePath, cancellationToken);
-        await DownloadAssetAsync(client, release.ChecksumApiUrl, checksumPath, cancellationToken);
+        await DownloadAssetAsync(client, release.PackageDownloadUrl, packagePath, cancellationToken);
+        await DownloadAssetAsync(client, release.ChecksumDownloadUrl, checksumPath, cancellationToken);
         await VerifyChecksumAsync(packagePath, checksumPath, cancellationToken);
         if (string.IsNullOrWhiteSpace(trustedPublisher)
             || string.IsNullOrWhiteSpace(trustedCertificateThumbprint))
@@ -138,12 +127,78 @@ public sealed class ApplicationUpdateService(
 
     private HttpClient CreateClient()
     {
-        var client = messageHandler is null ? new HttpClient() : new HttpClient(messageHandler, false);
-        client.BaseAddress = new Uri("https://api.github.com/");
+        var handler = messageHandler ?? new HttpClientHandler { AllowAutoRedirect = false };
+        var client = new HttpClient(handler, messageHandler is null);
+        client.BaseAddress = new Uri("https://github.com/");
         client.DefaultRequestHeaders.UserAgent.ParseAdd("LiveStudio-Updater");
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
         return client;
+    }
+
+    private async Task<Uri> ResolveLatestReleaseUriAsync(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        var current = new Uri(
+            $"https://github.com/{repositoryOwner}/{repositoryName}/releases/latest");
+        for (var redirectCount = 0; redirectCount < 6; redirectCount++)
+        {
+            using var response = await client.GetAsync(
+                current,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                throw new InvalidOperationException("公开更新服务中还没有已发布版本");
+            }
+
+            if (IsRedirect(response.StatusCode) && response.Headers.Location is { } location)
+            {
+                current = location.IsAbsoluteUri ? location : new Uri(current, location);
+                EnsureTrustedDownloadUri(current);
+                if (TryExtractReleaseTag(current, out _))
+                {
+                    return current;
+                }
+
+                continue;
+            }
+
+            response.EnsureSuccessStatusCode();
+            var finalUri = response.RequestMessage?.RequestUri ?? current;
+            EnsureTrustedDownloadUri(finalUri);
+            if (TryExtractReleaseTag(finalUri, out _))
+            {
+                return finalUri;
+            }
+
+            throw new InvalidDataException("公开更新服务没有返回可识别的最新版本地址");
+        }
+
+        throw new InvalidDataException("公开更新服务重定向次数过多");
+    }
+
+    private Uri CreateReleaseAssetUri(string tagName, string assetName) => new(
+        $"https://github.com/{repositoryOwner}/{repositoryName}/releases/download/{Uri.EscapeDataString(tagName)}/{assetName}");
+
+    private static async Task EnsureAssetPublishedAsync(
+        HttpClient client,
+        Uri assetUri,
+        string assetName,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(
+            assetUri,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException($"最新发布中还没有 {assetName}");
+        }
+
+        if (!response.IsSuccessStatusCode && !IsRedirect(response.StatusCode))
+        {
+            response.EnsureSuccessStatusCode();
+        }
     }
 
     private static async Task DownloadAssetAsync(
@@ -152,13 +207,7 @@ public sealed class ApplicationUpdateService(
         string targetPath,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, assetApiUrl);
-        request.Headers.Accept.Clear();
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
-        using var response = await client.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+        using var response = await SendFollowingRedirectsAsync(client, assetApiUrl, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var target = new FileStream(
@@ -170,6 +219,67 @@ public sealed class ApplicationUpdateService(
             FileOptions.Asynchronous | FileOptions.WriteThrough);
         await source.CopyToAsync(target, cancellationToken);
         await target.FlushAsync(cancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
+        HttpClient client,
+        Uri initialUri,
+        CancellationToken cancellationToken)
+    {
+        var current = initialUri;
+        for (var redirectCount = 0; redirectCount < 8; redirectCount++)
+        {
+            EnsureTrustedDownloadUri(current);
+            using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+            var response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (!IsRedirect(response.StatusCode) || response.Headers.Location is not { } location)
+            {
+                return response;
+            }
+
+            current = location.IsAbsoluteUri ? location : new Uri(current, location);
+            response.Dispose();
+        }
+
+        throw new InvalidDataException("更新包下载重定向次数过多");
+    }
+
+    private static bool IsRedirect(System.Net.HttpStatusCode statusCode) => statusCode is
+        System.Net.HttpStatusCode.MovedPermanently
+        or System.Net.HttpStatusCode.Redirect
+        or System.Net.HttpStatusCode.RedirectMethod
+        or System.Net.HttpStatusCode.TemporaryRedirect
+        or System.Net.HttpStatusCode.PermanentRedirect;
+
+    private static void EnsureTrustedDownloadUri(Uri uri)
+    {
+        var trustedHost = string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !trustedHost)
+        {
+            throw new InvalidDataException($"更新服务重定向到不受信任的地址：{uri.Host}");
+        }
+    }
+
+    private static string ExtractReleaseTag(Uri releaseUri) =>
+        TryExtractReleaseTag(releaseUri, out var tagName)
+            ? tagName
+            : throw new InvalidDataException("无法从公开更新地址解析版本标签");
+
+    private static bool TryExtractReleaseTag(Uri releaseUri, out string tagName)
+    {
+        var segments = releaseUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var tagIndex = Array.FindIndex(segments, segment =>
+            string.Equals(segment, "tag", StringComparison.OrdinalIgnoreCase));
+        tagName = tagIndex >= 0 && tagIndex + 1 < segments.Length
+            ? Uri.UnescapeDataString(segments[tagIndex + 1])
+            : string.Empty;
+        return !string.IsNullOrWhiteSpace(tagName);
     }
 
     private static async Task VerifyChecksumAsync(
@@ -296,13 +406,4 @@ try {
 }
 """;
 
-    private sealed record GitHubRelease(
-        [property: JsonPropertyName("tag_name")] string TagName,
-        [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("published_at")] DateTimeOffset PublishedAt,
-        [property: JsonPropertyName("assets")] IReadOnlyList<GitHubReleaseAsset> Assets);
-
-    private sealed record GitHubReleaseAsset(
-        [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("url")] Uri ApiUrl);
 }

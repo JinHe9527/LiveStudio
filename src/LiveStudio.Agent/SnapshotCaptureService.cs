@@ -6,19 +6,56 @@ using LiveStudio.Packaging;
 
 namespace LiveStudio.Agent;
 
-public sealed class SnapshotCaptureException(string message) : Exception(message);
+public sealed class SnapshotCaptureException : Exception
+{
+    public SnapshotCaptureException(string message)
+        : base(message)
+    {
+    }
 
-public sealed class SnapshotCaptureService(
-    IEnumerable<IApplicationAdapter> adapters,
-    IDeviceCredentialStore credentialStore,
-    LocalSnapshotIndex snapshotIndex,
-    ApplicationOperationGate operationGate)
+    public SnapshotCaptureException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+public sealed class SnapshotCaptureService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
     };
-    private readonly IReadOnlyList<IApplicationAdapter> adapters = adapters.ToArray();
+    private readonly IReadOnlyList<IApplicationAdapter> adapters;
+    private readonly IDeviceCredentialStore credentialStore;
+    private readonly LocalSnapshotIndex snapshotIndex;
+    private readonly ApplicationOperationGate operationGate;
+    private readonly string snapshotDirectory;
+
+    public SnapshotCaptureService(
+        IEnumerable<IApplicationAdapter> adapters,
+        IDeviceCredentialStore credentialStore,
+        LocalSnapshotIndex snapshotIndex,
+        ApplicationOperationGate operationGate)
+        : this(adapters, credentialStore, snapshotIndex, operationGate, null)
+    {
+    }
+
+    internal SnapshotCaptureService(
+        IEnumerable<IApplicationAdapter> adapters,
+        IDeviceCredentialStore credentialStore,
+        LocalSnapshotIndex snapshotIndex,
+        ApplicationOperationGate operationGate,
+        string? snapshotDirectory)
+    {
+        this.adapters = adapters.ToArray();
+        this.credentialStore = credentialStore;
+        this.snapshotIndex = snapshotIndex;
+        this.operationGate = operationGate;
+        this.snapshotDirectory = Path.GetFullPath(snapshotDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "LiveStudio",
+            "Snapshots"));
+    }
 
     public Task<LocalSnapshotRecord> CaptureAsync(string name, CancellationToken cancellationToken) =>
         CaptureAsync(name, null, cancellationToken);
@@ -111,37 +148,56 @@ public sealed class SnapshotCaptureService(
             files.Add(await ReadAssetAsync(asset, binding, cancellationToken));
         }
 
-        var snapshotDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LiveStudio",
-            "Snapshots");
         Directory.CreateDirectory(snapshotDirectory);
         var packagePath = Path.Combine(snapshotDirectory, $"{snapshotId:N}.lscfg");
-        using var signingKey = ECDsa.Create();
-        signingKey.ImportFromPem(credentials.PackageSigningPrivateKeyPem);
-        await SnapshotPackageWriter.WriteAsync(
-            packagePath,
-            combined,
-            files,
-            signingKey,
-            credentials.DeviceId.ToString("N"),
-            cancellationToken);
-        await using var packageStream = File.OpenRead(packagePath);
-        var packageHash = Convert.ToHexStringLower(await SHA256.HashDataAsync(packageStream, cancellationToken));
-        var info = new FileInfo(packagePath);
-        var record = new LocalSnapshotRecord(
-            snapshotId,
-            combined.Name,
-            packagePath,
-            packageHash,
-            info.Length,
-            combined.CreatedAt,
-            false,
-            credentials.IsCloudEnrolled,
-            credentials.IsCloudEnrolled ? credentials.RoomId : null);
-        await snapshotIndex.SaveAsync(record, cancellationToken);
-        await SaveLocalIdentityMappingsAsync(snapshots, credentials, cancellationToken);
-        return record;
+        try
+        {
+            using var signingKey = ECDsa.Create();
+            signingKey.ImportFromPem(credentials.PackageSigningPrivateKeyPem);
+            await SnapshotPackageWriter.WriteAsync(
+                packagePath,
+                combined,
+                files,
+                signingKey,
+                credentials.DeviceId.ToString("N"),
+                cancellationToken);
+            string packageHash;
+            await using (var packageStream = File.OpenRead(packagePath))
+            {
+                packageHash = Convert.ToHexStringLower(
+                    await SHA256.HashDataAsync(packageStream, cancellationToken));
+            }
+
+            var info = new FileInfo(packagePath);
+            var record = new LocalSnapshotRecord(
+                snapshotId,
+                combined.Name,
+                packagePath,
+                packageHash,
+                info.Length,
+                combined.CreatedAt,
+                false,
+                credentials.IsCloudEnrolled,
+                credentials.IsCloudEnrolled ? credentials.RoomId : null);
+            var mappings = CreateLocalIdentityMappings(snapshots, credentials);
+            await snapshotIndex.SaveSnapshotWithMappingsAsync(record, mappings, cancellationToken);
+            return record;
+        }
+        catch (Exception captureException)
+        {
+            try
+            {
+                DeleteIncompletePackage(packagePath);
+            }
+            catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
+            {
+                throw new SnapshotCaptureException(
+                    $"保存失败，且无法清理不完整存档：{cleanupException.Message}",
+                    new AggregateException(captureException, cleanupException));
+            }
+
+            throw;
+        }
     }
 
     private static async Task<PreviewCapture?> CapturePreviewSafelyAsync(
@@ -167,29 +223,37 @@ public sealed class SnapshotCaptureService(
         _ => throw new SnapshotCaptureException($"不支持的预览图格式: {mediaType}")
     };
 
-    private async Task SaveLocalIdentityMappingsAsync(
+    private static List<DeviceMapping> CreateLocalIdentityMappings(
         IEnumerable<ApplicationSnapshot> snapshots,
-        DeviceCredentials credentials,
-        CancellationToken cancellationToken)
+        DeviceCredentials credentials)
     {
+        var mappings = new List<DeviceMapping>();
         foreach (var application in snapshots)
         {
             foreach (var source in application.Sources.Where(source =>
                          source.Device?.InterfaceHint is { Length: > 0 }))
             {
-                await snapshotIndex.SaveMappingAsync(
-                    new DeviceMapping(
-                        Guid.NewGuid(),
-                        credentials.OrganizationId,
-                        credentials.DeviceId,
-                        source.LogicalId,
-                        application.Kind,
-                        source.Device!.InterfaceHint!,
-                        source.Name,
-                        string.Empty,
-                        false),
-                    cancellationToken);
+                mappings.Add(new DeviceMapping(
+                    Guid.NewGuid(),
+                    credentials.OrganizationId,
+                    credentials.DeviceId,
+                    source.LogicalId,
+                    application.Kind,
+                    source.Device!.InterfaceHint!,
+                    source.Name,
+                    string.Empty,
+                    false));
             }
+        }
+
+        return mappings;
+    }
+
+    private static void DeleteIncompletePackage(string packagePath)
+    {
+        if (File.Exists(packagePath))
+        {
+            File.Delete(packagePath);
         }
     }
 

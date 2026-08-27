@@ -803,3 +803,17 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 本节只改变桌面信息架构、入口显隐和操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
 
 最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；全部直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。
+
+## 34. 2026-08-27 正式下发前审查修复
+
+本轮针对完整发布审查发现的问题完成修复，但没有执行新的破坏性 OBS/直播伴侣恢复，也没有新增实体采集卡证据。公开更新不再调用受每公网出口每小时 60 次额度影响的 GitHub REST API，而是从 `github.com/<仓库>/releases/latest` 的公开重定向解析标签，并使用固定 Release 下载地址检查和下载 MSIX 与 SHA-256。所有下载重定向只接受 GitHub 与 `githubusercontent.com` HTTPS 主机；安装前继续强制验证 SHA-256、固定 Publisher 和证书指纹。真实设置页在 GitHub API 额度已经耗尽的环境中检查更新，不再返回 403，而是准确显示当前既有 `v0.1.1` 尚无 `LiveStudio-Windows-x64.msix`。下一次标签发布工作流仍负责生成并签名该固定名称的 MSIX。
+
+联合保存现在先生成签名包，再在一个 SQLite 事务中同时写入存档索引和全部本机设备映射；映射或索引任一步失败会回滚整个数据库事务并删除刚生成的 `.lscfg`。新增 Windows 回归主动删除 `device_mappings` 表以强制最后一步失败，确认索引为 0、存档目录无 `.lscfg` 残留，覆盖了此前“界面提示保存失败但数量增加”的边界。
+
+单机时间线不再显示历史云端 `已同步/等待上传/仅本机` 状态，只显示真实文件大小。设置页不再用 Agent 存活状态冒充两款应用均已连接，而是分别显示 OBS 与直播伴侣的实际读取/运行状态；真实客户端显示 OBS“已连接”、直播伴侣“已读取”。800×600 窗口中 OBS、直播伴侣、相机参数、保存、恢复和左下设置均位于窗口边界内且可用，时间线文本中旧同步状态为 0 项。色卡与 LUT 已由项目所有者明确确认为原创并允许自由使用，仓库授权说明同步纳入 MIT。
+
+工程格式已经统一，`.gitattributes` 固定源码与配置文本为 LF，内置 LUT/PNG 继续保持逐字节 `-text`；普通 CI 与标签 Release 均增加 `dotnet format --verify-no-changes`。最终 Release 还原和整仓构建为 0 错误、0 警告；LiveStudio.Core.Tests 232 项、LiveStudio.Agent.Tests 24 项，共 256 项全部通过；云端集成项目 Release 编译通过；全部直接和传递 NuGet 包均无已知漏洞；`dotnet format --verify-no-changes`、`git diff --check` 与 `git fsck --full` 通过。
+
+本节没有改变跨硬件证据等级。当前机器仍缺少天创恒达或美乐威 4KPro 实体采集卡，直播伴侣精确版本的覆盖继续为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`；正式标记跨硬件验证仍需第二台不同实体采集卡电脑完成规定循环。
+
+`v0.1.2` 发布准备新增固定内部 MSIX 签名身份 `CN=LiveStudio Internal`，公钥 SHA-1 指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，有效期至 2031-08-27。PFX 与密码只保存在 GitHub 加密 Secret 和仓库外的本机 DPAPI 备份中；仓库与 Release 只公开 `.cer`。标签工作流会把公钥导入临时 Runner 的 `Trusted People` 后执行 `SignTool verify /pa /v`，并同时发布 MSIX、SHA-256、签名报告和首次安装所需的公钥证书。固定直播间电脑首次安装公钥后，软件内更新继续锁定同一 Publisher 与证书指纹。

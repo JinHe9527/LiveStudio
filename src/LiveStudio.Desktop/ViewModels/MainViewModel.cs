@@ -2405,8 +2405,10 @@ public partial class MainViewModel : ViewModelBase
         {
             var state = await localAgentClient.AutoConfigureObsAsync(cancellationToken);
             ApplyAgentState(state);
-            SettingsMessage = "OBS 与直播伴侣已自动连接";
-            ControlStatusDescription = "OBS 已连接；直播伴侣配置已读取。没有完成字段验证前可以保存检查，但不能写回还原。";
+            SettingsMessage = $"检测完成：OBS {ObsConnectionState}；直播伴侣 {LiveCompanionConnectionState}";
+            ControlStatusDescription = state.CanCapture
+                ? "OBS 与直播伴侣配置均可读取，可以保存当前画面。"
+                : "至少一款应用尚未就绪，请按上方实际状态处理后重新检测。";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {

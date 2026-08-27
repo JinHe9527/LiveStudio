@@ -79,7 +79,8 @@ public sealed class SnapshotAssetBindingsTests
                     new Dictionary<string, JsonElement>(),
                     [chainBinding],
                     FieldEvidenceStatus.Mapped)])
-        ]) with { Sources = [source] };
+        ]) with
+        { Sources = [source] };
 
         Assert.Throws<InvalidDataException>(() => SnapshotAssetBindings.Collect([application]));
     }

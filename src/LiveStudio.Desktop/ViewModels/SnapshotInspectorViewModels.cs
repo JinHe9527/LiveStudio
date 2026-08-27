@@ -168,11 +168,11 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
         AdapterStatus = IsLiveCompanion && application.Compatibility != CompatibilityLevel.Verified
             ? "已保存 · 当前不能还原"
             : application.Compatibility switch
-        {
-            CompatibilityLevel.Verified => "已保存 · 可一键还原",
-            CompatibilityLevel.Experimental => "已保存 · 还原功能待验证",
-            _ => "已保存 · 当前不能还原"
-        };
+            {
+                CompatibilityLevel.Verified => "已保存 · 可一键还原",
+                CompatibilityLevel.Experimental => "已保存 · 还原功能待验证",
+                _ => "已保存 · 当前不能还原"
+            };
         AdapterId = application.AdapterId;
         AdapterDefinition = ShortHash(application.AdapterDefinitionSha256);
         StructureFingerprint = ShortHash(application.StructureFingerprint);
@@ -379,7 +379,7 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
     {
         if (group.Name == "美颜设置"
             && NativeDocuments.FirstOrDefault(document => document.FileName == "effectConfigStore.json") is
-                { HasEffectiveItems: true })
+            { HasEffectiveItems: true })
         {
             return true;
         }

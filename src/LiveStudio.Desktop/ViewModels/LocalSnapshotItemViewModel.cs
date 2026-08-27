@@ -28,11 +28,9 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot, st
 
     public string Size { get; } = FormatSize(snapshot.Length);
 
-    public string SyncStatus { get; } = snapshot.UploadEligible
-        ? snapshot.Uploaded ? "已同步" : "等待上传"
-        : "仅本机";
+    public string SyncStatus { get; } = "本机";
 
-    public string Detail => $"{Size} · {SyncStatus}";
+    public string Detail => Size;
 
     public Guid? RoomId { get; } = snapshot.RoomId;
 
@@ -40,7 +38,7 @@ public sealed class LocalSnapshotItemViewModel(LocalSnapshotSummary snapshot, st
 
     public bool IsDesktopFile { get; }
 
-    public bool IsUploadPending { get; } = snapshot.UploadEligible && !snapshot.Uploaded;
+    public bool IsUploadPending { get; }
 
     public SnapshotSummary? CloudSummary { get; private set; }
 
