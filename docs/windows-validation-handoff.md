@@ -833,3 +833,5 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 `v0.1.9` 随后在创建 Release 前明确返回 `0x800B0109`：一次性 Runner 的内部自签名根不在本机信任链。发布自检现只在 Signer 指纹和 Publisher 已固定匹配时接受该精确的内部根错误，与外层 SignTool 规则一致；坏摘要、未签名、错误证书及任何其他 WinVerifyTrust 错误仍失败。真实首次安装不启用此例外：证书写入 `Local Machine\Trusted People` 后，EXE 和 MSIX 必须由 WinVerifyTrust 返回完全成功才会执行 Appx 安装。
 
 `v0.1.10` 的云端构建、签名和内置资源自检全部通过，但从公开 Release 下载后执行首次安装时，Windows PowerShell 没有把 `-Command` 后的独立参数填入脚本 `$args`，导致 `Add-AppxPackage -Path` 收到空值；包未安装，版本已立即标记为预发布并撤回。安装器现通过进程环境变量传递 MSIX 路径和目标版本，避免命令行重新解析路径；专门测试覆盖含中文和空格的参数，修复版本必须再次从公开 Release 下载并完成真实首次安装后才可下发。
+
+`v0.1.11` 已完成公开 Release 回下载与本机升级验证：`LiveStudio-Setup.exe` SHA-256 为 `fa67d2b086bd5f253f302f5124fdafe8920b7fd7d37039ad8918f9c53e3f28ff`，与 GitHub Asset Digest 和随附校验文件完全一致；Authenticode 状态为 `Valid`，Signer 指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，`--verify-only` 返回 `0`。同一公开安装器已把本机包从 `0.1.6.0` 实际升级到 `0.1.11.0`，安装后 `LiveStudio.Desktop` 已运行，`Local Machine\Trusted People` 中固定证书存在，安装失败日志不存在。该证据只覆盖本机安装与升级链，不改变直播伴侣跨两台采集卡 20 次逐字段恢复的 `Verified=0` 状态。
