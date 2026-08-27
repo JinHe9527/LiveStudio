@@ -13,9 +13,8 @@
         Height="780"
         MinWidth="760"
         MinHeight="560"
-        WindowDecorations="BorderOnly"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="36"
+        WindowDecorations="Full"
+        ExtendClientAreaToDecorationsHint="False"
         Background="{DynamicResource AppWindowBrush}"
         Title="LiveStudio">
 
@@ -24,14 +23,9 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="36,*">
-        <Border Grid.Row="0" Classes="app-titlebar"
-                WindowDecorationProperties.ElementRole="TitleBar">
-            <Grid ColumnDefinitions="104,*,92">
-                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center"
-                           Classes="title-context" Text="LiveStudio" />
-
-                <Grid Grid.Column="1" Margin="0,0,8,0"
-                      IsVisible="{Binding IsSnapshotsVisible}" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <Border Grid.Row="0" Classes="app-titlebar">
+            <Grid Margin="16,0">
+                <Grid IsVisible="{Binding IsSnapshotsVisible}" ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <TextBlock VerticalAlignment="Center" Classes="title-context"
                                Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="5">
@@ -57,21 +51,12 @@
                     </StackPanel>
                 </Grid>
 
-                <Grid Grid.Column="1" Margin="0,0,8,0"
-                      IsVisible="{Binding IsSettingsVisible}" ColumnDefinitions="*,Auto">
+                <Grid IsVisible="{Binding IsSettingsVisible}" ColumnDefinitions="*,Auto">
                     <TextBlock VerticalAlignment="Center" Classes="title-context" Text="设置" />
                     <Button Grid.Column="1" Classes="title-nav" Command="{Binding SelectSectionCommand}"
                             CommandParameter="1">返回存档管理</Button>
                 </Grid>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Classes="window-control" AutomationProperties.Name="最小化"
-                            WindowDecorationProperties.ElementRole="MinimizeButton"
-                            Click="MinimizeWindowClicked">—</Button>
-                    <Button Classes="window-control window-close" AutomationProperties.Name="关闭"
-                            WindowDecorationProperties.ElementRole="CloseButton"
-                            Click="CloseWindowClicked">×</Button>
-                </StackPanel>
             </Grid>
         </Border>
 

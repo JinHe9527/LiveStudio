@@ -6,13 +6,10 @@
              Background="{DynamicResource ArchiveContentBrush}">
     <Grid ColumnDefinitions="200,*">
         <Border Classes="archive-timeline">
-            <Grid RowDefinitions="Auto,*">
-                <Grid Margin="16,10,8,8" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Grid Margin="16,10,12,8" ColumnDefinitions="*,Auto" ColumnSpacing="6">
                     <TextBlock Classes="archive-label" FontWeight="SemiBold" Text="本机存档" />
                     <TextBlock Grid.Column="1" Classes="archive-meta" Text="{Binding SnapshotCountText}" />
-                    <Button Grid.Column="2" Classes="timeline-settings" VerticalAlignment="Center"
-                            Command="{Binding SelectSectionCommand}" CommandParameter="3"
-                            AutomationProperties.Name="设置">设置</Button>
                 </Grid>
                 <ListBox Grid.Row="1" Margin="6,0,6,8" Classes="archive-list" ItemsSource="{Binding SnapshotTimelineItems}"
                          SelectedItem="{Binding SelectedSnapshotTimelineItem}" IsVisible="{Binding HasSnapshots}">
@@ -48,6 +45,14 @@
                     <TextBlock Classes="archive-section" Text="还没有画面存档" TextAlignment="Center" />
                     <TextBlock Classes="archive-meta" Text="{Binding SnapshotEmptyDescription}" TextAlignment="Center" TextWrapping="Wrap" />
                 </StackPanel>
+                <Button Grid.Row="2" Margin="8" Classes="timeline-settings-bottom"
+                        Command="{Binding SelectSectionCommand}" CommandParameter="3"
+                        AutomationProperties.Name="设置">
+                    <Grid ColumnDefinitions="20,*" ColumnSpacing="6">
+                        <TextBlock VerticalAlignment="Center" Text="⚙" FontSize="14" />
+                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="设置" />
+                    </Grid>
+                </Button>
             </Grid>
         </Border>
 
