@@ -774,3 +774,20 @@ OBS 与直播伴侣版本、来源/滤镜/字段统计、推流录制状态、�
 本节只调整桌面信息架构、中文文案和入口显隐，不改变 `.lscfg`、OBS/直播伴侣捕获、相机参数绑定或事务恢复执行链，也没有执行破坏性真机恢复。跨物理采集卡证据继续保持 `Mapped=1028`、`Verified=0`。
 
 默认 1240×780 窗口复验随后发现三处纯布局问题并已修正：存档页原自由换行工具栏改为明确的上下两层，名称与 OBS/直播伴侣/相机分段位于第一层，刷新、导入、保存、恢复和更多操作位于第二层；时间线顶部只显示“本机存档”和数量，不再显示“未分配直播间”。设置页有限宽说明文字固定左对齐，自动运行状态和按钮统一垂直居中。Windows 标题栏已经显示应用图标与名称，因此侧栏重复的 LiveStudio 品牌块被移除。最终截图为 `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshots-default-fixed.png`、`livestudio-settings-default-final.png` 和 `livestudio-home-default-fixed.png`。
+
+## 33. 2026-08-27 标题栏导航与单行存档工具栏
+
+全局导航已进入 Windows 原生标题栏可用区域：备份与恢复、存档管理、操作记录、本机名称和设置始终位于窗口最上方，系统最小化、最大化和关闭按钮继续使用原生窗口装饰。原固定 216px 全局侧栏已移除，存档时间线仍作为存档页内部的 200px 导航保留，因此默认窗口和最大化窗口都把更多横向空间留给 OBS、直播伴侣和相机参数内容。
+
+存档页原来上下两层堆叠的刷新、导入、保存、恢复和更多操作重新整理为一条工具栏：左侧为存档名称与时间，中间为 OBS、直播伴侣、相机参数分段，右侧只保留“保存当前画面”“恢复所选存档”和更多菜单。刷新、导入并应用、仅导入、导出、重命名、技术信息和删除继续完整保留在更多菜单内，不改变原命令和安全检查。
+
+Windows UI Automation 已逐项调用标题栏四个入口并确认对应页面内容可见；更多菜单中的刷新、导入并应用、仅导入、导出和技术信息均可见。真实 Release 窗口在浅色 900×650、浅色 1240×780、浅色最大化和深色 1240×780 状态下均保持单行工具栏、无按钮遮挡、无标题栏重叠：
+
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-toolbar-narrow.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-toolbar-default.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-maximized.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-toolbar-dark.png`
+
+本节只改变桌面导航和存档页操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
+
+最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；全部直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。

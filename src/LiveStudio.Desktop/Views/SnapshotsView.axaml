@@ -50,38 +50,35 @@
 
         <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Background="{DynamicResource ArchiveContentBrush}">
             <Border Classes="archive-header">
-                <Grid Margin="16,7,16,8" RowDefinitions="Auto,Auto" RowSpacing="7">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                        <StackPanel MinWidth="120" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
-                            <ListBox Classes="archive-segment" ItemsSource="{Binding SnapshotInspector.Applications}"
-                                     SelectedItem="{Binding SnapshotInspector.SelectedApplication}"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                                <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
-                                <ListBox.ItemTemplate><DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
-                                    <TextBlock MinWidth="70" Padding="10,5" TextAlignment="Center" Classes="archive-label" Text="{Binding ShortName}" />
-                                </DataTemplate></ListBox.ItemTemplate>
-                            </ListBox>
-                            <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
-                                    Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
-                        </StackPanel>
-                    </Grid>
-                    <WrapPanel Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Margin="0,0,6,0" Classes="archive-icon" Command="{Binding RefreshStateCommand}"
-                                AutomationProperties.Name="刷新" ToolTip.Tip="刷新">↻</Button>
-                        <Button Margin="0,0,6,0" Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
-                                Click="ImportAndApplySnapshotClicked">导入并应用</Button>
-                        <Button Margin="0,0,6,0" Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
+                <Grid Margin="16,7,16,8" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="14">
+                    <StackPanel MinWidth="0" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Classes="archive-title" FontSize="18" Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="archive-meta" Text="{Binding SnapshotInspector.CreatedAt}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                        <ListBox Classes="archive-segment" ItemsSource="{Binding SnapshotInspector.Applications}"
+                                 SelectedItem="{Binding SnapshotInspector.SelectedApplication}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                            <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate><DataTemplate x:DataType="vm:SnapshotApplicationViewModel">
+                                <TextBlock MinWidth="66" Padding="9,5" TextAlignment="Center" Classes="archive-label" Text="{Binding ShortName}" />
+                            </DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Classes="archive-segment-camera" Classes.active="{Binding SnapshotInspector.IsCameraSelected}"
+                                Command="{Binding SnapshotInspector.SelectCameraCommand}">相机参数</Button>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+                        <Button Classes="archive-secondary" IsVisible="{Binding SupportsLocalAgent}"
                                 Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
-                        <Button Margin="0,0,6,0" Classes="archive-primary" IsVisible="{Binding CanShowRestoreAction}"
+                        <Button Classes="archive-primary" IsVisible="{Binding CanShowRestoreAction}"
                                 Command="{Binding RestoreSnapshotCommand}" Content="{Binding RestoreActionText}"
                                 AutomationProperties.Name="恢复所选存档" />
                         <Button Classes="archive-icon" AutomationProperties.Name="更多操作">•••
                             <Button.Flyout><MenuFlyout>
+                                <MenuItem Header="刷新" Command="{Binding RefreshStateCommand}" />
+                                <MenuItem Header="导入并应用…" IsVisible="{Binding SupportsLocalAgent}" Click="ImportAndApplySnapshotClicked" />
                                 <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
+                                <Separator />
                                 <MenuItem Header="导出所选存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked" />
                                 <MenuItem Header="重命名…" IsEnabled="{Binding HasSelectedSnapshot}" Click="RenameCurrentSnapshotClicked" />
                                 <Separator />
@@ -90,7 +87,7 @@
                                 <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
                             </MenuFlyout></Button.Flyout>
                         </Button>
-                    </WrapPanel>
+                    </StackPanel>
                 </Grid>
             </Border>
 
