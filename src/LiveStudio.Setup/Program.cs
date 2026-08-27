@@ -20,6 +20,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        var verifyOnly = args.Contains(VerifyOnlyArgument, StringComparer.OrdinalIgnoreCase);
         try
         {
             if (!OperatingSystem.IsWindows())
@@ -27,7 +28,6 @@ internal static class Program
                 throw new PlatformNotSupportedException("LiveStudio 一键安装器只支持 Windows");
             }
 
-            var verifyOnly = args.Contains(VerifyOnlyArgument, StringComparer.OrdinalIgnoreCase);
             if (!verifyOnly && !IsAdministrator())
             {
                 RelaunchAsAdministrator();
@@ -62,11 +62,15 @@ internal static class Program
         catch (Exception exception)
         {
             WriteFailureLog(exception);
-            MessageBox.Show(
-                $"安装失败：{exception.Message}\n\n错误记录：{LogPath}",
-                "LiveStudio 安装失败",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            if (!verifyOnly)
+            {
+                MessageBox.Show(
+                    $"安装失败：{exception.Message}\n\n错误记录：{LogPath}",
+                    "LiveStudio 安装失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+
             return 1;
         }
     }

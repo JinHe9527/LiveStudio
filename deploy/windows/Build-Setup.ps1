@@ -71,10 +71,17 @@ try {
         -FilePath $setupPath `
         -ArgumentList '--verify-only' `
         -WindowStyle Hidden `
-        -Wait `
         -PassThru
+    if (-not $verificationProcess.WaitForExit(60000)) {
+        Stop-Process -Id $verificationProcess.Id -Force -ErrorAction SilentlyContinue
+        throw 'LiveStudio 一键安装器内置资源复验超时。'
+    }
     if ($verificationProcess.ExitCode -ne 0) {
-        throw 'LiveStudio 一键安装器内置资源复验失败。'
+        $installerLog = Join-Path $env:ProgramData 'LiveStudio\Installer\install.log'
+        $details = if ([IO.File]::Exists($installerLog)) {
+            Get-Content -LiteralPath $installerLog -Raw
+        }
+        throw "LiveStudio 一键安装器内置资源复验失败。$([Environment]::NewLine)$details"
     }
 
     Write-Output $setupPath

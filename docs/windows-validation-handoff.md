@@ -827,3 +827,5 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 安装器最初在管理员环境中通过 PowerShell `Get-AuthenticodeSignature` 执行导入后的信任校验；`v0.1.7` 公开包的哈希、Signer 与内嵌载荷均通过，但当前真机首次安装时系统无法自动加载 `Microsoft.PowerShell.Security`，证书加入 Trusted People 后安全中止，MSIX 没有安装。该 Release 已立即标记为预发布并注明撤回，不再作为软件最新正式版本。安装器随后改为直接调用 Windows `WinVerifyTrust`，不再依赖 PowerShell 安全模块；需要执行 Appx 安装时固定调用系统 Windows PowerShell 并补齐系统模块路径。`--verify-only` 同时执行 WinVerifyTrust 和 Appx 模块加载，防止发布流水线再次只验证外层而漏过运行时实现。
 
 安装器现有 7 项专门测试，覆盖 Release SHA-256 格式、非法校验拒绝、MSIX manifest 版本读取、Publisher 拒绝和未签名文件拒绝。最终单文件封装、时间戳签名、公开下载后哈希和真机首次安装状态必须以修复标签的 GitHub Windows Release 工作流与本机实际安装为准。
+
+`v0.1.8` 的 Release 在一键安装器自检阶段停留超过本机正常耗时，确认是非交互 Runner 上的失败提示框阻塞；流程在创建 Release 前被人工取消，因此没有公开产物。自检模式现禁止显示任何窗口，最多等待 60 秒，失败时把 `%ProgramData%\LiveStudio\Installer\install.log` 原因直接写入 Actions 日志；真实首次安装仍保留用户可见的成功或失败提示。
