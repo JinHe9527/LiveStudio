@@ -58,7 +58,10 @@ jobs:
           New-Item -ItemType Directory -Path (Split-Path $publicCertificatePath) -Force | Out-Null
           Export-Certificate -Cert $certificate -FilePath $publicCertificatePath -Type CERT | Out-Null
           Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
-          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          & certutil.exe -user -addstore -f Root $publicCertificatePath
+          if ($LASTEXITCODE -ne 0) {
+            throw '无法在一次性 Runner 中信任内部签名根证书'
+          }
           "LIVESTUDIO_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: 构建并验证签名 MSIX

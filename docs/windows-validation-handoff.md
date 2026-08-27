@@ -816,4 +816,4 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 
 本节没有改变跨硬件证据等级。当前机器仍缺少天创恒达或美乐威 4KPro 实体采集卡，直播伴侣精确版本的覆盖继续为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`；正式标记跨硬件验证仍需第二台不同实体采集卡电脑完成规定循环。
 
-发布准备新增固定内部 MSIX 签名身份 `CN=LiveStudio Internal`，公钥 SHA-1 指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，有效期至 2031-08-27。PFX 与密码只保存在 GitHub 加密 Secret 和仓库外的本机 DPAPI 备份中；仓库与 Release 只公开 `.cer`。首次 `v0.1.2` 标签已完整通过还原、编译、测试和证书导入，但 SignTool `/pa` 因自签名根未进入 Runner 的受信任根而按预期阻止创建 Release；该失败标签保持不可变且没有发布下载。`v0.1.3` 工作流同时把公钥导入一次性 Runner 的 `Trusted People` 与 `Root` 后再执行 `SignTool verify /pa /v`，并同时发布 MSIX、SHA-256、签名报告和首次安装所需的公钥证书。固定直播间电脑首次安装公钥后，软件内更新继续锁定同一 Publisher 与证书指纹。
+发布准备新增固定内部 MSIX 签名身份 `CN=LiveStudio Internal`，公钥 SHA-1 指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，有效期至 2031-08-27。PFX 与密码只保存在 GitHub 加密 Secret 和仓库外的本机 DPAPI 备份中；仓库与 Release 只公开 `.cer`。首次 `v0.1.2` 标签已完整通过还原、编译、测试和证书导入，但 SignTool `/pa` 因自签名根未进入 Runner 的受信任根而按预期阻止创建 Release；`v0.1.3` 随后确认 PowerShell 向 Root 导入会触发无界面系统确认，工作流在产物生成前被人工取消。两个标签均保持不可变且没有发布下载。`v0.1.4` 改用已在本机实测无弹窗成功的 `certutil -user -addstore -f Root`，然后执行 `SignTool verify /pa /v`，并同时发布 MSIX、SHA-256、签名报告和首次安装所需的公钥证书。固定直播间电脑首次安装公钥后，软件内更新继续锁定同一 Publisher 与证书指纹。
