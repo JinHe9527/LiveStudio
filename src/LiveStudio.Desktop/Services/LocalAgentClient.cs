@@ -27,14 +27,15 @@ public sealed class LocalAgentClient
     public Task<LocalSnapshotOperationResult> CaptureAsync(
         string name,
         IReadOnlyList<CameraStationSnapshot>? cameraStations,
+        IReadOnlyList<CameraReferenceImageChange>? imageChanges,
         CancellationToken cancellationToken) => SendAsync<CaptureLocalSnapshotRequest, LocalSnapshotOperationResult>(
             LocalControlMethod.CaptureSnapshot,
-            new CaptureLocalSnapshotRequest(name, cameraStations),
+            new CaptureLocalSnapshotRequest(name, cameraStations, imageChanges),
             cancellationToken);
 
     public Task<LocalSnapshotOperationResult> CaptureAsync(
         string name,
-        CancellationToken cancellationToken) => CaptureAsync(name, null, cancellationToken);
+        CancellationToken cancellationToken) => CaptureAsync(name, null, null, cancellationToken);
 
     public Task<LocalSnapshotOperationResult> UpdateSnapshotCameraStationsAsync(
         Guid snapshotId,

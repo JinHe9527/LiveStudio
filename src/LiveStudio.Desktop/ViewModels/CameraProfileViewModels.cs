@@ -212,8 +212,19 @@ public partial class CameraStationEditorViewModel : ObservableObject
 
         using var stream = new MemoryStream(content.ToArray(), writable: false);
         ReferenceImage = new Bitmap(stream);
-        pendingReferenceImagePath = null;
-        pendingReferenceImageSha256 = null;
+        var cacheDirectory = Path.Combine(Path.GetTempPath(), "LiveStudio", "CameraReferenceCache");
+        Directory.CreateDirectory(cacheDirectory);
+        var extension = string.Equals(metadata.MediaType, "image/png", StringComparison.OrdinalIgnoreCase)
+            ? ".png"
+            : ".jpg";
+        var cachePath = Path.Combine(cacheDirectory, $"{metadata.Sha256}{extension}");
+        if (!File.Exists(cachePath))
+        {
+            File.WriteAllBytes(cachePath, content.ToArray());
+        }
+
+        pendingReferenceImagePath = cachePath;
+        pendingReferenceImageSha256 = metadata.Sha256;
         removeReferenceImage = false;
         ReferenceImageStatus = $"{metadata.PixelWidth}×{metadata.PixelHeight} · 已随存档保存";
     }

@@ -106,7 +106,7 @@ public sealed partial class SnapshotInspectorViewModel : ObservableObject
         SelectedApplication ?? lastSelectedApplication ?? (Applications.Count > 0 ? Applications[0] : null);
 
     [ObservableProperty]
-    public partial string CameraSaveMessage { get; set; } = "手动记录会随这份画面存档一起导出、同步和换机查看";
+    public partial string CameraSaveMessage { get; set; } = "修改后点击顶部“保存当前画面”，OBS、直播伴侣和三机位会一起生成新存档";
 
     [ObservableProperty]
     public partial bool IsSavingCameraStations { get; set; }

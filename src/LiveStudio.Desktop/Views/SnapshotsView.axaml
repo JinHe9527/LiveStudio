@@ -278,23 +278,14 @@
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
                           IsVisible="{Binding SnapshotInspector.IsCameraSelected}">
                 <StackPanel Margin="16,14,18,18" Spacing="10">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Spacing="2">
-                            <TextBlock Classes="archive-title" Text="三机位相机参数" />
-                            <TextBlock Classes="archive-meta" Text="默认 F4 · 1/125 · ISO 640 · ST；创意外观细项默认均为 0" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Classes="archive-primary"
-                                IsEnabled="{Binding CanSaveCameraStationsToSelectedSnapshot}"
-                                Command="{Binding SaveSelectedSnapshotCameraStationsCommand}">保存三个机位</Button>
-                    </Grid>
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="archive-title" Text="三机位相机参数" />
+                        <TextBlock Classes="archive-meta" Text="默认 F4 · 1/125 · ISO 640 · ST；创意外观细项默认均为 0" />
+                    </StackPanel>
 
                     <Border Padding="10,7" CornerRadius="8" Background="{DynamicResource ArchiveRaisedBrush}">
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                            <ProgressBar Width="52" Height="3" VerticalAlignment="Center" IsIndeterminate="True"
-                                         IsVisible="{Binding SnapshotInspector.IsSavingCameraStations}" />
-                            <TextBlock Grid.Column="1" Classes="archive-meta" VerticalAlignment="Center"
-                                       Text="{Binding SnapshotInspector.CameraSaveMessage}" TextWrapping="Wrap" />
-                        </Grid>
+                        <TextBlock Classes="archive-meta" VerticalAlignment="Center"
+                                   Text="{Binding SnapshotInspector.CameraSaveMessage}" TextWrapping="Wrap" />
                     </Border>
 
                     <ItemsControl ItemsSource="{Binding SnapshotInspector.CameraStations}">

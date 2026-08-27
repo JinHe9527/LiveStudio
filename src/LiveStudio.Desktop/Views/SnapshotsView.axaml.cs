@@ -177,7 +177,7 @@ public partial class SnapshotsView : UserControl
             return;
         }
 
-        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        if (!viewModel.SupportsLocalAgent)
         {
             SetCameraImageUnavailableMessage(viewModel);
             return;
@@ -199,7 +199,7 @@ public partial class SnapshotsView : UserControl
 
     private void CameraReferenceImageDragOver(object? sender, DragEventArgs eventArgs)
     {
-        eventArgs.DragEffects = DataContext is MainViewModel { CanSaveCameraStationsToSelectedSnapshot: true }
+        eventArgs.DragEffects = DataContext is MainViewModel { SupportsLocalAgent: true }
             && eventArgs.DataTransfer.TryGetFiles() is { Length: > 0 }
                 ? DragDropEffects.Copy
                 : DragDropEffects.None;
@@ -215,7 +215,7 @@ public partial class SnapshotsView : UserControl
             return;
         }
 
-        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        if (!viewModel.SupportsLocalAgent)
         {
             SetCameraImageUnavailableMessage(viewModel);
             return;
@@ -241,7 +241,7 @@ public partial class SnapshotsView : UserControl
             station.StageReferenceImage(path, image);
             if (viewModel.SnapshotInspector is { } inspector)
             {
-                inspector.CameraSaveMessage = $"已选择{station.Name}参考图；点“保存三个机位”写入当前存档";
+                inspector.CameraSaveMessage = $"已选择{station.Name}参考图；点击顶部“保存当前画面”后与三机位参数一起保存";
             }
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException)
@@ -261,7 +261,7 @@ public partial class SnapshotsView : UserControl
             return;
         }
 
-        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        if (!viewModel.SupportsLocalAgent)
         {
             SetCameraImageUnavailableMessage(viewModel);
             return;
@@ -270,7 +270,7 @@ public partial class SnapshotsView : UserControl
         station.RemoveReferenceImage();
         if (viewModel.SnapshotInspector is { } inspector)
         {
-            inspector.CameraSaveMessage = $"已移除{station.Name}参考图；点“保存三个机位”后生效";
+            inspector.CameraSaveMessage = $"已移除{station.Name}参考图；点击顶部“保存当前画面”后生成不含该图的新存档";
         }
     }
 
@@ -278,9 +278,7 @@ public partial class SnapshotsView : UserControl
     {
         if (viewModel.SnapshotInspector is { } inspector)
         {
-            inspector.CameraSaveMessage = viewModel.SelectedSnapshot?.IsCloud == true
-                ? "云端存档不能直接改写；请先保存当前画面，再给新的本机存档添加参考图"
-                : "导入预览不能改写原文件；请先导入为本机存档";
+            inspector.CameraSaveMessage = "当前执行端未连接，连接后可通过顶部“保存当前画面”统一保存";
         }
     }
 

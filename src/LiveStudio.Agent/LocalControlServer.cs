@@ -272,6 +272,22 @@ public sealed class LocalControlServer(
                     capture.Name.Trim(),
                     capture.CameraStations,
                     cancellationToken);
+                if (capture.ImageChanges is { Count: > 0 })
+                {
+                    try
+                    {
+                        await transferService.UpdateCameraStationsAsync(
+                            snapshot.Id,
+                            capture.CameraStations ?? [],
+                            capture.ImageChanges,
+                            cancellationToken);
+                    }
+                    catch
+                    {
+                        await transferService.DeleteAsync(snapshot.Id, CancellationToken.None);
+                        throw;
+                    }
+                }
                 var completedAt = DateTimeOffset.UtcNow;
                 await snapshotIndex.SaveOperationAsync(
                     operation with

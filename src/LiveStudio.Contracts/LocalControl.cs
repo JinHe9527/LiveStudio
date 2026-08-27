@@ -104,7 +104,8 @@ public sealed record LocalAgentState(
 
 public sealed record CaptureLocalSnapshotRequest(
     string Name,
-    IReadOnlyList<CameraStationSnapshot>? CameraStations = null);
+    IReadOnlyList<CameraStationSnapshot>? CameraStations = null,
+    IReadOnlyList<CameraReferenceImageChange>? ImageChanges = null);
 
 public sealed record UpdateSnapshotCameraStationsRequest(
     Guid SnapshotId,

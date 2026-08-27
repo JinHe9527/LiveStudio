@@ -23,6 +23,28 @@ public sealed class LocalControlProtocolTests
     }
 
     [Fact]
+    public async Task CaptureRequestPreservesCameraReferenceImageChanges()
+    {
+        var change = new CameraReferenceImageChange(
+            0,
+            @"C:\直播素材\主机.png",
+            new string('a', 64),
+            false);
+        var expected = LocalControlProtocol.CreateRequest(
+            LocalControlMethod.CaptureSnapshot,
+            new CaptureLocalSnapshotRequest("晚间直播", null, [change]));
+        await using var stream = new MemoryStream();
+
+        await LocalControlProtocol.WriteAsync(stream, expected, CancellationToken.None);
+        stream.Position = 0;
+        var actual = await LocalControlProtocol.ReadAsync<LocalControlRequest>(stream, CancellationToken.None);
+        var payload = LocalControlProtocol.DeserializePayload<CaptureLocalSnapshotRequest>(actual.Payload);
+
+        var restored = Assert.Single(payload.ImageChanges!);
+        Assert.Equal(change, restored);
+    }
+
+    [Fact]
     public void FailureResponsePreservesAgentErrorCode()
     {
         var response = LocalControlProtocol.CreateFailure(

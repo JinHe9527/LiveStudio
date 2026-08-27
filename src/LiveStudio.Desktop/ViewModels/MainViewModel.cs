@@ -1614,8 +1614,9 @@ public partial class MainViewModel : ViewModelBase
         ControlStatusDescription = "正在读取 OBS 与直播伴侣参数、滤镜和预览图。";
         try
         {
+            var cameraEditors = SnapshotInspector?.CameraStations ?? CameraStations;
             if (!TryCollectCameraStations(
-                    SnapshotInspector?.CameraStations ?? CameraStations,
+                    cameraEditors,
                     out var cameraStations,
                     out var cameraError))
             {
@@ -1626,7 +1627,16 @@ public partial class MainViewModel : ViewModelBase
             }
 
             var name = DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.CurrentCulture);
-            var result = await localAgentClient.CaptureAsync(name, cameraStations, cancellationToken);
+            var imageChanges = cameraEditors
+                .Select(editor => editor.CreateReferenceImageChange())
+                .Where(change => change is not null)
+                .Select(change => change!)
+                .ToArray();
+            var result = await localAgentClient.CaptureAsync(
+                name,
+                cameraStations,
+                imageChanges,
+                cancellationToken);
             await LoadStateAsync(cancellationToken);
             SelectedSnapshot = SnapshotItems.FirstOrDefault(snapshot => snapshot.Id == result.SnapshotId);
             SelectedSection = 1;
@@ -3748,7 +3758,6 @@ public partial class MainViewModel : ViewModelBase
         RefreshAvailableSnapshots();
         localOperations = state.Operations;
         RefreshActivityItems();
-        SnapshotCountText = $"{SnapshotItems.Count} 份";
         ObsStatus = GetApplicationStatus(state, ApplicationKind.Obs);
         LiveCompanionStatus = GetApplicationStatus(state, ApplicationKind.LiveCompanion);
         ApplyApplicationRuntimeState(state);
@@ -3842,7 +3851,6 @@ public partial class MainViewModel : ViewModelBase
         SnapshotItems = primary
             .Concat(cloudSnapshotItems.Where(snapshot => !primaryIds.Contains(snapshot.Id)))
             .ToArray();
-        SnapshotCountText = $"{SnapshotItems.Count} 份";
         RefreshSnapshotNavigation(selected);
     }
 
@@ -3901,13 +3909,11 @@ public partial class MainViewModel : ViewModelBase
         bool selectFirst,
         LocalSnapshotItemViewModel? preferredSnapshot = null)
     {
-        var roomFilter = SelectedSnapshotRoomFilter;
-        var filtered = roomFilter is null
-            ? Array.Empty<LocalSnapshotItemViewModel>()
-            : SnapshotItems
-                .Where(snapshot => snapshot.RoomId == roomFilter.RoomId)
-                .OrderByDescending(snapshot => snapshot.CreatedAtValue)
-                .ToArray();
+        var filtered = (SupportsLocalAgent
+                ? SnapshotItems.Where(snapshot => !snapshot.IsCloud && !snapshot.IsDesktopFile)
+                : SnapshotItems)
+            .OrderByDescending(snapshot => snapshot.CreatedAtValue)
+            .ToArray();
         var timeline = new List<SnapshotTimelineItemViewModel>(filtered.Length);
         DateOnly? previousDate = null;
         foreach (var snapshot in filtered)
@@ -3925,12 +3931,13 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             SnapshotTimelineItems = timeline;
+            SnapshotCountText = $"{timeline.Count} 份";
             SelectedSnapshotTimelineItem = selectedTimeline;
             SelectedSnapshot = selectedTimeline?.Snapshot;
             var dayCount = filtered.Select(snapshot => snapshot.LocalDate).Distinct().Count();
-            SnapshotTimelineSummary = roomFilter is null
+            SnapshotTimelineSummary = filtered.Length == 0
                 ? "尚无存档"
-                : $"{roomFilter.Name} · {dayCount} 天 · {filtered.Length} 份";
+                : $"本机存档 · {dayCount} 天 · {filtered.Length} 份";
         }
         finally
         {
