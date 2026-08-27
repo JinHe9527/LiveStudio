@@ -68,3 +68,5 @@ LiveStudio internal distribution verification:
 - The only SignTool failure was the expected untrusted self-signed root on the disposable runner.
 - Fixed computers trust this certificate through Trusted People before the first installation.
 "@
+
+$global:LASTEXITCODE = 0
