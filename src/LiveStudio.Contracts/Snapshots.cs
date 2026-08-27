@@ -94,6 +94,14 @@ public sealed record CameraCreativeLookSnapshot(
     int SharpnessRange,
     int Clarity);
 
+public sealed record CameraReferenceImageSnapshot(
+    string PackagePath,
+    string MediaType,
+    long Length,
+    string Sha256,
+    int PixelWidth,
+    int PixelHeight);
+
 public sealed record CameraStationSnapshot(
     int Slot,
     string Name,
@@ -101,7 +109,8 @@ public sealed record CameraStationSnapshot(
     string ShutterSpeed,
     string Iso,
     string CreativeLook,
-    CameraCreativeLookSnapshot CreativeLookSettings);
+    CameraCreativeLookSnapshot CreativeLookSettings,
+    CameraReferenceImageSnapshot? ReferenceImage = null);
 
 public sealed record CombinedSnapshot(
     Guid Id,

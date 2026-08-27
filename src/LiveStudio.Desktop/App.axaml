@@ -12,6 +12,7 @@
                     <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#F2F2F4" />
                     <SolidColorBrush x:Key="ArchiveContentBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#F7F7F9" />
+                    <SolidColorBrush x:Key="ArchiveImageCaptionBrush" Color="#B31D1D1F" />
                     <SolidColorBrush x:Key="ArchiveHoverBrush" Color="#E8E8EC" />
                     <SolidColorBrush x:Key="ArchiveSelectionBrush" Color="#DCEBFA" />
                     <SolidColorBrush x:Key="ArchiveSeparatorBrush" Color="#D7D7DB" />
@@ -33,6 +34,7 @@
                     <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#202022" />
                     <SolidColorBrush x:Key="ArchiveContentBrush" Color="#18181A" />
                     <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#242426" />
+                    <SolidColorBrush x:Key="ArchiveImageCaptionBrush" Color="#C8101011" />
                     <SolidColorBrush x:Key="ArchiveHoverBrush" Color="#303034" />
                     <SolidColorBrush x:Key="ArchiveSelectionBrush" Color="#243E5A" />
                     <SolidColorBrush x:Key="ArchiveSeparatorBrush" Color="#3A3A3E" />

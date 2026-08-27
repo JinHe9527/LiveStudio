@@ -930,6 +930,7 @@ public partial class MainViewModel : ViewModelBase
                     detail.Applications,
                     creativeLooks: CameraCreativeLooks,
                     cameraStations: detail.CameraStations);
+                await LoadCloudCameraReferenceImagesAsync(snapshot, inspector, cancellationToken);
             }
             else if (snapshot.IsDesktopFile)
             {
@@ -943,6 +944,7 @@ public partial class MainViewModel : ViewModelBase
                     FormatSignerFingerprint(file.Inspection.Signer.FingerprintSha256),
                     CameraCreativeLooks,
                     detail.CameraStations);
+                ApplyCameraReferenceImages(inspector, file.Inspection.Package);
             }
             else
             {
@@ -953,6 +955,7 @@ public partial class MainViewModel : ViewModelBase
                     detail.Applications,
                     creativeLooks: CameraCreativeLooks,
                     cameraStations: detail.CameraStations);
+                await LoadLocalCameraReferenceImagesAsync(snapshot.Id, inspector, cancellationToken);
                 comparisonSummary = await CompareWithPreviousLocalSnapshotAsync(
                     snapshot,
                     detail,
@@ -1894,8 +1897,13 @@ public partial class MainViewModel : ViewModelBase
             await localAgentClient.UpdateSnapshotCameraStationsAsync(
                 SelectedSnapshot.Id,
                 stations,
+                SnapshotInspector.CameraStations
+                    .Select(editor => editor.CreateReferenceImageChange())
+                    .Where(change => change is not null)
+                    .Select(change => change!)
+                    .ToArray(),
                 cancellationToken);
-            SnapshotInspector.CameraSaveMessage = "三个机位已写入并重新签名；导出和云同步都会携带这些参数";
+            SnapshotInspector.CameraSaveMessage = "三个机位和参考图已写入并重新签名；导出和云同步都会完整携带";
             await LoadStateAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or InvalidOperationException)
@@ -1932,6 +1940,74 @@ public partial class MainViewModel : ViewModelBase
         stations = values;
         error = string.Empty;
         return values.Count == 3;
+    }
+
+    private async Task LoadLocalCameraReferenceImagesAsync(
+        Guid snapshotId,
+        SnapshotInspectorViewModel inspector,
+        CancellationToken cancellationToken)
+    {
+        foreach (var editor in inspector.CameraStations.Where(editor => editor.ReferenceImageMetadata is not null))
+        {
+            var image = await localAgentClient.GetCameraReferenceImageAsync(
+                snapshotId,
+                editor.Slot,
+                cancellationToken);
+            if (image.Found)
+            {
+                editor.ApplyReferenceImageContent(image.Content);
+            }
+        }
+    }
+
+    private async Task LoadCloudCameraReferenceImagesAsync(
+        LocalSnapshotItemViewModel snapshot,
+        SnapshotInspectorViewModel inspector,
+        CancellationToken cancellationToken)
+    {
+        if (!inspector.CameraStations.Any(editor => editor.ReferenceImageMetadata is not null)
+            || cloudCredentials is null
+            || SelectedOrganization is null
+            || snapshot.CloudSummary is not { } summary)
+        {
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), "LiveStudio", "CameraReferences");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"{snapshot.Id:N}-{Guid.NewGuid():N}.lscfg");
+        try
+        {
+            await cloudClient.DownloadSnapshotAsync(
+                cloudCredentials,
+                SelectedOrganization.Id,
+                summary,
+                path,
+                cancellationToken);
+            var inspection = await SnapshotPackageReader.InspectAsync(path, cancellationToken);
+            ApplyCameraReferenceImages(inspector, inspection.Package);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    private static void ApplyCameraReferenceImages(
+        SnapshotInspectorViewModel inspector,
+        SnapshotPackage package)
+    {
+        foreach (var editor in inspector.CameraStations)
+        {
+            if (editor.ReferenceImageMetadata is { } reference
+                && package.Files.TryGetValue(reference.PackagePath, out var file))
+            {
+                editor.ApplyReferenceImageContent(file.Content);
+            }
+        }
     }
 
     public async Task<bool> CreateCloudRoomAsync(

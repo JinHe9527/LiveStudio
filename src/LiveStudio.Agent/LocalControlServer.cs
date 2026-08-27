@@ -109,6 +109,7 @@ public sealed class LocalControlServer(
                 LocalControlMethod.GetMappingContext => await GetMappingContextAsync(request, cancellationToken),
                 LocalControlMethod.GetSnapshotDetail => await GetSnapshotDetailAsync(request, cancellationToken),
                 LocalControlMethod.GetSnapshotPreview => await GetSnapshotPreviewAsync(request, cancellationToken),
+                LocalControlMethod.GetCameraReferenceImage => await GetCameraReferenceImageAsync(request, cancellationToken),
                 LocalControlMethod.SaveDeviceMapping => await SaveDeviceMappingAsync(request, cancellationToken),
                 LocalControlMethod.InspectSnapshotFile => await InspectSnapshotFileAsync(request, cancellationToken),
                 LocalControlMethod.ImportSnapshotFile => await ImportSnapshotFileAsync(request, cancellationToken),
@@ -574,6 +575,34 @@ public sealed class LocalControlServer(
             new LocalSnapshotPreview(true, file.MediaType, file.Content.ToArray()));
     }
 
+    private async Task<LocalControlResponse> GetCameraReferenceImageAsync(
+        LocalControlRequest request,
+        CancellationToken cancellationToken)
+    {
+        var query = LocalControlProtocol.DeserializePayload<GetCameraReferenceImageRequest>(request.Payload);
+        if (query.Slot is < 0 or > 2)
+        {
+            return LocalControlProtocol.CreateFailure(
+                request.RequestId,
+                "InvalidCameraSlot",
+                "机位编号必须是主机、游机或侧机");
+        }
+
+        var package = await transferService.ReadLocalAsync(query.SnapshotId, cancellationToken);
+        var reference = package.Snapshot.CameraStations?
+            .FirstOrDefault(station => station.Slot == query.Slot)?.ReferenceImage;
+        if (reference is null || !package.Files.TryGetValue(reference.PackagePath, out var file))
+        {
+            return LocalControlProtocol.CreateSuccess(
+                request.RequestId,
+                new LocalSnapshotPreview(false, string.Empty, []));
+        }
+
+        return LocalControlProtocol.CreateSuccess(
+            request.RequestId,
+            new LocalSnapshotPreview(true, file.MediaType, file.Content.ToArray()));
+    }
+
     private async Task<LocalControlResponse> SaveDeviceMappingAsync(
         LocalControlRequest request,
         CancellationToken cancellationToken)
@@ -783,8 +812,9 @@ public sealed class LocalControlServer(
             var result = await transferService.UpdateCameraStationsAsync(
                 update.SnapshotId,
                 update.CameraStations,
+                update.ImageChanges,
                 cancellationToken);
-            SetOperationMessage("三个机位参数已写入当前画面存档");
+            SetOperationMessage("三个机位参数和参考图已写入当前画面存档");
             return LocalControlProtocol.CreateSuccess(request.RequestId, result);
         }
         finally

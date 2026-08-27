@@ -124,6 +124,46 @@ public sealed class SnapshotTransferServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateCameraStationsEmbedsSignedReferenceImageAndCanRemoveIt()
+    {
+        var fixture = await CreateFixtureAsync();
+        var record = await fixture.AddSignedSnapshotAsync("三机位参考图");
+        var imagePath = Path.Combine(fixture.SnapshotDirectory, "reference.png");
+        await File.WriteAllBytesAsync(imagePath, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+        var validated = await CameraReferenceImageFile.ReadAsync(imagePath, CancellationToken.None);
+        CameraStationSnapshot[] stations =
+        [
+            CreateCameraStation(0, "主机"),
+            CreateCameraStation(1, "游机"),
+            CreateCameraStation(2, "侧机")
+        ];
+
+        await fixture.Service.UpdateCameraStationsAsync(
+            record.Id,
+            stations,
+            [new CameraReferenceImageChange(0, imagePath, validated.Sha256, false)],
+            CancellationToken.None);
+
+        var package = await fixture.Service.ReadLocalAsync(record.Id, CancellationToken.None);
+        var reference = Assert.IsType<CameraReferenceImageSnapshot>(package.Snapshot.CameraStations![0].ReferenceImage);
+        Assert.Equal("camera-images/station-1.png", reference.PackagePath);
+        Assert.Equal(validated.Sha256, reference.Sha256);
+        Assert.True(package.Files.ContainsKey(reference.PackagePath));
+
+        await fixture.Service.UpdateCameraStationsAsync(
+            record.Id,
+            stations,
+            [new CameraReferenceImageChange(0, null, null, true)],
+            CancellationToken.None);
+
+        package = await fixture.Service.ReadLocalAsync(record.Id, CancellationToken.None);
+        Assert.Null(package.Snapshot.CameraStations![0].ReferenceImage);
+        Assert.DoesNotContain(package.Files.Keys, path =>
+            path.StartsWith("camera-images/", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ReadLocalAcceptsOwnSigningKeyAfterCloudDeviceIdChanges()
     {
         var fixture = await CreateFixtureAsync();

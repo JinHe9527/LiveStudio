@@ -29,7 +29,10 @@ public sealed class SnapshotCaptureService(
         CancellationToken cancellationToken)
     {
         using var operationLease = await operationGate.EnterAsync(cancellationToken);
-        return await CaptureCoreAsync(name, NormalizeCameraStations(cameraStations), cancellationToken);
+        var normalizedStations = NormalizeCameraStations(cameraStations)
+            .Select(station => station with { ReferenceImage = null })
+            .ToArray();
+        return await CaptureCoreAsync(name, normalizedStations, cancellationToken);
     }
 
     private async Task<LocalSnapshotRecord> CaptureCoreAsync(

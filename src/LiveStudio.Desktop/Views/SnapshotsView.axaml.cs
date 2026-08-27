@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using LiveStudio.Desktop.ViewModels;
+using LiveStudio.Packaging;
 
 namespace LiveStudio.Desktop.Views;
 
@@ -16,6 +17,13 @@ public partial class SnapshotsView : UserControl
         Patterns = ["*.lscfg"],
         MimeTypes = ["application/vnd.livestudio.snapshot"],
         AppleUniformTypeIdentifiers = ["public.data"]
+    };
+
+    private static readonly FilePickerFileType CameraReferenceImageFileType = new("相机画面截图")
+    {
+        Patterns = ["*.png", "*.jpg", "*.jpeg"],
+        MimeTypes = ["image/png", "image/jpeg"],
+        AppleUniformTypeIdentifiers = ["public.png", "public.jpeg"]
     };
 
     public SnapshotsView()
@@ -48,6 +56,122 @@ public partial class SnapshotsView : UserControl
         if (DataContext is MainViewModel { SnapshotInspector: { } inspector })
         {
             inspector.IsTechnicalPanelOpen = true;
+        }
+    }
+
+    private async void CameraReferenceImageClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not Button { Tag: CameraStationEditorViewModel station }
+            || DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storageProvider)
+        {
+            return;
+        }
+
+        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        {
+            SetCameraImageUnavailableMessage(viewModel);
+            return;
+        }
+
+        var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = $"选择{station.Name}参考画面",
+            AllowMultiple = false,
+            FileTypeFilter = [CameraReferenceImageFileType],
+            SuggestedFileType = CameraReferenceImageFileType
+        });
+        var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            await StageCameraReferenceImageAsync(viewModel, station, path);
+        }
+    }
+
+    private void CameraReferenceImageDragOver(object? sender, DragEventArgs eventArgs)
+    {
+        eventArgs.DragEffects = DataContext is MainViewModel { CanSaveCameraStationsToSelectedSnapshot: true }
+            && eventArgs.DataTransfer.TryGetFiles() is { Length: > 0 }
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+        eventArgs.Handled = true;
+    }
+
+    private async void CameraReferenceImageDropped(object? sender, DragEventArgs eventArgs)
+    {
+        eventArgs.Handled = true;
+        if (sender is not Border { Tag: CameraStationEditorViewModel station }
+            || DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        {
+            SetCameraImageUnavailableMessage(viewModel);
+            return;
+        }
+
+        var path = eventArgs.DataTransfer.TryGetFiles()?
+            .Select(file => file.TryGetLocalPath())
+            .FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate));
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            await StageCameraReferenceImageAsync(viewModel, station, path);
+        }
+    }
+
+    private static async Task StageCameraReferenceImageAsync(
+        MainViewModel viewModel,
+        CameraStationEditorViewModel station,
+        string path)
+    {
+        try
+        {
+            var image = await CameraReferenceImageFile.ReadAsync(path, CancellationToken.None);
+            station.StageReferenceImage(path, image);
+            if (viewModel.SnapshotInspector is { } inspector)
+            {
+                inspector.CameraSaveMessage = $"已选择{station.Name}参考图；点“保存三个机位”写入当前存档";
+            }
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException)
+        {
+            if (viewModel.SnapshotInspector is { } inspector)
+            {
+                inspector.CameraSaveMessage = exception.Message;
+            }
+        }
+    }
+
+    private void RemoveCameraReferenceImageClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not Button { Tag: CameraStationEditorViewModel station }
+            || DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (!viewModel.CanSaveCameraStationsToSelectedSnapshot)
+        {
+            SetCameraImageUnavailableMessage(viewModel);
+            return;
+        }
+
+        station.RemoveReferenceImage();
+        if (viewModel.SnapshotInspector is { } inspector)
+        {
+            inspector.CameraSaveMessage = $"已移除{station.Name}参考图；点“保存三个机位”后生效";
+        }
+    }
+
+    private static void SetCameraImageUnavailableMessage(MainViewModel viewModel)
+    {
+        if (viewModel.SnapshotInspector is { } inspector)
+        {
+            inspector.CameraSaveMessage = viewModel.SelectedSnapshot?.IsCloud == true
+                ? "云端存档不能直接改写；请先保存当前画面，再给新的本机存档添加参考图"
+                : "导入预览不能改写原文件；请先导入为本机存档";
         }
     }
 

@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using LiveStudio.Contracts;
 using LiveStudio.Desktop.Services;
+using LiveStudio.Packaging;
 
 namespace LiveStudio.Desktop.ViewModels;
 
@@ -15,6 +17,10 @@ public partial class CameraStationEditorViewModel : ObservableObject
 {
     private readonly string defaultName;
     private readonly IReadOnlyList<CameraCreativeLookOptionViewModel> creativeLooks;
+    private CameraReferenceImageSnapshot? referenceImageMetadata;
+    private string? pendingReferenceImagePath;
+    private string? pendingReferenceImageSha256;
+    private bool removeReferenceImage;
 
     public CameraStationEditorViewModel(
         int slot,
@@ -79,6 +85,25 @@ public partial class CameraStationEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial string StatusText { get; set; } = "尚未保存";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReferenceImage))]
+    [NotifyPropertyChangedFor(nameof(IsReferenceImageEmpty))]
+    [NotifyPropertyChangedFor(nameof(CanRemoveReferenceImage))]
+    public partial Bitmap? ReferenceImage { get; set; }
+
+    [ObservableProperty]
+    public partial string ReferenceImageStatus { get; set; } = "拖入画面截图，或点击选择";
+
+    public bool HasReferenceImage => ReferenceImage is not null;
+
+    public bool IsReferenceImageEmpty => ReferenceImage is null;
+
+    public bool CanRemoveReferenceImage => ReferenceImage is not null;
+
+    public string ReferenceImageTitle => $"{Name}参考画面";
+
+    public CameraReferenceImageSnapshot? ReferenceImageMetadata => referenceImageMetadata;
+
     public string DeleteButtonText => ProfileId.HasValue ? "删除" : "清空";
 
     public void Apply(CameraProfile profile)
@@ -122,6 +147,14 @@ public partial class CameraStationEditorViewModel : ObservableObject
         SharpnessRange = station.CreativeLookSettings.SharpnessRange.ToString(CultureInfo.InvariantCulture);
         Clarity = station.CreativeLookSettings.Clarity.ToString(CultureInfo.InvariantCulture);
         StatusText = "随当前画面存档保存";
+        ReferenceImage = null;
+        referenceImageMetadata = station.ReferenceImage;
+        pendingReferenceImagePath = null;
+        pendingReferenceImageSha256 = null;
+        removeReferenceImage = false;
+        ReferenceImageStatus = station.ReferenceImage is null
+            ? "拖入画面截图，或点击选择"
+            : "正在读取存档图片…";
     }
 
     public void Reset()
@@ -142,7 +175,85 @@ public partial class CameraStationEditorViewModel : ObservableObject
         SharpnessRange = settings.SharpnessRange.ToString(CultureInfo.InvariantCulture);
         Clarity = settings.Clarity.ToString(CultureInfo.InvariantCulture);
         StatusText = "尚未保存";
+        ReferenceImage = null;
+        referenceImageMetadata = null;
+        pendingReferenceImagePath = null;
+        pendingReferenceImageSha256 = null;
+        removeReferenceImage = false;
+        ReferenceImageStatus = "拖入画面截图，或点击选择";
     }
+
+    public void StageReferenceImage(string sourcePath, ValidatedCameraReferenceImage image)
+    {
+        using var stream = new MemoryStream(image.Content.ToArray(), writable: false);
+        var bitmap = new Bitmap(stream);
+        ReferenceImage = bitmap;
+        referenceImageMetadata = image.CreateSnapshot(Slot);
+        pendingReferenceImagePath = Path.GetFullPath(sourcePath);
+        pendingReferenceImageSha256 = image.Sha256;
+        removeReferenceImage = false;
+        ReferenceImageStatus = $"{image.PixelWidth}×{image.PixelHeight} · 等待保存";
+    }
+
+    public void ApplyReferenceImageContent(ReadOnlyMemory<byte> content)
+    {
+        if (referenceImageMetadata is not { } metadata)
+        {
+            return;
+        }
+
+        var validated = CameraReferenceImageFile.Validate(content);
+        if (!string.Equals(validated.Sha256, metadata.Sha256, StringComparison.Ordinal)
+            || validated.PixelWidth != metadata.PixelWidth
+            || validated.PixelHeight != metadata.PixelHeight)
+        {
+            throw new InvalidDataException($"{PositionTitle}参考图与存档记录不一致");
+        }
+
+        using var stream = new MemoryStream(content.ToArray(), writable: false);
+        ReferenceImage = new Bitmap(stream);
+        pendingReferenceImagePath = null;
+        pendingReferenceImageSha256 = null;
+        removeReferenceImage = false;
+        ReferenceImageStatus = $"{metadata.PixelWidth}×{metadata.PixelHeight} · 已随存档保存";
+    }
+
+    public void RemoveReferenceImage()
+    {
+        var hadSavedImage = referenceImageMetadata is not null;
+        ReferenceImage = null;
+        referenceImageMetadata = null;
+        pendingReferenceImagePath = null;
+        pendingReferenceImageSha256 = null;
+        removeReferenceImage = hadSavedImage;
+        ReferenceImageStatus = hadSavedImage ? "删除将在保存后生效" : "拖入画面截图，或点击选择";
+    }
+
+    public CameraReferenceImageChange? CreateReferenceImageChange()
+    {
+        if (removeReferenceImage)
+        {
+            return new CameraReferenceImageChange(Slot, null, null, true);
+        }
+
+        return pendingReferenceImagePath is null || pendingReferenceImageSha256 is null
+            ? null
+            : new CameraReferenceImageChange(
+                Slot,
+                pendingReferenceImagePath,
+                pendingReferenceImageSha256,
+                false);
+    }
+
+    partial void OnReferenceImageChanging(Bitmap? oldValue, Bitmap? newValue)
+    {
+        if (!ReferenceEquals(oldValue, newValue))
+        {
+            oldValue?.Dispose();
+        }
+    }
+
+    partial void OnNameChanged(string value) => OnPropertyChanged(nameof(ReferenceImageTitle));
 
     public bool TryGetCreativeLookSettings(out CameraCreativeLookSettings settings, out string error)
     {
@@ -225,7 +336,8 @@ public partial class CameraStationEditorViewModel : ObservableObject
                 input.CreativeLookSettings.Saturation,
                 input.CreativeLookSettings.Sharpness,
                 input.CreativeLookSettings.SharpnessRange,
-                input.CreativeLookSettings.Clarity));
+                input.CreativeLookSettings.Clarity),
+            referenceImageMetadata);
         return true;
     }
 }

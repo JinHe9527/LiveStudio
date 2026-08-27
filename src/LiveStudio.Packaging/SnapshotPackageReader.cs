@@ -156,6 +156,7 @@ public static class SnapshotPackageReader
         }
 
         EnsureManifestMatchesParameters(manifest, snapshot);
+        EnsureCameraReferenceImagesMatchFiles(snapshot, files);
         snapshot = NormalizeLegacySnapshot(snapshot);
 
         return new SnapshotPackageInspection(
@@ -262,6 +263,57 @@ public static class SnapshotPackageReader
         }
 
         return expected.FieldCoverage.SequenceEqual(actualPaths, StringComparer.Ordinal);
+    }
+
+    private static void EnsureCameraReferenceImagesMatchFiles(
+        CombinedSnapshot snapshot,
+        IReadOnlyDictionary<string, PackageFile> files)
+    {
+        var referencedPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var station in snapshot.CameraStations ?? [])
+        {
+            if (station.ReferenceImage is not { } reference)
+            {
+                continue;
+            }
+
+            if (!referencedPaths.Add(reference.PackagePath)
+                || !files.TryGetValue(reference.PackagePath, out var file)
+                || file.Content.Length != reference.Length
+                || !string.Equals(file.MediaType, reference.MediaType, StringComparison.Ordinal)
+                || !string.Equals(
+                    Convert.ToHexStringLower(SHA256.HashData(file.Content.Span)),
+                    reference.Sha256,
+                    StringComparison.Ordinal))
+            {
+                throw new SnapshotPackageException($"{station.Slot + 1} 号机位参考图与存档文件不一致");
+            }
+
+            ValidatedCameraReferenceImage validated;
+            try
+            {
+                validated = CameraReferenceImageFile.Validate(file.Content);
+            }
+            catch (InvalidDataException exception)
+            {
+                throw new SnapshotPackageException($"{station.Slot + 1} 号机位参考图无效", exception);
+            }
+
+            if (validated.PixelWidth != reference.PixelWidth
+                || validated.PixelHeight != reference.PixelHeight
+                || !string.Equals(validated.MediaType, reference.MediaType, StringComparison.Ordinal))
+            {
+                throw new SnapshotPackageException($"{station.Slot + 1} 号机位参考图尺寸或格式不一致");
+            }
+        }
+
+        var unreferencedImage = files.Keys.FirstOrDefault(path =>
+            path.StartsWith("camera-images/", StringComparison.Ordinal)
+            && !referencedPaths.Contains(path));
+        if (unreferencedImage is not null)
+        {
+            throw new SnapshotPackageException($"存档包含未绑定的相机参考图: {unreferencedImage}");
+        }
     }
 
     private static void ValidateSignatureMetadata(PackageSignature signature)

@@ -228,9 +228,19 @@ public sealed class SnapshotTransferService
         return new LocalSnapshotOperationResult(snapshotId, normalizedName, DateTimeOffset.UtcNow);
     }
 
+    public Task<LocalSnapshotOperationResult> UpdateCameraStationsAsync(
+        Guid snapshotId,
+        IReadOnlyList<CameraStationSnapshot> cameraStations,
+        CancellationToken cancellationToken) => UpdateCameraStationsAsync(
+            snapshotId,
+            cameraStations,
+            null,
+            cancellationToken);
+
     public async Task<LocalSnapshotOperationResult> UpdateCameraStationsAsync(
         Guid snapshotId,
         IReadOnlyList<CameraStationSnapshot> cameraStations,
+        IReadOnlyList<CameraReferenceImageChange>? imageChanges,
         CancellationToken cancellationToken)
     {
         var normalizedStations = SnapshotCaptureService.NormalizeCameraStations(cameraStations);
@@ -242,21 +252,72 @@ public sealed class SnapshotTransferService
         }
 
         var package = await ReadLocalAsync(snapshotId, cancellationToken);
+        var existingStations = (package.Snapshot.CameraStations ?? [])
+            .Where(station => station.Slot is >= 0 and <= 2)
+            .ToDictionary(station => station.Slot);
+        var stationsBySlot = normalizedStations.ToDictionary(
+            station => station.Slot,
+            station => station with
+            {
+                ReferenceImage = existingStations.GetValueOrDefault(station.Slot)?.ReferenceImage
+            });
+        var filesByPath = package.Files.Values
+            .Where(file => !string.Equals(file.Path, "parameters.json", StringComparison.Ordinal))
+            .ToDictionary(file => file.Path, StringComparer.Ordinal);
+        var changes = imageChanges ?? [];
+        if (changes.Any(change => change.Slot is < 0 or > 2)
+            || changes.GroupBy(change => change.Slot).Any(group => group.Count() != 1))
+        {
+            throw new InvalidDataException("相机参考图变更必须对应唯一的主机、游机或侧机");
+        }
+
+        foreach (var change in changes)
+        {
+            var station = stationsBySlot[change.Slot];
+            if (station.ReferenceImage is { } previous)
+            {
+                filesByPath.Remove(previous.PackagePath);
+            }
+
+            if (change.Remove)
+            {
+                stationsBySlot[change.Slot] = station with { ReferenceImage = null };
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(change.SourcePath)
+                || string.IsNullOrWhiteSpace(change.ExpectedSha256))
+            {
+                throw new InvalidDataException("新增相机参考图缺少本机文件或校验值");
+            }
+
+            var validated = await CameraReferenceImageFile.ReadAsync(change.SourcePath, cancellationToken);
+            if (!string.Equals(validated.Sha256, change.ExpectedSha256, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("相机截图在选择后发生了变化，请重新选择");
+            }
+
+            var reference = validated.CreateSnapshot(change.Slot);
+            filesByPath[reference.PackagePath] = new PackageFile(
+                reference.PackagePath,
+                reference.MediaType,
+                validated.Content);
+            stationsBySlot[change.Slot] = station with { ReferenceImage = reference };
+        }
+
+        var finalStations = stationsBySlot.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
         var packagePath = ValidateManagedSnapshotPath(record.PackagePath);
         var credentials = credentialStore.Load();
         var directory = Path.GetDirectoryName(packagePath)
             ?? throw new InvalidOperationException("无法确定本机存档目录");
         var replacementPath = Path.Combine(directory, $"{snapshotId:N}.camera-{Guid.NewGuid():N}.lscfg");
         var backupPath = $"{packagePath}.camera-backup-{Guid.NewGuid():N}";
-        var files = package.Files.Values
-            .Where(file => !string.Equals(file.Path, "parameters.json", StringComparison.Ordinal))
-            .ToArray();
         using var signingKey = ECDsa.Create();
         signingKey.ImportFromPem(credentials.PackageSigningPrivateKeyPem);
         await SnapshotPackageWriter.WriteAsync(
             replacementPath,
-            package.Snapshot with { CameraStations = normalizedStations },
-            files,
+            package.Snapshot with { CameraStations = finalStations },
+            filesByPath.Values,
             signingKey,
             credentials.DeviceId.ToString("N"),
             cancellationToken);

@@ -26,7 +26,8 @@ public enum LocalControlMethod
     DeleteAllSnapshots,
     SyncPendingSnapshots,
     GetOperationProgress,
-    UpdateSnapshotCameraStations
+    UpdateSnapshotCameraStations,
+    GetCameraReferenceImage
 }
 
 public sealed record LocalControlRequest(
@@ -107,7 +108,14 @@ public sealed record CaptureLocalSnapshotRequest(
 
 public sealed record UpdateSnapshotCameraStationsRequest(
     Guid SnapshotId,
-    IReadOnlyList<CameraStationSnapshot> CameraStations);
+    IReadOnlyList<CameraStationSnapshot> CameraStations,
+    IReadOnlyList<CameraReferenceImageChange>? ImageChanges = null);
+
+public sealed record CameraReferenceImageChange(
+    int Slot,
+    string? SourcePath,
+    string? ExpectedSha256,
+    bool Remove);
 
 public sealed record RestoreLocalSnapshotRequest(Guid SnapshotId);
 
@@ -128,6 +136,8 @@ public sealed record GetLocalMappingContextRequest(Guid SnapshotId);
 public sealed record GetLocalSnapshotDetailRequest(Guid SnapshotId);
 
 public sealed record GetLocalSnapshotPreviewRequest(Guid SnapshotId, ApplicationKind Application);
+
+public sealed record GetCameraReferenceImageRequest(Guid SnapshotId, int Slot);
 
 public sealed record LocalSnapshotPreview(
     bool Found,

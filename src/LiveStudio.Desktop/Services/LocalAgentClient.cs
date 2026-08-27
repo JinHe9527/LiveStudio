@@ -39,9 +39,27 @@ public sealed class LocalAgentClient
     public Task<LocalSnapshotOperationResult> UpdateSnapshotCameraStationsAsync(
         Guid snapshotId,
         IReadOnlyList<CameraStationSnapshot> cameraStations,
+        CancellationToken cancellationToken) => UpdateSnapshotCameraStationsAsync(
+            snapshotId,
+            cameraStations,
+            [],
+            cancellationToken);
+
+    public Task<LocalSnapshotOperationResult> UpdateSnapshotCameraStationsAsync(
+        Guid snapshotId,
+        IReadOnlyList<CameraStationSnapshot> cameraStations,
+        IReadOnlyList<CameraReferenceImageChange> imageChanges,
         CancellationToken cancellationToken) => SendAsync<UpdateSnapshotCameraStationsRequest, LocalSnapshotOperationResult>(
             LocalControlMethod.UpdateSnapshotCameraStations,
-            new UpdateSnapshotCameraStationsRequest(snapshotId, cameraStations),
+            new UpdateSnapshotCameraStationsRequest(snapshotId, cameraStations, imageChanges),
+            cancellationToken);
+
+    public Task<LocalSnapshotPreview> GetCameraReferenceImageAsync(
+        Guid snapshotId,
+        int slot,
+        CancellationToken cancellationToken) => SendAsync<GetCameraReferenceImageRequest, LocalSnapshotPreview>(
+            LocalControlMethod.GetCameraReferenceImage,
+            new GetCameraReferenceImageRequest(snapshotId, slot),
             cancellationToken);
 
     public Task<LocalSnapshotOperationResult> RestoreAsync(
