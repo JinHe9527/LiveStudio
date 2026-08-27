@@ -258,7 +258,6 @@ public partial class MainViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
     [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
     [NotifyPropertyChangedFor(nameof(HasLocalAndCloudControl))]
-    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
     [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
     [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
     [NotifyPropertyChangedFor(nameof(ControlPageSubtitle))]
@@ -272,7 +271,6 @@ public partial class MainViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
     [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
     [NotifyPropertyChangedFor(nameof(HasLocalAndCloudControl))]
-    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
     [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
     [NotifyPropertyChangedFor(nameof(CanShowRestoreAction))]
     [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
@@ -286,7 +284,6 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCloudControlVisible))]
     [NotifyPropertyChangedFor(nameof(IsLocalControlPanelVisible))]
-    [NotifyPropertyChangedFor(nameof(CanOpenCloudManagement))]
     [NotifyPropertyChangedFor(nameof(CanReturnToLocalControl))]
     [NotifyPropertyChangedFor(nameof(ControlPageTitle))]
     [NotifyPropertyChangedFor(nameof(ControlPageSubtitle))]
@@ -694,15 +691,13 @@ public partial class MainViewModel : ViewModelBase
 
     public bool HasLocalAndCloudControl => IsAgentConnected && IsCloudConnected;
 
-    public bool CanOpenCloudManagement => IsAgentConnected && !IsShowingCloudManagement;
-
     public bool CanReturnToLocalControl => IsAgentConnected && IsShowingCloudManagement;
 
-    public string ControlPageTitle => IsShowingCloudManagement ? "直播间管理" : "当前画面";
+    public string ControlPageTitle => IsShowingCloudManagement ? "直播间管理" : "备份与恢复";
 
     public string ControlPageSubtitle => IsShowingCloudManagement
         ? "统一保存、查看和管理多台 Windows 直播电脑"
-        : "保存、检查或恢复这台电脑的 OBS 与直播伴侣";
+        : "画面调好后保存一份；需要时从存档恢复到这台电脑";
 
     public bool IsControlVisible => SelectedSection == 0;
 
@@ -1636,7 +1631,7 @@ public partial class MainViewModel : ViewModelBase
             SelectedSnapshot = SnapshotItems.FirstOrDefault(snapshot => snapshot.Id == result.SnapshotId);
             SelectedSection = 1;
             ControlStatusTitle = "当前画面已保存并读取";
-            ControlStatusDescription = "控制室正在显示刚刚读取的 OBS 与直播伴侣画面参数。";
+            ControlStatusDescription = "新存档已经生成并自动打开，可以检查内容或导出。";
             PendingImportMessage = "当前画面已保存，并已自动打开新存档";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
@@ -3731,14 +3726,14 @@ public partial class MainViewModel : ViewModelBase
     {
         IsAgentConnected = true;
         ConnectionSubtitle = state.StatusMessage;
-        ControlStatusTitle = state.CanCapture ? "OBS 已连接，直播伴侣配置已读取" : state.StatusMessage;
+        ControlStatusTitle = state.CanCapture ? "可以开始备份" : state.StatusMessage;
         ControlStatusDescription = state.CanCapture
-            ? "保存不会停止应用；还原会事务重启两款应用并逐字段回读。"
-            : "LiveStudio 会在适配器和设备能力确认后允许写入。";
+            ? "OBS 与直播伴侣已经连接。画面调好后，保存一份新存档即可。"
+            : "点击重新检测；连接正常后即可保存或恢复。";
         AgentStatus = state.IsBusy ? "正在执行任务" : "已连接";
         CloudStatus = state.IsCloudEnrolled ? "已注册" : "未注册";
         IsAgentCloudEnrolled = state.IsCloudEnrolled;
-        ConfigurationStatus = state.CanCapture ? "已读取" : "读取失败";
+        ConfigurationStatus = state.CanCapture ? "连接正常" : "需要处理";
         LanSharedDirectory = state.LanSharedDirectory ?? "未配置";
         LanSyncStatus = state.LanSyncStatus;
         CanControlLocalApplications = state.CanCapture;

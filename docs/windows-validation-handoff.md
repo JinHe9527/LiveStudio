@@ -758,3 +758,17 @@ GitHub 仓库在提交历史敏感信息扫描未发现私钥、真实 `.env`、
 - `C:\Users\WYZB\AppData\Local\Temp\livestudio-local-snapshots-900-fixed.png`
 
 本节没有新增物理采集卡证据，也没有重新执行破坏性来源删除恢复；OBS、直播伴侣恢复能力继续引用第 19–25 节当前精确版本的既有真机证据，跨硬件状态仍为 `Mapped=1028`、`Verified=0`。公开后的首次 GitHub CI 复现了旧工作流在 Linux 编译 Windows UI Automation Agent 的平台错误；工作流现拆分为 Windows 整仓 Release 构建、Core/Agent 测试和漏洞检查，以及 Ubuntu PostgreSQL/MinIO 云端集成测试，避免用不具备 `UIAutomationClient` 的 Linux 环境伪装 Windows 构建。拆分后的首次 Windows Runner 又发现 Git Checkout 把 `.cube` 的 LF 改成 CRLF，色卡完整性测试正确失败；仓库现用 `.gitattributes` 把全部内置 LUT 和 PNG 标为逐字节资产，禁止跨平台换行转换。最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；所有直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。
+
+## 32. 2026-08-27 单机备份与恢复工作台
+
+原“当前画面”首页同时展示应用版本、字段数量、推流/录制状态、事务恢复说明、最近存档和最近操作，普通直播间使用者无法从页面主次判断下一步动作。本轮按单机基础版重新定义首页职责：左侧入口改名为“备份与恢复”，存档页改名为“存档管理”；首页只回答“画面调好了”和“需要恢复画面”两种日常情况，分别提供“保存一份新存档”和“选择存档恢复”两个明确入口。
+
+OBS 与直播伴侣版本、来源/滤镜/字段统计、推流录制状态、恢复协议和操作明细不再占用首页卡片；首页只保留 OBS 连接、直播伴侣读取和本机存档数量三个紧凑状态，以及最近一份存档和重新检测入口。多直播间按钮从页面和可绑定属性中移除，云端实现仍保留在代码内等待后续版本重新开放。恢复前版本、设备、素材与权限检查、事务写入、逐字段回读和失败回滚没有改变，只在页面底部以一句普通用户能够理解的说明表达。
+
+真实 Release 窗口已检查深色 1240×780、深色 900×700 和浅色 1240×780；两个主操作、三项状态、最近存档在窄窗口中均完整可见，没有水平滚动、嵌套滚动或文字遮挡：
+
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-backup-restore-redesign-wide.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-backup-restore-redesign-narrow.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-backup-restore-redesign-light.png`
+
+本节只调整桌面信息架构、中文文案和入口显隐，不改变 `.lscfg`、OBS/直播伴侣捕获、相机参数绑定或事务恢复执行链，也没有执行破坏性真机恢复。跨物理采集卡证据继续保持 `Mapped=1028`、`Verified=0`。
