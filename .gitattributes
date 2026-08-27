@@ -1,0 +1,4 @@
+# OBS LUTs and reference images are integrity-checked byte-for-byte.
+# Never allow Git to rewrite line endings in these bundled assets.
+src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/cube/** -text
+src/LiveStudio.Agent/BuiltInAssets/ColorCards/v1/png/** -text
