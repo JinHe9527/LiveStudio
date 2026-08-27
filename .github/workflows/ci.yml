@@ -8,7 +8,34 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  windows-build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.400
+
+      - name: 还原依赖
+        shell: pwsh
+        run: dotnet restore LiveStudio.slnx
+
+      - name: Release 编译
+        shell: pwsh
+        run: dotnet build LiveStudio.slnx --configuration Release --no-restore --nologo
+
+      - name: Core 与 Agent 测试
+        shell: pwsh
+        run: dotnet test LiveStudio.slnx --configuration Release --no-build --nologo
+
+      - name: 依赖漏洞检查
+        shell: pwsh
+        run: dotnet list LiveStudio.slnx package --vulnerable --include-transitive
+
+  cloud-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -58,18 +85,10 @@ jobs:
             quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z \
             -c 'mc alias set integration http://127.0.0.1:9000 integrationadmin integration-secret-minimum && mc mb --ignore-existing integration/livestudio'
 
-      - name: 还原依赖
+      - name: 还原并编译云端集成项目
         run: |
-          dotnet restore LiveStudio.slnx
           dotnet restore LiveStudio.Integration.slnx
-
-      - name: 编译
-        run: |
-          dotnet build LiveStudio.slnx --configuration Release --no-restore --nologo
-          dotnet build tests/LiveStudio.Cloud.IntegrationTests/LiveStudio.Cloud.IntegrationTests.csproj --configuration Release --no-restore --nologo
-
-      - name: 单元与协议测试
-        run: dotnet test tests/LiveStudio.Core.Tests/LiveStudio.Core.Tests.csproj --configuration Release --no-build --nologo
+          dotnet build LiveStudio.Integration.slnx --configuration Release --no-restore --nologo
 
       - name: PostgreSQL 与 MinIO 集成测试
         env:
@@ -79,4 +98,4 @@ jobs:
           LIVESTUDIO_INTEGRATION_S3_BUCKET: livestudio
           LIVESTUDIO_INTEGRATION_S3_ACCESS_KEY: integrationadmin
           LIVESTUDIO_INTEGRATION_S3_SECRET_KEY: integration-secret-minimum
-        run: dotnet test tests/LiveStudio.Cloud.IntegrationTests/LiveStudio.Cloud.IntegrationTests.csproj --configuration Release --no-build --nologo
+        run: dotnet test LiveStudio.Integration.slnx --configuration Release --no-build --nologo
