@@ -31,6 +31,92 @@ public partial class SnapshotsView : UserControl
         InitializeComponent();
     }
 
+    internal void OpenTechnicalInformation()
+    {
+        if (DataContext is MainViewModel { SnapshotInspector: { } inspector })
+        {
+            inspector.IsTechnicalPanelOpen = true;
+        }
+    }
+
+    internal Task ImportSnapshotFromTitleBarAsync(bool applyAfterImport) =>
+        ChooseSnapshotToImportAsync(applyAfterImport);
+
+    internal async Task ExportSelectedSnapshotFromTitleBarAsync()
+    {
+        if (DataContext is not MainViewModel { SelectedSnapshot: { } selectedSnapshot } viewModel
+            || TopLevel.GetTopLevel(this)?.StorageProvider is not { CanSave: true } storageProvider)
+        {
+            return;
+        }
+
+        var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出画面存档",
+            SuggestedFileName = $"{selectedSnapshot.Id:N}.lscfg",
+            DefaultExtension = "lscfg",
+            FileTypeChoices = [SnapshotFileType],
+            SuggestedFileType = SnapshotFileType,
+            ShowOverwritePrompt = true
+        });
+        var path = file?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            await viewModel.ExportSelectedSnapshotAsync(path);
+        }
+    }
+
+    internal async Task RenameSelectedSnapshotFromTitleBarAsync()
+    {
+        if (DataContext is MainViewModel { SelectedSnapshot: { } snapshot } viewModel)
+        {
+            await RenameSnapshotAsync(viewModel, snapshot);
+        }
+    }
+
+    internal async Task DeleteSelectedSnapshotFromTitleBarAsync()
+    {
+        if (DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this) is not Window owner
+            || viewModel.SelectedSnapshot is not { } selectedSnapshot)
+        {
+            return;
+        }
+
+        var confirmed = await ShowDeleteConfirmationAsync(
+            owner,
+            "删除当前存档",
+            selectedSnapshot.IsCloud
+                ? $"将永久删除云存档“{selectedSnapshot.DisplayName}”、云端预览和不再被引用的素材。此操作无法撤销，不会修改任何直播电脑。"
+                : $"将永久删除“{selectedSnapshot.DisplayName}”及其本机 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
+            "删除当前存档");
+        if (confirmed)
+        {
+            await viewModel.DeleteSelectedSnapshotAsync();
+        }
+    }
+
+    internal async Task DeleteAllSnapshotsFromTitleBarAsync()
+    {
+        if (DataContext is not MainViewModel viewModel
+            || TopLevel.GetTopLevel(this) is not Window owner
+            || viewModel.LocalSnapshotCount == 0)
+        {
+            return;
+        }
+
+        var snapshotCount = viewModel.LocalSnapshotCount;
+        var confirmed = await ShowDeleteConfirmationAsync(
+            owner,
+            "清空本机存档",
+            $"将永久删除本机全部 {snapshotCount} 份画面存档及其 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
+            $"永久清空 {snapshotCount} 份");
+        if (confirmed)
+        {
+            await viewModel.DeleteAllSnapshotsAsync();
+        }
+    }
+
     private void SnapshotsViewKeyDown(object? sender, KeyEventArgs eventArgs)
     {
         if (!eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control)
@@ -48,14 +134,6 @@ public partial class SnapshotsView : UserControl
         {
             inspector.IsTechnicalPanelOpen = true;
             eventArgs.Handled = true;
-        }
-    }
-
-    private void TechnicalInfoClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (DataContext is MainViewModel { SnapshotInspector: { } inspector })
-        {
-            inspector.IsTechnicalPanelOpen = true;
         }
     }
 
@@ -175,16 +253,6 @@ public partial class SnapshotsView : UserControl
         }
     }
 
-    private async void ImportSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        await ChooseSnapshotToImportAsync(applyAfterImport: false);
-    }
-
-    private async void ImportAndApplySnapshotClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        await ChooseSnapshotToImportAsync(applyAfterImport: true);
-    }
-
     private async Task ChooseSnapshotToImportAsync(bool applyAfterImport)
     {
         if (DataContext is not MainViewModel viewModel
@@ -204,38 +272,6 @@ public partial class SnapshotsView : UserControl
         if (!string.IsNullOrWhiteSpace(path))
         {
             await viewModel.ImportSnapshotFileAsync(path, applyAfterImport);
-        }
-    }
-
-    private async void ExportSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (DataContext is not MainViewModel { SelectedSnapshot: { } selectedSnapshot } viewModel
-            || TopLevel.GetTopLevel(this)?.StorageProvider is not { CanSave: true } storageProvider)
-        {
-            return;
-        }
-
-        var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "导出画面存档",
-            SuggestedFileName = $"{selectedSnapshot.Id:N}.lscfg",
-            DefaultExtension = "lscfg",
-            FileTypeChoices = [SnapshotFileType],
-            SuggestedFileType = SnapshotFileType,
-            ShowOverwritePrompt = true
-        });
-        var path = file?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            await viewModel.ExportSelectedSnapshotAsync(path);
-        }
-    }
-
-    private async void RenameCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (DataContext is MainViewModel { SelectedSnapshot: { } snapshot } viewModel)
-        {
-            await RenameSnapshotAsync(viewModel, snapshot);
         }
     }
 
@@ -338,49 +374,6 @@ public partial class SnapshotsView : UserControl
         if (DataContext is MainViewModel viewModel)
         {
             viewModel.OpenCloudSettingsCommand.Execute(null);
-        }
-    }
-
-    private async void DeleteCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (DataContext is not MainViewModel viewModel
-            || TopLevel.GetTopLevel(this) is not Window owner
-            || viewModel.SelectedSnapshot is not { } selectedSnapshot)
-        {
-            return;
-        }
-
-        var confirmed = await ShowDeleteConfirmationAsync(
-            owner,
-            "删除当前存档",
-            selectedSnapshot.IsCloud
-                ? $"将永久删除云存档“{selectedSnapshot.DisplayName}”、云端预览和不再被引用的素材。此操作无法撤销，不会修改任何直播电脑。"
-                : $"将永久删除“{selectedSnapshot.DisplayName}”及其本机 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
-            "删除当前存档");
-        if (confirmed)
-        {
-            await viewModel.DeleteSelectedSnapshotAsync();
-        }
-    }
-
-    private async void DeleteAllSnapshotsClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (DataContext is not MainViewModel viewModel
-            || TopLevel.GetTopLevel(this) is not Window owner
-            || viewModel.LocalSnapshotCount == 0)
-        {
-            return;
-        }
-
-        var snapshotCount = viewModel.LocalSnapshotCount;
-        var confirmed = await ShowDeleteConfirmationAsync(
-            owner,
-            "清空本机存档",
-            $"将永久删除本机全部 {snapshotCount} 份画面存档及其 .lscfg 文件。此操作无法撤销，不会修改 OBS 或直播伴侣。",
-            $"永久清空 {snapshotCount} 份");
-        if (confirmed)
-        {
-            await viewModel.DeleteAllSnapshotsAsync();
         }
     }
 

@@ -775,19 +775,18 @@ OBS 与直播伴侣版本、来源/滤镜/字段统计、推流录制状态、�
 
 默认 1240×780 窗口复验随后发现三处纯布局问题并已修正：存档页原自由换行工具栏改为明确的上下两层，名称与 OBS/直播伴侣/相机分段位于第一层，刷新、导入、保存、恢复和更多操作位于第二层；时间线顶部只显示“本机存档”和数量，不再显示“未分配直播间”。设置页有限宽说明文字固定左对齐，自动运行状态和按钮统一垂直居中。Windows 标题栏已经显示应用图标与名称，因此侧栏重复的 LiveStudio 品牌块被移除。最终截图为 `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshots-default-fixed.png`、`livestudio-settings-default-final.png` 和 `livestudio-home-default-fixed.png`。
 
-## 33. 2026-08-27 标题栏导航与单行存档工具栏
+## 33. 2026-08-27 单页存档管理与标题栏操作
 
-全局导航已进入 Windows 原生标题栏可用区域：备份与恢复、存档管理、操作记录、本机名称和设置始终位于窗口最上方，系统最小化、最大化和关闭按钮继续使用原生窗口装饰。原固定 216px 全局侧栏已移除，存档时间线仍作为存档页内部的 200px 导航保留，因此默认窗口和最大化窗口都把更多横向空间留给 OBS、直播伴侣和相机参数内容。
+桌面产品入口进一步收敛为单一“存档管理”：启动后直接打开本机存档时间线和当前存档详情，不再展示独立“备份与恢复”首页，也不再显示全局工作区导航。设置保留为标题栏右侧唯一的页面入口；原独立“操作记录”已移入设置页，与基础设置使用两个紧凑分段切换。
 
-存档页原来上下两层堆叠的刷新、导入、保存、恢复和更多操作重新整理为一条工具栏：左侧为存档名称与时间，中间为 OBS、直播伴侣、相机参数分段，右侧只保留“保存当前画面”“恢复所选存档”和更多菜单。刷新、导入并应用、仅导入、导出、重命名、技术信息和删除继续完整保留在更多菜单内，不改变原命令和安全检查。
+Windows 原生标题栏只承载存档级操作：当前存档名称、保存当前画面、恢复所选存档、更多菜单和设置。OBS、直播伴侣、相机参数的内容切换留在存档详情头部，不再与操作按钮挤在同一排。更多菜单继续完整保留刷新、导入并应用、仅导入、导出、重命名、技术信息、删除和清空本机存档，不改变原命令、安全检查或确认流程。
 
-Windows UI Automation 已逐项调用标题栏四个入口并确认对应页面内容可见；更多菜单中的刷新、导入并应用、仅导入、导出和技术信息均可见。真实 Release 窗口在浅色 900×650、浅色 1240×780、浅色最大化和深色 1240×780 状态下均保持单行工具栏、无按钮遮挡、无标题栏重叠：
+Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录”入口不再出现在主界面；设置内“操作记录”可切换，标题栏更多菜单中的刷新、导入并应用、仅导入、导出和技术信息均可见。真实 Release 窗口在浅色 900×650 和 1240×780 下无按钮遮挡或标题栏重叠：
 
-- `C:\Users\WYZB\AppData\Local\Temp\livestudio-toolbar-narrow.png`
-- `C:\Users\WYZB\AppData\Local\Temp\livestudio-toolbar-default.png`
-- `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-maximized.png`
-- `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-toolbar-dark.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-titlebar-actions-only.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-snapshot-only-narrow.png`
+- `C:\Users\WYZB\AppData\Local\Temp\livestudio-activity-inside-settings-final.png`
 
-本节只改变桌面导航和存档页操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
+本节只改变桌面信息架构、入口显隐和操作投影，不改变 `.lscfg` 格式、捕获逻辑、设备映射、Preflight、事务恢复、逐字段回读或失败回滚。跨物理采集卡证据仍为 `Mapped=1028`、`Verified=0`。
 
 最终质量门：Release 整仓构建 0 错误、0 警告；LiveStudio.Core.Tests 226 项、LiveStudio.Agent.Tests 23 项，共 249 项全部通过；全部直接和传递 NuGet 包无已知漏洞；`git diff --check` 通过。

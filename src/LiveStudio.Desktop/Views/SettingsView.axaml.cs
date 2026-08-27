@@ -18,6 +18,18 @@ public partial class SettingsView : UserControl
         InitializeComponent();
     }
 
+    private void BasicSettingsTabClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        BasicSettingsTab.IsChecked = true;
+        ActivitySettingsTab.IsChecked = false;
+    }
+
+    private void ActivitySettingsTabClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        BasicSettingsTab.IsChecked = false;
+        ActivitySettingsTab.IsChecked = true;
+    }
+
     private async void ChooseLanDirectoryClicked(object? sender, RoutedEventArgs eventArgs)
     {
         if (DataContext is not MainViewModel viewModel

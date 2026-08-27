@@ -26,26 +26,44 @@
     <Grid RowDefinitions="36,*">
         <Border Grid.Row="0" Classes="app-titlebar"
                 WindowDecorationProperties.ElementRole="TitleBar">
-            <Grid Margin="104,0,146,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="4">
-                <Button Classes="title-nav" Classes.active="{Binding IsControlVisible}"
-                        Command="{Binding SelectSectionCommand}" CommandParameter="0">备份与恢复</Button>
-                <Button Grid.Column="1" Classes="title-nav" Classes.active="{Binding IsSnapshotsVisible}"
-                        Command="{Binding SelectSectionCommand}" CommandParameter="1">存档管理</Button>
-                <Button Grid.Column="2" Classes="title-nav" Classes.active="{Binding IsActivityVisible}"
-                        Command="{Binding SelectSectionCommand}" CommandParameter="2">操作记录</Button>
-                <StackPanel Grid.Column="4" Margin="8,0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="7">
-                    <Border Width="6" Height="6" Classes="device-status-dot" />
-                    <TextBlock Classes="title-device" Text="{Binding DeviceName}" />
-                </StackPanel>
-                <Button Grid.Column="5" Classes="title-nav" Classes.active="{Binding IsSettingsVisible}"
-                        Command="{Binding SelectSectionCommand}" CommandParameter="3">设置</Button>
+            <Grid Margin="104,0,146,0">
+                <Grid IsVisible="{Binding IsSnapshotsVisible}" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBlock VerticalAlignment="Center" Classes="title-context"
+                               Text="{Binding SnapshotInspector.Name}" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="5">
+                        <Button Classes="title-action" IsVisible="{Binding SupportsLocalAgent}"
+                                Command="{Binding CaptureSnapshotCommand}">保存当前画面</Button>
+                        <Button Classes="title-action-primary" IsVisible="{Binding CanShowRestoreAction}"
+                                Command="{Binding RestoreSnapshotCommand}" Content="{Binding RestoreActionText}"
+                                AutomationProperties.Name="恢复所选存档" />
+                        <Button Classes="title-icon" AutomationProperties.Name="更多操作">•••
+                            <Button.Flyout><MenuFlyout>
+                                <MenuItem Header="刷新" Command="{Binding RefreshStateCommand}" />
+                                <MenuItem Header="导入并应用…" IsVisible="{Binding SupportsLocalAgent}" Click="ImportAndApplySnapshotClicked" />
+                                <MenuItem Header="仅导入存档…" Click="ImportSnapshotClicked" />
+                                <Separator />
+                                <MenuItem Header="导出所选存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="ExportSnapshotClicked" />
+                                <MenuItem Header="重命名…" IsEnabled="{Binding HasSelectedSnapshot}" Click="RenameCurrentSnapshotClicked" />
+                                <Separator />
+                                <MenuItem Header="技术信息" Click="TechnicalInfoClicked" />
+                                <MenuItem Header="删除当前存档…" IsEnabled="{Binding HasSelectedSnapshot}" Click="DeleteCurrentSnapshotClicked" />
+                                <MenuItem Header="清空本机存档…" IsEnabled="{Binding HasLocalSnapshots}" Click="DeleteAllSnapshotsClicked" />
+                            </MenuFlyout></Button.Flyout>
+                        </Button>
+                        <Button Classes="title-nav" Command="{Binding SelectSectionCommand}" CommandParameter="3">设置</Button>
+                    </StackPanel>
+                </Grid>
+
+                <Grid IsVisible="{Binding IsSettingsVisible}" ColumnDefinitions="*,Auto">
+                    <TextBlock VerticalAlignment="Center" Classes="title-context" Text="设置" />
+                    <Button Grid.Column="1" Classes="title-nav" Command="{Binding SelectSectionCommand}"
+                            CommandParameter="1">返回存档管理</Button>
+                </Grid>
             </Grid>
         </Border>
 
         <Grid Grid.Row="1" Background="{DynamicResource AppWindowBrush}">
-            <views:ControlRoomView IsVisible="{Binding IsControlVisible}" />
-            <views:SnapshotsView IsVisible="{Binding IsSnapshotsVisible}" />
-            <views:ActivityView IsVisible="{Binding IsActivityVisible}" />
+            <views:SnapshotsView x:Name="SnapshotsPage" IsVisible="{Binding IsSnapshotsVisible}" />
             <views:SettingsView IsVisible="{Binding IsSettingsVisible}" />
         </Grid>
     </Grid>

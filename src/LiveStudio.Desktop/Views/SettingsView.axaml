@@ -1,20 +1,23 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:LiveStudio.Desktop.ViewModels"
+             xmlns:views="using:LiveStudio.Desktop.Views"
              x:Class="LiveStudio.Desktop.Views.SettingsView"
              x:DataType="vm:MainViewModel">
-    <Grid RowDefinitions="72,*">
-        <Grid Margin="28,0" Classes="toolbar">
-            <StackPanel VerticalAlignment="Center" Spacing="3">
-                <TextBlock Classes="page-title" Text="设置" />
-                <TextBlock Classes="page-subtitle" Text="这台直播电脑的外观、连接、检查与更新" />
+    <Grid RowDefinitions="52,*">
+        <Grid Margin="28,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                <ToggleButton x:Name="BasicSettingsTab" Classes="settings-tab" IsChecked="True"
+                              Click="BasicSettingsTabClicked">基础设置</ToggleButton>
+                <ToggleButton x:Name="ActivitySettingsTab" Classes="settings-tab"
+                              Click="ActivitySettingsTabClicked">操作记录</ToggleButton>
             </StackPanel>
             <Border Height="1" VerticalAlignment="Bottom" Background="{DynamicResource ArchiveSeparatorBrush}" />
         </Grid>
 
-        <ScrollViewer Grid.Row="1" HorizontalContentAlignment="Stretch">
+        <ScrollViewer Grid.Row="1" HorizontalContentAlignment="Stretch"
+                      IsVisible="{Binding IsChecked, ElementName=BasicSettingsTab}">
             <StackPanel MaxWidth="960" Margin="28,26" HorizontalAlignment="Stretch" Spacing="18">
-                <TextBlock Classes="settings-section" Text="基础设置" />
                 <Border Classes="settings-card">
                     <StackPanel>
                         <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="20">
@@ -109,5 +112,7 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
+
+        <views:ActivityView Grid.Row="1" IsVisible="{Binding IsChecked, ElementName=ActivitySettingsTab}" />
     </Grid>
 </UserControl>

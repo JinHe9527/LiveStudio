@@ -108,7 +108,7 @@ public partial class MainViewModel : ViewModelBase
         SelectedThemeMode = ThemeModes.First(mode => mode.Key == ThemePreferenceService.LoadMode());
         initializingThemePreference = false;
         CurrentVersionText = applicationUpdateService.CurrentVersionText;
-        SelectedSection = supportsLocalAgent ? 0 : 1;
+        SelectedSection = 1;
         ApplyDisconnectedState();
         RefreshCloudCertificateStatus();
     }
@@ -701,7 +701,7 @@ public partial class MainViewModel : ViewModelBase
 
     public bool IsControlVisible => SelectedSection == 0;
 
-    public bool IsSnapshotsVisible => SelectedSection == 1;
+    public bool IsSnapshotsVisible => SelectedSection != 3;
 
     public bool IsCloudWorkspaceVisible => IsControlVisible && IsShowingCloudManagement;
 
