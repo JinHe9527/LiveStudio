@@ -41,13 +41,17 @@ internal static class Program
 
             if (verifyOnly)
             {
+                AuthenticodeTrustVerifier.Verify(Environment.ProcessPath!);
+                AuthenticodeTrustVerifier.Verify(context.Payload.PackagePath);
+                VerifyInstallationPrerequisites();
                 return 0;
             }
 
             EnsurePublishingCertificateTrusted(context.Payload.CertificatePath);
-            VerifyTrustedSignature(Environment.ProcessPath!);
-            VerifyTrustedSignature(context.Payload.PackagePath);
+            AuthenticodeTrustVerifier.Verify(Environment.ProcessPath!);
+            AuthenticodeTrustVerifier.Verify(context.Payload.PackagePath);
             InstallOrUpgrade(context.Payload.PackagePath, context.Payload.PackageVersion);
+            ClearFailureLog();
             MessageBox.Show(
                 "LiveStudio 已安装并启动。以后可以直接在软件中检查和安装更新。",
                 "LiveStudio 安装完成",
@@ -112,39 +116,13 @@ internal static class Program
         }
     }
 
-    private static void VerifyTrustedSignature(string path)
-    {
-        const string script = """
-& {
-    param($Path, $ExpectedPublisher, $ExpectedThumbprint)
-    $ErrorActionPreference = 'Stop'
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "签名状态不是 Valid: $($signature.Status)"
-    }
-    if (-not $signature.SignerCertificate) { throw '文件没有签名证书' }
-    $thumbprint = $signature.SignerCertificate.Thumbprint.Replace(' ', '')
-    if (-not $thumbprint.Equals($ExpectedThumbprint, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "签名证书指纹不匹配: $thumbprint"
-    }
-    if (-not $signature.SignerCertificate.Subject.Equals($ExpectedPublisher, [StringComparison]::Ordinal)) {
-        throw "签名发布者不匹配: $($signature.SignerCertificate.Subject)"
-    }
-} $args[0] $args[1] $args[2]
-""";
-        RunPowerShell(
-            script,
-            path,
-            InstallerPayload.ExpectedPublisher,
-            InstallerPayload.ExpectedCertificateThumbprint);
-    }
-
     private static void InstallOrUpgrade(string packagePath, Version packageVersion)
     {
         const string script = """
 & {
     param($PackagePath, $TargetVersion)
     $ErrorActionPreference = 'Stop'
+    Import-Module Appx -ErrorAction Stop
     $installed = Get-AppxPackage -Name 'LiveStudio.BroadcastConfiguration' |
         Sort-Object Version -Descending |
         Select-Object -First 1
@@ -164,17 +142,44 @@ internal static class Program
         RunPowerShell(script, packagePath, packageVersion.ToString());
     }
 
+    private static void VerifyInstallationPrerequisites()
+    {
+        const string script = """
+$ErrorActionPreference = 'Stop'
+Import-Module Appx -ErrorAction Stop
+if (-not (Get-Command Add-AppxPackage -ErrorAction Stop)) {
+    throw '当前 Windows 缺少 Add-AppxPackage'
+}
+""";
+        RunPowerShell(script);
+    }
+
     private static void RunPowerShell(string script, params string[] arguments)
     {
+        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var windowsPowerShellRoot = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0");
         var startInfo = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
+            FileName = Path.Combine(windowsPowerShellRoot, "powershell.exe"),
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        var systemModules = Path.Combine(windowsPowerShellRoot, "Modules");
+        var programFilesModules = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "WindowsPowerShell",
+            "Modules");
+        var existingModulePath = startInfo.Environment.TryGetValue("PSModulePath", out var value)
+            ? value
+            : string.Empty;
+        startInfo.Environment["PSModulePath"] = string.Join(
+            Path.PathSeparator,
+            new[] { systemModules, programFilesModules, existingModulePath }
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
         startInfo.ArgumentList.Add("-NoLogo");
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-NonInteractive");
@@ -218,6 +223,21 @@ internal static class Program
         catch
         {
             // 错误提示仍会展示原始异常，日志写入失败不能覆盖安装原因。
+        }
+    }
+
+    private static void ClearFailureLog()
+    {
+        try
+        {
+            if (File.Exists(LogPath))
+            {
+                File.Delete(LogPath);
+            }
+        }
+        catch
+        {
+            // 旧错误日志清理失败不能改变已经成功的安装结果。
         }
     }
 

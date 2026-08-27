@@ -58,6 +58,25 @@ public sealed class InstallerPayloadTests
         }
     }
 
+    [Fact]
+    public void AuthenticodeTrustVerifierRejectsUnsignedFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"LiveStudio-Unsigned-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(path, "unsigned");
+
+            var exception = Assert.Throws<InvalidDataException>(
+                () => AuthenticodeTrustVerifier.Verify(path));
+
+            Assert.Contains("签名信任校验失败", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static string CreatePackage(string publisher, string version)
     {
         var path = Path.Combine(Path.GetTempPath(), $"LiveStudio-Setup-Test-{Guid.NewGuid():N}.msix");

@@ -824,4 +824,6 @@ Windows UI Automation 已确认旧“备份与恢复”和独立“操作记录�
 
 发布工作流继续保留独立 MSIX、证书和全部校验报告供审计，但对普通直播间使用者只推荐下载 `LiveStudio-Setup.exe`。软件安装后仍沿用既有匿名 GitHub Release 更新链，并在退出当前程序前校验 MSIX SHA-256、固定 Publisher 和固定证书指纹。本轮只改变 Windows 分发与首次安装，不改变 `.lscfg`、OBS/直播伴侣捕获、设备映射、相机记录或事务恢复协议；跨硬件证据仍为 `Mapped=1028`、`Writable/Required=966`、`Verified=0`。
 
-安装器新增 6 项专门测试，覆盖 Release SHA-256 格式、非法校验拒绝、MSIX manifest 版本读取和 Publisher 拒绝。当前本机 Release 构建为 0 错误、0 警告，Core 232 项、Agent 24 项、Setup 6 项，共 262 项全部通过。最终单文件封装、时间戳签名、公开下载后哈希和真机安装状态必须以对应标签的 GitHub Windows Release 工作流为准。
+安装器最初在管理员环境中通过 PowerShell `Get-AuthenticodeSignature` 执行导入后的信任校验；`v0.1.7` 公开包的哈希、Signer 与内嵌载荷均通过，但当前真机首次安装时系统无法自动加载 `Microsoft.PowerShell.Security`，证书加入 Trusted People 后安全中止，MSIX 没有安装。该 Release 已立即标记为预发布并注明撤回，不再作为软件最新正式版本。安装器随后改为直接调用 Windows `WinVerifyTrust`，不再依赖 PowerShell 安全模块；需要执行 Appx 安装时固定调用系统 Windows PowerShell 并补齐系统模块路径。`--verify-only` 同时执行 WinVerifyTrust 和 Appx 模块加载，防止发布流水线再次只验证外层而漏过运行时实现。
+
+安装器现有 7 项专门测试，覆盖 Release SHA-256 格式、非法校验拒绝、MSIX manifest 版本读取、Publisher 拒绝和未签名文件拒绝。最终单文件封装、时间戳签名、公开下载后哈希和真机首次安装状态必须以修复标签的 GitHub Windows Release 工作流与本机实际安装为准。
