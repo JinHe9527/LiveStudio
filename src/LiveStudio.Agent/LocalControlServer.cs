@@ -576,7 +576,14 @@ public sealed class LocalControlServer(
     {
         var query = LocalControlProtocol.DeserializePayload<GetLocalSnapshotDetailRequest>(request.Payload);
         var package = await transferService.ReadLocalAsync(query.SnapshotId, cancellationToken);
-        return LocalControlProtocol.CreateSuccess(request.RequestId, package.Snapshot);
+        var applications = package.Snapshot.Applications
+            .Select(application => adapters.TryGetValue(application.Kind, out var adapter)
+                ? adapter.PrepareRestoreSnapshot(application)
+                : application)
+            .ToArray();
+        return LocalControlProtocol.CreateSuccess(
+            request.RequestId,
+            package.Snapshot with { Applications = applications });
     }
 
     private async Task<LocalControlResponse> GetSnapshotPreviewAsync(
@@ -650,10 +657,20 @@ public sealed class LocalControlServer(
         var package = await transferService.ReadLocalAsync(save.SnapshotId, cancellationToken);
         var source = package.Snapshot.Applications
             .Where(application => application.Kind == save.Application)
+            .Select(application => adapters.TryGetValue(application.Kind, out var adapter)
+                ? adapter.PrepareRestoreSnapshot(application)
+                : application)
             .SelectMany(application => application.Sources)
             .SingleOrDefault(candidate => candidate.LogicalId == save.SourceLogicalId)
             ?? throw new InvalidDataException("存档中找不到要映射的来源");
-        var targets = await CaptureMappingTargetsAsync(cancellationToken);
+        var mappingSource = new LocalMappingSource(
+            source.LogicalId,
+            save.Application,
+            source.Name,
+            source.Device?.FriendlyName ?? source.Name,
+            source.Mode,
+            null);
+        var targets = await CaptureMappingTargetsAsync([mappingSource], cancellationToken);
         var target = targets.SingleOrDefault(candidate =>
             candidate.Application == save.Application
             && string.Equals(candidate.SourceName, save.TargetSourceName.Trim(), StringComparison.Ordinal)
@@ -704,6 +721,9 @@ public sealed class LocalControlServer(
         var mappingBySource = mappings.ToDictionary(
             mapping => (mapping.Application, mapping.SourceLogicalId));
         var sources = package.Snapshot.Applications
+            .Select(application => adapters.TryGetValue(application.Kind, out var adapter)
+                ? adapter.PrepareRestoreSnapshot(application)
+                : application)
             .SelectMany(application => application.Sources
                 .Where(RequiresDeviceMapping)
                 .Select(source => new LocalMappingSource(
@@ -719,13 +739,14 @@ public sealed class LocalControlServer(
         return new LocalMappingContext(
             snapshotId,
             sources,
-            await CaptureMappingTargetsAsync(cancellationToken));
+            await CaptureMappingTargetsAsync(sources, cancellationToken));
     }
 
     internal static bool RequiresDeviceMapping(VideoSource source) =>
         !string.IsNullOrWhiteSpace(source.Device?.InterfaceHint);
 
     private async Task<IReadOnlyList<LocalMappingTarget>> CaptureMappingTargetsAsync(
+        IReadOnlyList<LocalMappingSource> mappingSources,
         CancellationToken cancellationToken)
     {
         using var operationLease = await applicationOperationGate.EnterAsync(cancellationToken);
@@ -750,7 +771,31 @@ public sealed class LocalControlServer(
             }
         }
 
+        var obsSources = mappingSources
+            .Where(source => source.Application == ApplicationKind.Obs)
+            .ToArray();
+        if (obsSources.Length > 0)
+        {
+            try
+            {
+                var devices = await obsDeviceCatalog.ListVideoDevicesAsync(cancellationToken);
+                targets.AddRange(obsSources.SelectMany(source => devices.Select(device =>
+                    new LocalMappingTarget(
+                        ApplicationKind.Obs,
+                        source.SourceName,
+                        device.DeviceId,
+                        device.FriendlyName,
+                        null))));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogRequestFailure(logger, LocalControlMethod.GetMappingContext, exception);
+            }
+        }
+
         return targets
+            .DistinctBy(
+                target => (target.Application, target.SourceName, target.TargetDeviceId))
             .OrderBy(target => target.Application)
             .ThenBy(target => target.SourceName, StringComparer.Ordinal)
             .ToArray();

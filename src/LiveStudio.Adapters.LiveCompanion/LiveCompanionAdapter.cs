@@ -100,20 +100,37 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         var match = adapterCatalog.Match(version, discoveredStructureFingerprint, discoveredDocuments);
         var structureFingerprint = match.Adapter?.Definition.StructureFingerprint
             ?? discoveredStructureFingerprint;
-        var documents = match.Adapter is null
+        var definedDocuments = match.Adapter is null
             ? discoveredDocuments
             : await configurationStore.CaptureDefinedDocumentsAsync(match.Adapter, cancellationToken);
-        if (documents.Count == 0)
+        if (definedDocuments.Count == 0)
         {
             throw new InvalidOperationException(
                 $"未在 {configurationStore.RootPath} 找到通过敏感字段排除检查的原生配置");
         }
 
-        // A configuration document is not necessarily a video source or filter chain. Those semantics may
-        // only be projected by an explicit signed mapping; discovery data remains in the native tree.
-        IReadOnlyList<VideoSource> sources = [];
-        var coverage = match.Adapter is null
-            ? documents.SelectMany(document => document.Values.SelectMany(value =>
+        // 存档不能绑定来源电脑生成的场景、来源、效果与滤镜实例标识。即使当前电脑
+        // 命中精确签名定义，持久化时仍保存经过敏感字段审计的完整原生树，并投影为
+        // 可移植摄像头配置；签名定义只负责限定可写字段与目标版本结构。
+        var portableProfile = LiveCompanionPortableProfile.TryCreate(discoveredDocuments);
+        var portableMatch = portableProfile is null
+            ? null
+            : match.Level == AdapterMatchLevel.Verified && match.Adapter is not null
+                ? match
+                : adapterCatalog.MatchPortableTarget(version, discoveredDocuments);
+        var canRestorePortable = portableMatch is
+        {
+            Level: AdapterMatchLevel.Verified,
+            Adapter: not null
+        };
+        var documents = canRestorePortable ? discoveredDocuments : definedDocuments;
+        IReadOnlyList<VideoSource> sources = portableProfile is null
+            ? []
+            : [portableProfile.CreateVideoSource()];
+        var coverage = canRestorePortable
+            ? portableProfile!.CreateFieldCoverage()
+            : match.Adapter is null
+                ? documents.SelectMany(document => document.Values.SelectMany(value =>
             {
                 var presentation = LiveCompanionDiscoveryPresentation.Present(document, value);
                 return EnumerateDiscoveryCoverage(
@@ -124,17 +141,22 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     presentation.NativeName,
                     presentation.UiPath);
             })).ToArray()
-            : CreateDefinedCoverage(match.Adapter, documents);
+                : CreateDefinedCoverage(match.Adapter, documents);
         var configurationTree = LiveCompanionConfigurationTree.Create(documents, match.Adapter);
         IReadOnlyList<FilterChainSnapshot> filterChains = [];
         return new ApplicationSnapshot(
             ApplicationKind.LiveCompanion,
             version,
-            match.Adapter?.Definition.Id ?? "webcast-mate-json-discovery",
-            match.Adapter?.DefinitionSha256 ?? string.Empty,
+            canRestorePortable
+                ? LiveCompanionPortableProfile.AdapterId
+                : match.Adapter?.Definition.Id ?? "webcast-mate-json-discovery",
+            canRestorePortable
+                ? portableMatch!.Adapter!.DefinitionSha256
+                : match.Adapter?.DefinitionSha256 ?? string.Empty,
             structureFingerprint,
             match.Level switch
             {
+                _ when canRestorePortable => CompatibilityLevel.Experimental,
                 AdapterMatchLevel.Verified => CompatibilityLevel.Verified,
                 AdapterMatchLevel.Experimental => CompatibilityLevel.Experimental,
                 _ => CompatibilityLevel.Unsupported
@@ -372,11 +394,136 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             DateTimeOffset.UtcNow));
     }
 
+    public ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot)
+    {
+        if (snapshot.Kind != ApplicationKind.LiveCompanion || snapshot.NativeDocuments.Count == 0)
+        {
+            return snapshot;
+        }
+
+        var portableProfile = LiveCompanionPortableProfile.TryCreate(snapshot.NativeDocuments);
+        var sources = snapshot.Sources.Count == 0 && portableProfile is not null
+            ? new[] { portableProfile.CreateVideoSource() }
+            : snapshot.Sources;
+        if (string.Equals(
+                snapshot.AdapterId,
+                LiveCompanionPortableProfile.AdapterId,
+                StringComparison.Ordinal))
+        {
+            return ReferenceEquals(sources, snapshot.Sources)
+                ? snapshot
+                : snapshot with { Sources = sources };
+        }
+
+        if (portableProfile is not null)
+        {
+            var portableMatch = adapterCatalog.MatchPortableTarget(
+                snapshot.Version,
+                snapshot.NativeDocuments);
+            if (portableMatch.Level == AdapterMatchLevel.Verified
+                && portableMatch.Adapter is not null)
+            {
+                return snapshot with
+                {
+                    AdapterId = LiveCompanionPortableProfile.AdapterId,
+                    AdapterDefinitionSha256 = portableMatch.Adapter.DefinitionSha256,
+                    Compatibility = CompatibilityLevel.Experimental,
+                    Sources = sources,
+                    FieldCoverage = portableProfile.CreateFieldCoverage()
+                };
+            }
+        }
+
+        if (!string.Equals(snapshot.AdapterId, "webcast-mate-json-discovery", StringComparison.Ordinal))
+        {
+            return ReferenceEquals(sources, snapshot.Sources)
+                ? snapshot
+                : snapshot with { Sources = sources };
+        }
+
+        var match = adapterCatalog.Match(
+            snapshot.Version,
+            snapshot.StructureFingerprint,
+            snapshot.NativeDocuments);
+        if (match.Level != AdapterMatchLevel.Verified
+            || match.Adapter is null
+            || !LiveCompanionAdapterCatalog.MatchesCompatibleShape(
+                match.Adapter.Definition,
+                snapshot.NativeDocuments))
+        {
+            return snapshot;
+        }
+
+        var documents = LiveCompanionConfigurationStore.CreateDefinedDocuments(
+            match.Adapter,
+            snapshot.NativeDocuments);
+        LiveCompanionConfigurationStore.ValidateDefinedDocuments(match.Adapter, documents);
+        var tree = LiveCompanionConfigurationTree.Create(documents, match.Adapter);
+        if (!tree.HasCompleteUiInventory
+            || !tree.HasCompleteNativeInventory
+            || tree.UnknownCount != 0
+            || tree.EvidenceOnlyCount != 0)
+        {
+            return snapshot;
+        }
+
+        return snapshot with
+        {
+            AdapterId = match.Adapter.Definition.Id,
+            AdapterDefinitionSha256 = match.Adapter.DefinitionSha256,
+            StructureFingerprint = match.Adapter.Definition.StructureFingerprint,
+            Compatibility = CompatibilityLevel.Verified,
+            FieldCoverage = CreateDefinedCoverage(match.Adapter, documents),
+            NativeDocuments = documents,
+            ConfigurationTree = tree
+        };
+    }
+
     public async Task<RestorePreflightResult> PreflightAsync(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
+        var portableProfile = LiveCompanionPortableProfile.TryCreate(
+            context.Snapshot.NativeDocuments);
+        if (portableProfile is not null)
+        {
+            var portableRuntime = await InspectAsync(cancellationToken);
+            var portableTargetDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            var targetMatch = adapterCatalog.MatchPortableTarget(
+                portableRuntime.Version,
+                portableTargetDocuments);
+            if (targetMatch.Level != AdapterMatchLevel.Verified || targetMatch.Adapter is null)
+            {
+                return RestorePreflightResult.Fail(
+                    JobStatus.IncompatibleVersion,
+                    $"目标直播伴侣版本或摄像头存储结构不受支持: {targetMatch.Reason}");
+            }
+
+            var targetDeviceId = portableProfile.ResolveTargetDeviceId(
+                context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId));
+            if (string.IsNullOrWhiteSpace(targetDeviceId))
+            {
+                return RestorePreflightResult.Fail(
+                    JobStatus.MappingRequired,
+                    "请选择存档摄像头在这台电脑上对应的视频设备");
+            }
+
+            try
+            {
+                await configurationStore.ValidateRepairTargetAsync(
+                    targetMatch.Adapter,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException)
+            {
+                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, exception.Message);
+            }
+
+            return RestorePreflightResult.Success;
+        }
+
         if (string.Equals(context.Snapshot.AdapterId, "webcast-mate-json-discovery", StringComparison.Ordinal)
+            || string.Equals(context.Snapshot.AdapterId, LiveCompanionPortableProfile.AdapterId, StringComparison.Ordinal)
             || context.Snapshot.Compatibility != CompatibilityLevel.Verified)
         {
             return RestorePreflightResult.Fail(
@@ -465,12 +612,28 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         var executablePath = originalProcess?.ExecutablePath
             ?? LiveCompanionProcessController.FindInstalledExecutable()
             ?? throw new InvalidOperationException("找不到抖音直播伴侣安装程序");
-        var restoreAdapter = adapterCatalog.GetAll().SingleOrDefault(adapter =>
-            string.Equals(adapter.Definition.Id, context.Snapshot.AdapterId, StringComparison.Ordinal)
-            && string.Equals(
-                adapter.Definition.StructureFingerprint,
-                context.Snapshot.StructureFingerprint,
-                StringComparison.Ordinal)) ?? throw new InvalidOperationException("找不到存档对应的已签名直播伴侣适配器");
+        var portableProfile = LiveCompanionPortableProfile.TryCreate(context.Snapshot.NativeDocuments);
+        VerifiedAdapterDefinition restoreAdapter;
+        if (portableProfile is not null)
+        {
+            var runtime = await InspectAsync(cancellationToken);
+            var targetDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            var targetMatch = adapterCatalog.MatchPortableTarget(runtime.Version, targetDocuments);
+            restoreAdapter = targetMatch.Level == AdapterMatchLevel.Verified
+                             && targetMatch.Adapter is not null
+                ? targetMatch.Adapter
+                : throw new InvalidOperationException(
+                    $"目标直播伴侣版本或摄像头存储结构不受支持: {targetMatch.Reason}");
+        }
+        else
+        {
+            restoreAdapter = adapterCatalog.GetAll().SingleOrDefault(adapter =>
+                string.Equals(adapter.Definition.Id, context.Snapshot.AdapterId, StringComparison.Ordinal)
+                && string.Equals(
+                    adapter.Definition.StructureFingerprint,
+                    context.Snapshot.StructureFingerprint,
+                    StringComparison.Ordinal)) ?? throw new InvalidOperationException("找不到存档对应的已签名直播伴侣适配器");
+        }
         var journal = await LiveCompanionTransactionJournal.CreateAsync(
             context.JobId,
             originalProcess,
@@ -481,7 +644,8 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             originalProcess,
             executablePath,
             journal,
-            restoreAdapter);
+            restoreAdapter,
+            portableProfile);
     }
 
     private static string NormalizeVersion(string? version)
@@ -502,7 +666,8 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         LiveCompanionProcessInfo? originalProcess,
         string executablePath,
         LiveCompanionTransactionJournal journal,
-        VerifiedAdapterDefinition restoreAdapter) : IApplicationRestoreSession
+        VerifiedAdapterDefinition restoreAdapter,
+        LiveCompanionPortableProfile? portableProfile) : IApplicationRestoreSession
     {
         private readonly LiveCompanionCameraPayloadStore cameraPayloadStore =
             new(configurationStore.RootPath);
@@ -540,28 +705,57 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         public async Task ApplyAsync(CancellationToken cancellationToken)
         {
             EnsureStopped();
-            LiveCompanionConfigurationStore.ValidateDefinedDocuments(
-                restoreAdapter,
-                context.Snapshot.NativeDocuments);
             var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
             var assets = context.Snapshot.Sources
                 .SelectMany(source => source.Filters)
                 .SelectMany(filter => filter.Assets)
                 .ToArray();
-            var writableDocuments = LiveCompanionConfigurationStore.SelectWritableDocuments(
-                restoreAdapter,
-                context.Snapshot.NativeDocuments);
-            await configurationStore.ApplyAsync(
-                writableDocuments,
-                mappings,
-                assets,
-                context.AssetDirectory,
-                cancellationToken);
+            IReadOnlyList<NativeConfigurationDocument> writableDocuments;
+            if (portableProfile is not null)
+            {
+                writableDocuments = portableProfile.CreateExpectedDocuments(
+                    restoreAdapter,
+                    mappings,
+                    assets,
+                    context.AssetDirectory);
+            }
+            else
+            {
+                LiveCompanionConfigurationStore.ValidateDefinedDocuments(
+                    restoreAdapter,
+                    context.Snapshot.NativeDocuments);
+                writableDocuments = LiveCompanionConfigurationStore.SelectWritableDocuments(
+                    restoreAdapter,
+                    context.Snapshot.NativeDocuments);
+                await configurationStore.ApplyAsync(
+                    writableDocuments,
+                    mappings,
+                    assets,
+                    context.AssetDirectory,
+                    cancellationToken);
+            }
+
             var sourceStore = writableDocuments.Single(document => string.Equals(
                 Path.GetFileName(document.RelativePath),
                 "sourceStore.json",
                 StringComparison.OrdinalIgnoreCase));
-            await cameraPayloadStore.ApplyAsync(sourceStore, cancellationToken);
+            if (portableProfile is not null)
+            {
+                await cameraPayloadStore.ApplyPortableAsync(sourceStore, cancellationToken);
+                var targetDeviceId = portableProfile.ResolveTargetDeviceId(mappings);
+                var activeTargets = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
+                    .Where(camera => string.Equals(camera.DeviceId, targetDeviceId, StringComparison.Ordinal))
+                    .ToArray();
+                await configurationStore.ApplyPortableBoundDocumentsAsync(
+                    writableDocuments,
+                    portableProfile.Camera,
+                    activeTargets,
+                    cancellationToken);
+            }
+            else
+            {
+                await cameraPayloadStore.ApplyAsync(sourceStore, cancellationToken);
+            }
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -578,14 +772,19 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                 .SelectMany(source => source.Filters)
                 .SelectMany(filter => filter.Assets)
                 .ToArray();
-            var writableDocuments = LiveCompanionConfigurationStore.SelectWritableDocuments(
-                restoreAdapter,
-                context.Snapshot.NativeDocuments);
-            var expected = LiveCompanionConfigurationStore.CreateExpectedDocuments(
-                writableDocuments,
-                mappings,
-                assets,
-                context.AssetDirectory);
+            var expected = portableProfile is not null
+                ? portableProfile.CreateExpectedDocuments(
+                    restoreAdapter,
+                    mappings,
+                    assets,
+                    context.AssetDirectory)
+                : LiveCompanionConfigurationStore.CreateExpectedDocuments(
+                    LiveCompanionConfigurationStore.SelectWritableDocuments(
+                        restoreAdapter,
+                        context.Snapshot.NativeDocuments),
+                    mappings,
+                    assets,
+                    context.AssetDirectory);
             var sourceStore = expected.Single(document => string.Equals(
                 Path.GetFileName(document.RelativePath),
                 "sourceStore.json",
@@ -597,14 +796,19 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             var targets = await LiveCompanionCameraPayloadStore.GetTargetsAsync(
                 sourceStore,
                 cancellationToken);
-            if (targets.Count != 1)
+            var equivalentTargets = targets
+                .GroupBy(
+                    target => $"{target.DeviceId}\0{target.EffectConfigurationId}\0{target.Payload.ToJsonString()}",
+                    StringComparer.Ordinal)
+                .ToArray();
+            if (targets.Count == 0 || equivalentTargets.Length != 1)
             {
                 return new RestoreVerificationResult(
                     false,
-                    [$"当前签名恢复要求存档恰好包含一个摄像头，实际为 {targets.Count} 个"]);
+                    [$"存档中的 {targets.Count} 个摄像头来源没有共享同一设备、效果配置与画面参数"]);
             }
 
-            var target = targets[0];
+            var target = equivalentTargets[0].First();
             var packagePath = journal.GetWorkingPath("camera-effect.zip");
             await LiveCompanionEffectPackage.CreateAsync(
                 packagePath,
@@ -647,7 +851,10 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     }
                 }
 
-                if (active.Length == 1)
+                var activeEffectGroups = active
+                    .GroupBy(camera => camera.EffectConfigurationId, StringComparer.Ordinal)
+                    .ToArray();
+                if (activeEffectGroups.Length == 1)
                 {
                     await LiveCompanionNativeUiRestorer.ImportEffectForExistingCameraAsync(
                         running.ProcessId,
@@ -658,15 +865,38 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                 {
                     return new RestoreVerificationResult(
                         false,
-                        [$"直播伴侣中存在 {active.Length} 个同名摄像头 {target.DeviceId}，且没有一个通过完整回读"]);
+                        [$"直播伴侣中存在 {active.Length} 个同名摄像头 {target.DeviceId}，但它们引用了不同效果配置，无法安全选择"]);
                 }
             }
 
             running = LiveCompanionProcessController.FindRunning()
                 ?? throw new InvalidOperationException("直播伴侣在原生配置导入后意外退出");
+            var boundTargets = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
+                .Where(camera => string.Equals(camera.DeviceId, target.DeviceId, StringComparison.Ordinal))
+                .ToArray();
+            if (boundTargets.Length == 0)
+            {
+                return new RestoreVerificationResult(
+                    false,
+                    [$"原生导入后没有找到摄像头 {target.DeviceId}"]);
+            }
+
             await LiveCompanionProcessController.StopAsync(running.ProcessId, cancellationToken);
-            await cameraPayloadStore.ApplyAsync(sourceStore, cancellationToken);
-            await cameraPayloadStore.ApplyToActiveSourcesAsync(sourceStore, cancellationToken);
+            if (portableProfile is not null)
+            {
+                await cameraPayloadStore.ApplyPortableAsync(sourceStore, cancellationToken);
+                await cameraPayloadStore.ApplyPortableToActiveSourcesAsync(sourceStore, cancellationToken);
+                await configurationStore.ApplyPortableBoundDocumentsAsync(
+                    expected,
+                    portableProfile.Camera,
+                    boundTargets,
+                    cancellationToken);
+            }
+            else
+            {
+                await cameraPayloadStore.ApplyAsync(sourceStore, cancellationToken);
+                await cameraPayloadStore.ApplyToActiveSourcesAsync(sourceStore, cancellationToken);
+            }
             await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
             await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
 
@@ -674,20 +904,27 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             var restored = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
                 .Where(camera => string.Equals(camera.DeviceId, target.DeviceId, StringComparison.Ordinal))
                 .ToArray();
-            if (restored.Length != 1)
+            if (restored.Length == 0)
             {
                 return new RestoreVerificationResult(
                     false,
-                    [$"重启后未找到唯一摄像头 {target.DeviceId}"]);
+                    [$"重启后未找到摄像头 {target.DeviceId}"]);
             }
 
-            var differences = await LiveCompanionRestoreVerifier.VerifyAsync(
-                configurationStore.RootPath,
-                expected,
-                target,
-                restored[0],
-                cancellationToken);
-            return new RestoreVerificationResult(differences.Count == 0, differences);
+            var allDifferences = new List<string>();
+            foreach (var restoredCamera in restored)
+            {
+                var differences = await LiveCompanionRestoreVerifier.VerifyAsync(
+                    configurationStore.RootPath,
+                    expected,
+                    target,
+                    restoredCamera,
+                    cancellationToken);
+                allDifferences.AddRange(differences.Select(difference =>
+                    $"{restoredCamera.SceneId}/{restoredCamera.SourceId}: {difference}"));
+            }
+
+            return new RestoreVerificationResult(allDifferences.Count == 0, allDifferences);
         }
 
         public async Task CommitAsync(CancellationToken cancellationToken)

@@ -58,6 +58,32 @@ internal sealed class LiveCompanionRuntimeBinding
             .Select(value => value!)
             .Distinct()
             .ToArray();
+        if (canonicalCameras.ToHashSet().SetEquals(runtimeCameras))
+        {
+            var identityEffectIds = definition.Fields
+                .Where(field => string.Equals(field.StoreId, "effect-config", StringComparison.Ordinal))
+                .Select(field => ParseEffectConfigurationId(field.NativePath))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .Distinct(StringComparer.Ordinal)
+                .ToHashSet(StringComparer.Ordinal);
+            var runtimeEffectIds = runtimeCameras
+                .Select(camera =>
+                {
+                    var pointer = $"/sourceStore/sceneSource/{EscapePointer(camera.SceneId)}/data/{EscapePointer(camera.SourceId)}/effectConfigId";
+                    return values.TryGetValue(pointer, out var effectValue)
+                           && effectValue.Value.ValueKind == JsonValueKind.String
+                        ? effectValue.Value.GetString()
+                        : null;
+                })
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToHashSet(StringComparer.Ordinal);
+            return identityEffectIds.SetEquals(runtimeEffectIds)
+                ? new LiveCompanionRuntimeBinding([])
+                : null;
+        }
+
         if (canonicalCameras.Length != 1 || runtimeCameras.Length != 1)
         {
             return null;

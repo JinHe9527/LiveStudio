@@ -106,11 +106,26 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         CancellationToken cancellationToken)
     {
         var discoveredDocuments = await CaptureDocumentsAsync(cancellationToken);
+        return CreateDefinedDocuments(adapter, discoveredDocuments);
+    }
+
+    internal static IReadOnlyList<NativeConfigurationDocument> CreateDefinedDocuments(
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
+    {
         var runtimeBinding = LiveCompanionRuntimeBinding.TryCreate(
             adapter.Definition,
             discoveredDocuments)
             ?? throw new InvalidOperationException(
                 "直播伴侣当前摄像头来源无法唯一绑定到签名适配定义");
+        var discoveredByLocation = discoveredDocuments
+            .GroupBy(
+                document => NormalizeLocation(document.RelativePath),
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Single(),
+                StringComparer.OrdinalIgnoreCase);
         var documents = new List<NativeConfigurationDocument>();
         foreach (var store in adapter.Definition.Stores.OrderBy(store => store.Id, StringComparer.Ordinal))
         {
@@ -120,27 +135,21 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     $"适配器 {adapter.Definition.Id} 的存储 {store.Id} 尚未实现: {store.Kind}");
             }
 
-            var path = ResolveDefinitionPath(store.Location);
-            if (!File.Exists(path))
+            if (!discoveredByLocation.TryGetValue(NormalizeLocation(store.Location), out var discovered))
             {
-                throw new FileNotFoundException($"直播伴侣适配器要求的配置文件不存在: {store.Location}", path);
+                throw new InvalidOperationException($"直播伴侣存档缺少签名定义要求的配置文件: {store.Location}");
             }
 
-            await using var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete,
-                131_072,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var discoveredValues = discovered.Values.ToDictionary(
+                value => value.JsonPointer,
+                StringComparer.Ordinal);
             var values = new List<NativeConfigurationValue>();
             foreach (var field in adapter.Definition.Fields
                          .Where(field => string.Equals(field.StoreId, store.Id, StringComparison.Ordinal))
                          .OrderBy(field => field.NativePath, StringComparer.Ordinal))
             {
                 var runtimePath = runtimeBinding.ToRuntimePointer(field.NativePath);
-                if (!TryGetPointer(json.RootElement, runtimePath, out var value))
+                if (!discoveredValues.TryGetValue(runtimePath, out var discoveredValue))
                 {
                     if (IsRequiredRestorableField(field))
                     {
@@ -151,6 +160,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     continue;
                 }
 
+                var value = discoveredValue.Value;
                 if (!MatchesExpectedType(field, value))
                 {
                     if (!IsOptionalApplicationManagedCache(field))
@@ -170,21 +180,24 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     runtimeBinding.ToCanonicalValue(value)));
             }
 
-            var relativePath = Path.GetRelativePath(RootPath, path);
             var content = JsonSerializer.SerializeToUtf8Bytes(values, JsonOptions);
             documents.Add(new NativeConfigurationDocument(
                 store.Id,
                 store.Kind.ToString(),
                 adapter.Definition.Id,
                 store.Location,
-                relativePath,
+                discovered.RelativePath,
                 Convert.ToHexStringLower(SHA256.HashData(content)),
-                CreateLogicalId($"live-companion|{store.Id}|{relativePath}"),
+                CreateLogicalId($"live-companion|{store.Id}|{discovered.RelativePath}"),
                 values));
         }
 
         return documents;
     }
+
+    private static string NormalizeLocation(string location) => location
+        .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+        .TrimStart(Path.DirectorySeparatorChar);
 
     public async Task ValidateRepairTargetAsync(
         VerifiedAdapterDefinition adapter,
@@ -430,6 +443,73 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
     }
 
+    public async Task ApplyPortableBoundDocumentsAsync(
+        IReadOnlyList<NativeConfigurationDocument> documents,
+        LiveCompanionCameraTarget sourceCamera,
+        IReadOnlyList<LiveCompanionActiveCamera> targetCameras,
+        CancellationToken cancellationToken)
+    {
+        foreach (var document in documents.Where(document =>
+                     !string.Equals(
+                         Path.GetFileName(document.RelativePath),
+                         "sourceStore.json",
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            var path = ResolveDocumentPath(document);
+            JsonNode root;
+            await using (var stream = new FileStream(
+                             path,
+                             FileMode.Open,
+                             FileAccess.Read,
+                             FileShare.Read,
+                             131_072,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken)
+                       ?? throw new JsonException($"无法解析直播伴侣配置: {document.RelativePath}");
+            }
+
+            foreach (var value in document.Values)
+            {
+                var sourceIdentifiers = new[]
+                {
+                    sourceCamera.SceneId,
+                    sourceCamera.SourceId,
+                    sourceCamera.EffectConfigurationId
+                };
+                var pointerUsesSourceIdentifiers = sourceIdentifiers.Any(identifier =>
+                    PointerContainsSegment(value.JsonPointer, identifier));
+                var valueNode = JsonNode.Parse(value.Value.GetRawText());
+                var valueUsesSourceIdentifiers = sourceIdentifiers.Any(identifier =>
+                    ContainsIdentifier(valueNode, identifier));
+                if (!pointerUsesSourceIdentifiers && !valueUsesSourceIdentifiers)
+                {
+                    SetPointer(root, value.JsonPointer, valueNode);
+                    continue;
+                }
+
+                var bindingTargets = pointerUsesSourceIdentifiers
+                    ? targetCameras
+                    : targetCameras.Take(1);
+                foreach (var target in bindingTargets)
+                {
+                    var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [sourceCamera.SceneId] = target.SceneId,
+                        [sourceCamera.SourceId] = target.SourceId,
+                        [sourceCamera.EffectConfigurationId] = target.EffectConfigurationId
+                    };
+                    SetPointer(
+                        root,
+                        TranslatePointer(value.JsonPointer, replacements),
+                        ReplaceIdentifiers(valueNode, replacements));
+                }
+            }
+
+            await WriteJsonAtomicallyAsync(path, root, cancellationToken);
+        }
+    }
+
     public static IReadOnlyList<NativeConfigurationDocument> CreateExpectedDocuments(
         IReadOnlyList<NativeConfigurationDocument> documents,
         IReadOnlyDictionary<Guid, DeviceMapping> mappings,
@@ -466,6 +546,81 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
             });
         return Convert.ToHexStringLower(SHA256.HashData(
             JsonSerializer.SerializeToUtf8Bytes(canonical, JsonOptions)));
+    }
+
+    private static bool PointerContainsSegment(string pointer, string value) => pointer
+        .Split('/', StringSplitOptions.RemoveEmptyEntries)
+        .Select(UnescapePointer)
+        .Contains(value, StringComparer.Ordinal);
+
+    private static bool ContainsIdentifier(JsonNode? node, string identifier)
+    {
+        if (node is JsonValue value
+            && value.TryGetValue<string>(out var text)
+            && string.Equals(text, identifier, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (node is JsonArray array)
+        {
+            return array.Any(item => ContainsIdentifier(item, identifier));
+        }
+
+        return node is JsonObject objectValue
+               && objectValue.Any(property =>
+                   string.Equals(property.Key, identifier, StringComparison.Ordinal)
+                   || ContainsIdentifier(property.Value, identifier));
+    }
+
+    private static string TranslatePointer(
+        string pointer,
+        Dictionary<string, string> replacements) => "/" + string.Join(
+        '/',
+        pointer.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(UnescapePointer)
+            .Select(segment => replacements.TryGetValue(segment, out var replacement)
+                ? replacement
+                : segment)
+            .Select(EscapePointer));
+
+    private static JsonNode? ReplaceIdentifiers(
+        JsonNode? node,
+        IReadOnlyDictionary<string, string> replacements)
+    {
+        if (node is JsonValue value
+            && value.TryGetValue<string>(out var text)
+            && replacements.TryGetValue(text, out var replacement))
+        {
+            return JsonValue.Create(replacement);
+        }
+
+        if (node is JsonArray array)
+        {
+            var result = new JsonArray();
+            foreach (var item in array)
+            {
+                result.Add(ReplaceIdentifiers(item, replacements));
+            }
+
+            return result;
+        }
+
+        if (node is JsonObject objectValue)
+        {
+            var result = new JsonObject();
+            foreach (var property in objectValue)
+            {
+                var name = replacements.TryGetValue(property.Key, out var propertyReplacement)
+                    ? propertyReplacement
+                    : property.Key;
+                result[name] = ReplaceIdentifiers(property.Value, replacements);
+            }
+
+            return result;
+        }
+
+        return node?.DeepClone();
     }
 
     public static async Task RestoreBackupAsync(

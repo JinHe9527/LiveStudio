@@ -180,6 +180,82 @@ public sealed class AdapterDefinitionTests
     }
 
     [Fact]
+    public void LegacyDiscoverySnapshotIsPromotedOnlyForACompleteSignedShape()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"livestudio-adapter-catalog-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(directory, "trusted-keys"));
+        try
+        {
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var baseDefinition = CreateDefinition();
+            var definition = baseDefinition with
+            {
+                Stores = [new ConfigurationStoreDefinition(
+                    "main",
+                    ConfigurationStorageKind.JsonFile,
+                    "config.json",
+                    null,
+                    true)],
+                Fields = baseDefinition.Fields.Select((field, index) => field with
+                {
+                    NativeName = field.Id,
+                    UiPath = $"基础设置/{field.Id}",
+                    Order = index,
+                    ControlKind = "NativeValue",
+                    EvidenceStatus = FieldEvidenceStatus.Mapped
+                }).ToArray()
+            };
+            var (definitionJson, signatureJson) = Sign(definition, signingKey);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.adapter.json"), definitionJson);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.signature.json"), signatureJson);
+            File.WriteAllText(
+                Path.Combine(directory, "trusted-keys", "catalog.pem"),
+                signingKey.ExportSubjectPublicKeyInfoPem());
+            var catalog = new LiveCompanionAdapterCatalog(directory);
+            var adapter = new LiveCompanionAdapter(catalog);
+            var discovered = CreateDiscoveredDocument(definition.Fields);
+            var snapshot = new ApplicationSnapshot(
+                ApplicationKind.LiveCompanion,
+                "2.0.0",
+                "webcast-mate-json-discovery",
+                string.Empty,
+                new string('b', 64),
+                CompatibilityLevel.Unsupported,
+                false,
+                [],
+                [],
+                [discovered]);
+
+            var promoted = adapter.PrepareRestoreSnapshot(snapshot);
+
+            Assert.Equal(CompatibilityLevel.Verified, promoted.Compatibility);
+            Assert.Equal(definition.Id, promoted.AdapterId);
+            Assert.Equal(catalog.GetAll().Single().DefinitionSha256, promoted.AdapterDefinitionSha256);
+            Assert.Equal(definition.StructureFingerprint, promoted.StructureFingerprint);
+            Assert.Equal("main", Assert.Single(promoted.NativeDocuments).StoreId);
+            Assert.NotEmpty(promoted.FieldCoverage);
+            Assert.True(promoted.ConfigurationTree?.HasCompleteUiInventory);
+            Assert.True(promoted.ConfigurationTree?.HasCompleteNativeInventory);
+
+            var unknown = discovered with
+            {
+                Values = discovered.Values.Append(new NativeConfigurationValue(
+                    "/video/unknown",
+                    NativeParameterCategories.Unmapped,
+                    JsonSerializer.SerializeToElement(1))).ToArray()
+            };
+            var rejected = adapter.PrepareRestoreSnapshot(snapshot with { NativeDocuments = [unknown] });
+
+            Assert.Equal("webcast-mate-json-discovery", rejected.AdapterId);
+            Assert.Equal(CompatibilityLevel.Unsupported, rejected.Compatibility);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CatalogAllowsNewVersionOnlyWhenEveryRequiredPathAndTypeMatches()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"livestudio-adapter-catalog-{Guid.NewGuid():N}");

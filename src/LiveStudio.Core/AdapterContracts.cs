@@ -48,6 +48,8 @@ public interface IApplicationAdapter
 
     Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken);
 
+    ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot) => snapshot;
+
     Task<RestorePreflightResult> PreflightAsync(
         RestoreExecutionContext context,
         CancellationToken cancellationToken);

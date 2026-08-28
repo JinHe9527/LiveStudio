@@ -93,6 +93,19 @@ public sealed class LiveCompanionAdapterCatalog
 
     public IReadOnlyList<VerifiedAdapterDefinition> GetAll() => adapters.Value;
 
+    internal AdapterMatchResult MatchPortableTarget(
+        string applicationVersion,
+        IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
+    {
+        var candidates = adapters.Value.Where(adapter =>
+            LiveCompanionPortableProfile.IsVersionCovered(adapter.Definition, applicationVersion)
+            && LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments))
+            .ToArray();
+        return CompatibilityMatcher.MatchStructurallyCompatibleCandidates(
+            candidates,
+            "签名版本范围与可移植摄像头结构");
+    }
+
     internal static bool MatchesRequiredShape(
         LiveCompanionAdapterDefinition definition,
         IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)

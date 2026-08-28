@@ -84,13 +84,26 @@ public sealed class RestoreCoordinator(
         await reportProgress(JobStatus.Preflight, "正在检查设备映射和版本兼容性", cancellationToken);
 
         var contexts = new List<(IApplicationAdapter Adapter, RestoreExecutionContext Context)>();
-        foreach (var application in snapshot.Applications)
+        foreach (var originalApplication in snapshot.Applications)
         {
-            if (!_adapters.TryGetValue(application.Kind, out var adapter))
+            if (!_adapters.TryGetValue(originalApplication.Kind, out var adapter))
             {
                 return new RestoreExecutionResult(
                     JobStatus.IncompatibleVersion,
-                    $"没有可用的 {application.Kind} 适配器",
+                    $"没有可用的 {originalApplication.Kind} 适配器",
+                    []);
+            }
+
+            ApplicationSnapshot application;
+            try
+            {
+                application = adapter.PrepareRestoreSnapshot(originalApplication);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
+            {
+                return new RestoreExecutionResult(
+                    JobStatus.IncompatibleVersion,
+                    exception.Message,
                     []);
             }
 

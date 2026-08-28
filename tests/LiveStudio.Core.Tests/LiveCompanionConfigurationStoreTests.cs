@@ -9,6 +9,337 @@ namespace LiveStudio.Core.Tests;
 public sealed class LiveCompanionConfigurationStoreTests
 {
     [Fact]
+    public void PortableProfileCollapsesDuplicateSceneInstancesAndMapsTargetDevice()
+    {
+        var sourceLogicalId = Guid.NewGuid();
+        var firstPrefix = "/sourceStore/sceneSource/source-machine-scene-a/data/source-machine-camera-a";
+        var secondPrefix = "/sourceStore/sceneSource/source-machine-scene-b/data/source-machine-camera-b";
+        var source = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\sourceStore.json",
+            @"WBStore\sourceStore.json",
+            "hash",
+            sourceLogicalId,
+            CameraValues(firstPrefix, "source-effect", "source-device")
+                .Concat(CameraValues(secondPrefix, "source-effect", "source-device"))
+                .OrderBy(value => value.JsonPointer, StringComparer.Ordinal)
+                .ToArray());
+        var effect = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\effectConfigStore.json",
+            @"WBStore\effectConfigStore.json",
+            "hash",
+            Guid.NewGuid(),
+            [
+                Value("/effectConfigStore/configs/source-effect/effect/items/source-item/sliders/BigEye/absVal", 0.42),
+                Value("/effectConfigStore/configs/source-effect/effect/items/source-item/sliders/BigEye/use", true),
+                Value("/effectConfigStore/configs/source-effect/effect/items/source-item/sliders/BigEye/value", 0.42)
+            ]);
+        var global = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\effectStore.json",
+            @"WBStore\effectStore.json",
+            "hash",
+            Guid.NewGuid(),
+            [
+                Value("/effectStore/useCurveFilter", true),
+                // 运行时全局引用可能指向同一画面配置的另一个场景实例。可移植投影
+                // 必须先折叠为代表来源，之后才能在目标电脑上重新绑定。
+                Value("/effectStore/interactSourceId", "source-machine-camera-b")
+            ]);
+
+        var profile = Assert.IsType<LiveCompanionPortableProfile>(
+            LiveCompanionPortableProfile.TryCreate([source, effect, global]));
+        var videoSource = profile.CreateVideoSource();
+        Assert.Equal(sourceLogicalId, videoSource.LogicalId);
+        Assert.Equal("source-device", videoSource.Device?.InterfaceHint);
+        Assert.Equal(1920, videoSource.Mode?.Width);
+        Assert.Equal(60, videoSource.Mode?.FramesPerSecondNumerator);
+
+        var mapping = new DeviceMapping(
+            Guid.NewGuid(),
+            Guid.Empty,
+            Guid.Empty,
+            sourceLogicalId,
+            ApplicationKind.LiveCompanion,
+            "target-device",
+            "目标摄像头",
+            string.Empty,
+            false);
+        var expected = profile.CreateExpectedDocuments(
+            CreatePortableAdapter(),
+            new Dictionary<Guid, DeviceMapping> { [sourceLogicalId] = mapping },
+            [],
+            Path.GetTempPath());
+        var expectedSource = Assert.Single(expected, document =>
+            string.Equals(Path.GetFileName(document.RelativePath), "sourceStore.json", StringComparison.Ordinal));
+        var targets = LiveCompanionCameraPayloadStore.GetTargets(expectedSource);
+        var target = Assert.Single(targets);
+        Assert.Equal("target-device", target.DeviceId);
+        Assert.Equal("source-effect", target.EffectConfigurationId);
+        Assert.Single(expected, document =>
+            string.Equals(Path.GetFileName(document.RelativePath), "effectConfigStore.json", StringComparison.Ordinal));
+        var expectedGlobal = Assert.Single(expected, document =>
+            string.Equals(Path.GetFileName(document.RelativePath), "effectStore.json", StringComparison.Ordinal));
+        Assert.Contains(expectedGlobal.Values, value =>
+            value.JsonPointer == "/effectStore/useCurveFilter");
+        Assert.Contains(expectedGlobal.Values, value =>
+            value.JsonPointer == "/effectStore/interactSourceId"
+            && value.Value.GetString() == "source-machine-camera-a");
+    }
+
+    private static VerifiedAdapterDefinition CreatePortableAdapter()
+    {
+        var definition = new LiveCompanionAdapterDefinition(
+            "portable-test",
+            "1.0.0",
+            "1.0.0",
+            new string('a', 64),
+            [
+                new ConfigurationStoreDefinition("source-store", ConfigurationStorageKind.JsonFile, @"WBStore\sourceStore.json", null, true),
+                new ConfigurationStoreDefinition("effect-config", ConfigurationStorageKind.JsonFile, @"WBStore\effectConfigStore.json", null, true),
+                new ConfigurationStoreDefinition("effect-store", ConfigurationStorageKind.JsonFile, @"WBStore\effectStore.json", null, true),
+                new ConfigurationStoreDefinition("filter-store", ConfigurationStorageKind.JsonFile, @"WBStore\filterStore.json", null, true)
+            ],
+            [
+                new FieldMappingDefinition("device", UnifiedFieldKind.DeviceSelection, "source-store", "/sourceStore/sceneSource/canonical-scene/data/canonical-source/payload/deviceId", "string", true, true),
+                new FieldMappingDefinition("effect", UnifiedFieldKind.FilterSetting, "effect-config", "/effectConfigStore/configs/canonical-effect/effect/value", "number", true, true),
+                new FieldMappingDefinition("global-static", UnifiedFieldKind.FilterSetting, "effect-store", "/effectStore/useCurveFilter", "bool", true, true),
+                new FieldMappingDefinition("global-source", UnifiedFieldKind.FilterSetting, "effect-store", "/effectStore/interactSourceId", "string", true, true)
+            ],
+            [],
+            new LiveStateRuleDefinition("source-store", "/idle", "false"),
+            new ScreenshotRuleDefinition("window", "main"));
+        return new VerifiedAdapterDefinition(definition, "test", new string('b', 64));
+    }
+
+    [Fact]
+    public void PortableProfileRejectsAmbiguousCameraSettings()
+    {
+        var firstPrefix = "/sourceStore/sceneSource/scene-a/data/camera-a";
+        var secondPrefix = "/sourceStore/sceneSource/scene-b/data/camera-b";
+        var first = CameraValues(firstPrefix, "effect-a", "device-a");
+        var second = CameraValues(secondPrefix, "effect-b", "device-b");
+        var source = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\sourceStore.json",
+            @"WBStore\sourceStore.json",
+            "hash",
+            Guid.NewGuid(),
+            first.Concat(second).ToArray());
+        var effect = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\effectConfigStore.json",
+            @"WBStore\effectConfigStore.json",
+            "hash",
+            Guid.NewGuid(),
+            [
+                Value("/effectConfigStore/configs/effect-a/effect/items/1/value", 1),
+                Value("/effectConfigStore/configs/effect-b/effect/items/1/value", 2)
+            ]);
+
+        Assert.Null(LiveCompanionPortableProfile.TryCreate([source, effect]));
+    }
+
+    [Fact]
+    public void PortablePayloadMergePreservesTargetRuntimeIdentifiers()
+    {
+        var current = JsonNode.Parse(
+            """
+            {
+              "deviceId": "target-device",
+              "targetOnly": "keep",
+              "filterData": {
+                "filterDataList": [
+                  { "id": "target-filter-id", "name": "HSL", "payload": { "red": { "hueAdjust": 0.01 } } }
+                ]
+              }
+            }
+            """)!;
+        var expected = JsonNode.Parse(
+            """
+            {
+              "deviceId": "target-device",
+              "filterData": {
+                "filterDataList": [
+                  { "name": "HSL", "payload": { "red": { "hueAdjust": 0.42 } } }
+                ]
+              }
+            }
+            """)!;
+
+        var merged = LiveCompanionCameraPayloadStore.MergePortablePayload(current, expected)!.AsObject();
+
+        Assert.Equal("keep", merged["targetOnly"]!.GetValue<string>());
+        var filter = merged["filterData"]!["filterDataList"]![0]!;
+        Assert.Equal("target-filter-id", filter["id"]!.GetValue<string>());
+        Assert.Equal(0.42, filter["payload"]!["red"]!["hueAdjust"]!.GetValue<double>());
+    }
+
+    [Fact]
+    public async Task PortableGlobalsRebindSourceIdentifiersWithoutReplacingTargetTree()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"livestudio-portable-global-{Guid.NewGuid():N}");
+        var wbStore = Path.Combine(root, "WBStore");
+        Directory.CreateDirectory(wbStore);
+        var path = Path.Combine(wbStore, "effectStore.json");
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "effectStore": {
+                "useCurveFilter": false,
+                "interactSourceId": "old-target-source",
+                "targetOnly": "keep"
+              }
+            }
+            """);
+        try
+        {
+            var document = new NativeConfigurationDocument(
+                "effect-store",
+                "JsonFile",
+                "portable-test",
+                @"WBStore\effectStore.json",
+                @"WBStore\effectStore.json",
+                "hash",
+                Guid.NewGuid(),
+                [
+                    Value("/effectStore/useCurveFilter", true),
+                    Value("/effectStore/interactSourceId", "source-machine-camera")
+                ]);
+            var source = new LiveCompanionCameraTarget(
+                "source-machine-scene",
+                "source-machine-camera",
+                "source-device",
+                "source-machine-effect",
+                new JsonObject());
+            var target = new LiveCompanionActiveCamera(
+                "target-scene",
+                "target-camera",
+                "target-device",
+                "target-effect");
+
+            var store = new LiveCompanionConfigurationStore(root);
+            await store.ApplyPortableBoundDocumentsAsync([document], source, [target], CancellationToken.None);
+
+            using var applied = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            var effectStore = applied.RootElement.GetProperty("effectStore");
+            Assert.True(effectStore.GetProperty("useCurveFilter").GetBoolean());
+            Assert.Equal("target-camera", effectStore.GetProperty("interactSourceId").GetString());
+            Assert.Equal("keep", effectStore.GetProperty("targetOnly").GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PortableEffectConfigurationRebindsToTargetEffectWithoutReplacingTargetTree()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"livestudio-portable-effect-{Guid.NewGuid():N}");
+        var wbStore = Path.Combine(root, "WBStore");
+        Directory.CreateDirectory(wbStore);
+        var path = Path.Combine(wbStore, "effectConfigStore.json");
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "effectConfigStore": {
+                "configs": {
+                  "target-effect": {
+                    "targetOnly": "keep",
+                    "beauty": { "smooth": 0 }
+                  }
+                }
+              }
+            }
+            """);
+        try
+        {
+            var document = new NativeConfigurationDocument(
+                "effect-config",
+                "JsonFile",
+                "portable-test",
+                @"WBStore\effectConfigStore.json",
+                @"WBStore\effectConfigStore.json",
+                "hash",
+                Guid.NewGuid(),
+                [
+                    Value(
+                        "/effectConfigStore/configs/source-effect/beauty/smooth",
+                        0.73)
+                ]);
+            var source = new LiveCompanionCameraTarget(
+                "source-scene",
+                "source-camera",
+                "source-device",
+                "source-effect",
+                new JsonObject());
+            var target = new LiveCompanionActiveCamera(
+                "target-scene",
+                "target-camera",
+                "target-device",
+                "target-effect");
+
+            var store = new LiveCompanionConfigurationStore(root);
+            await store.ApplyPortableBoundDocumentsAsync(
+                [document],
+                source,
+                [target],
+                CancellationToken.None);
+
+            using var applied = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            var targetConfig = applied.RootElement
+                .GetProperty("effectConfigStore")
+                .GetProperty("configs")
+                .GetProperty("target-effect");
+            Assert.Equal(0.73, targetConfig.GetProperty("beauty").GetProperty("smooth").GetDouble());
+            Assert.Equal("keep", targetConfig.GetProperty("targetOnly").GetString());
+            Assert.False(applied.RootElement
+                .GetProperty("effectConfigStore")
+                .GetProperty("configs")
+                .TryGetProperty("source-effect", out _));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static IReadOnlyList<NativeConfigurationValue> CameraValues(
+        string prefix,
+        string effectConfigurationId,
+        string deviceId) =>
+    [
+        Value($"{prefix}/type", "camera"),
+        Value($"{prefix}/effectConfigId", effectConfigurationId),
+        Value($"{prefix}/payload/deviceId", deviceId),
+        Value($"{prefix}/payload/name", deviceId),
+        Value($"{prefix}/payload/format", 6),
+        Value($"{prefix}/payload/width", 1920),
+        Value($"{prefix}/payload/height", 1080),
+        Value($"{prefix}/payload/rate", 60),
+        Value($"{prefix}/payload/effect1/useLoki", true),
+        Value($"{prefix}/payload/videoRange", 2),
+        Value($"{prefix}/payload/colorSpace", 2),
+        Value($"{prefix}/payload/filterData/enable", true),
+        Value($"{prefix}/payload/filterData/filterDataList/0/name", "HSL"),
+        Value($"{prefix}/payload/filterData/filterDataList/0/payload/red/hueAdjust", 0.04)
+    ];
+
+    [Fact]
     public async Task RestoresAuthoritativeCameraPayloadFromCapturedSource()
     {
         var root = Path.Combine(Path.GetTempPath(), $"livestudio-camera-payload-{Guid.NewGuid():N}");

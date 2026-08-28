@@ -162,10 +162,18 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
     {
         IsObs = application.Kind == ApplicationKind.Obs;
         IsLiveCompanion = application.Kind == ApplicationKind.LiveCompanion;
+        var isPortableLiveCompanion = IsLiveCompanion
+                                      && string.Equals(
+                                          application.AdapterId,
+                                          "webcast-mate-portable-v1",
+                                          StringComparison.Ordinal)
+                                      && application.Compatibility != CompatibilityLevel.Unsupported;
         Name = IsObs ? "OBS Studio" : "抖音直播伴侣";
         ShortName = IsObs ? "OBS" : "直播伴侣";
         Version = $"版本 {application.Version}";
-        AdapterStatus = IsLiveCompanion && application.Compatibility != CompatibilityLevel.Verified
+        AdapterStatus = isPortableLiveCompanion
+            ? "已保存 · 可跨电脑还原"
+            : IsLiveCompanion && application.Compatibility != CompatibilityLevel.Verified
             ? "已保存 · 当前不能还原"
             : application.Compatibility switch
             {
@@ -193,17 +201,20 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
         EvidenceOnlyFieldCount = CoverageFields.Count(field => field.Status == "仅有证据");
         UnknownFieldCount = CoverageFields.Count(field => field.Status is "未知" or "缺失");
         GapCount = CoverageFields.Count(field => field.IsGap);
-        IsRestorable = application.Compatibility == CompatibilityLevel.Verified
-                       && GapCount == 0
-                       && application.ConfigurationTree is
-                       {
-                           HasCompleteUiInventory: true,
-                           HasCompleteNativeInventory: true,
-                           UnknownCount: 0,
-                           EvidenceOnlyCount: 0
-                       };
+        IsRestorable = isPortableLiveCompanion
+                       || application.Compatibility == CompatibilityLevel.Verified
+                          && GapCount == 0
+                          && application.ConfigurationTree is
+                          {
+                              HasCompleteUiInventory: true,
+                              HasCompleteNativeInventory: true,
+                              UnknownCount: 0,
+                              EvidenceOnlyCount: 0
+                          };
         RestorableFieldCount = IsRestorable ? ReadFieldCount : 0;
-        CoverageStatus = DeclaredFieldCount == 0
+        CoverageStatus = isPortableLiveCompanion
+            ? $"已提取 {RestorableFieldCount} 项可移植画面参数 · 恢复时逐项回读"
+            : DeclaredFieldCount == 0
             ? IsObs ? "当前 OBS 没有视频采集来源" : "当前没有读取到目标字段"
             : GapCount == 0
               && application.ConfigurationTree is
@@ -234,6 +245,8 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
             : $"{NativeDocumentCount} 类配置 · {NativeDocuments.Sum(document => document.EffectiveItems.Count)} 个有内容的配置项 · 完整保存 {ReadFieldCount} 个字段";
         ReadingNotice = IsObs
             ? "下面按 OBS 的真实来源、inputSettings 原字段和视频滤镜链展示。技术名称不做猜测翻译。"
+            : isPortableLiveCompanion
+                ? "恢复时会在目标电脑重新匹配设备及原生标识，不会写入来源电脑的场景、来源或效果 GUID。"
             : application.Compatibility == CompatibilityLevel.Unsupported
                 ? $"当前版本 {application.Version} 的配置可以保存和检查；尚未完成界面控件与原生字段的一一验证，所以暂不能安全写回直播伴侣。"
                 : "下面严格按直播伴侣原生菜单、分组、字段名称和顺序展示。";

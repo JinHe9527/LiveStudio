@@ -60,12 +60,17 @@ public interface IObsConnectionOptionsProvider
 
 public interface IObsDeviceCatalog
 {
+    Task<IReadOnlyList<ObsVideoDevice>> ListVideoDevicesAsync(
+        CancellationToken cancellationToken);
+
     Task<bool> SupportsModeAsync(
         string targetDeviceId,
         string targetSourceName,
         VideoMode mode,
         CancellationToken cancellationToken);
 }
+
+public sealed record ObsVideoDevice(string DeviceId, string FriendlyName);
 
 public sealed class ObsRequestException : Exception
 {

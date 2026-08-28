@@ -26,11 +26,17 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(GetTargets(sourceStoreDocument));
+    }
+
+    internal static IReadOnlyList<LiveCompanionCameraTarget> GetTargets(
+        NativeConfigurationDocument sourceStoreDocument)
+    {
         var root = ReconstructSourceStore(sourceStoreDocument);
         var targets = new List<LiveCompanionCameraTarget>();
         if (root["sourceStore"]?["sceneSource"] is not JsonObject scenes)
         {
-            return Task.FromResult<IReadOnlyList<LiveCompanionCameraTarget>>(targets);
+            return targets;
         }
 
         foreach (var scene in scenes)
@@ -66,7 +72,7 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
             }
         }
 
-        return Task.FromResult<IReadOnlyList<LiveCompanionCameraTarget>>(targets);
+        return targets;
     }
 
     public async Task<IReadOnlyList<LiveCompanionActiveCamera>> GetActiveCamerasAsync(
@@ -229,7 +235,152 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
         return appliedDevices.Count;
     }
 
-    private static JsonObject ReconstructSourceStore(
+    public async Task<int> ApplyPortableAsync(
+        NativeConfigurationDocument sourceStoreDocument,
+        CancellationToken cancellationToken)
+    {
+        var payloads = FindCameraPayloads(ReconstructSourceStore(sourceStoreDocument));
+        if (payloads.Count != 1)
+        {
+            throw new InvalidOperationException("可移植存档必须包含且只包含一份摄像头配置");
+        }
+
+        JsonObject target;
+        await using (var stream = new FileStream(
+                         Path,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read,
+                         65_536,
+                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            target = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) as JsonObject
+                     ?? throw new InvalidOperationException("直播伴侣 camera-payloads.json 根节点不是对象");
+        }
+
+        var payload = payloads.Single();
+        target[payload.Key] = MergePortablePayload(target[payload.Key], payload.Value);
+        await LiveCompanionConfigurationStore.WriteJsonAtomicallyAsync(Path, target, cancellationToken);
+        return 1;
+    }
+
+    public async Task<int> ApplyPortableToActiveSourcesAsync(
+        NativeConfigurationDocument sourceStoreDocument,
+        CancellationToken cancellationToken)
+    {
+        var payloads = FindCameraPayloads(ReconstructSourceStore(sourceStoreDocument));
+        if (payloads.Count != 1)
+        {
+            throw new InvalidOperationException("可移植存档必须包含且只包含一份摄像头配置");
+        }
+
+        var portable = payloads.Single();
+        JsonObject target;
+        await using (var stream = new FileStream(
+                         SourceStorePath,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read,
+                         65_536,
+                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            target = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) as JsonObject
+                     ?? throw new InvalidOperationException("直播伴侣 sourceStore.json 根节点不是对象");
+        }
+
+        var applied = 0;
+        if (target["sourceStore"]?["sceneSource"] is JsonObject sceneSources)
+        {
+            foreach (var scene in sceneSources)
+            {
+                if (scene.Value is not JsonObject sceneObject
+                    || sceneObject["data"] is not JsonObject sources)
+                {
+                    continue;
+                }
+
+                foreach (var source in sources)
+                {
+                    if (source.Value is not JsonObject sourceObject
+                        || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal)
+                        || sourceObject["payload"] is not JsonObject currentPayload
+                        || !string.Equals(
+                            currentPayload["deviceId"]?.GetValue<string>(),
+                            portable.Key,
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    sourceObject["payload"] = MergePortablePayload(currentPayload, portable.Value);
+                    applied++;
+                }
+            }
+        }
+
+        if (applied == 0)
+        {
+            throw new InvalidOperationException($"直播伴侣当前场景缺少摄像头设备 {portable.Key}");
+        }
+
+        await LiveCompanionConfigurationStore.WriteJsonAtomicallyAsync(
+            SourceStorePath,
+            target,
+            cancellationToken);
+        return applied;
+    }
+
+    internal static JsonNode? MergePortablePayload(JsonNode? current, JsonNode expected)
+    {
+        if (expected is JsonObject expectedObject)
+        {
+            var result = current is JsonObject currentObject
+                ? currentObject.DeepClone().AsObject()
+                : new JsonObject();
+            foreach (var property in expectedObject)
+            {
+                if (property.Value is not null)
+                {
+                    result[property.Key] = MergePortablePayload(result[property.Key], property.Value);
+                }
+                else
+                {
+                    result[property.Key] = null;
+                }
+            }
+
+            return result;
+        }
+
+        if (expected is JsonArray expectedArray)
+        {
+            var result = current is JsonArray currentArray
+                ? currentArray.DeepClone().AsArray()
+                : new JsonArray();
+            for (var index = 0; index < expectedArray.Count; index++)
+            {
+                var expectedItem = expectedArray[index];
+                if (index >= result.Count)
+                {
+                    result.Add(expectedItem?.DeepClone());
+                }
+                else if (expectedItem is not null)
+                {
+                    result[index] = MergePortablePayload(result[index], expectedItem);
+                }
+                else
+                {
+                    result[index] = null;
+                }
+            }
+
+            return result;
+        }
+
+        return expected.DeepClone();
+    }
+
+    internal static JsonObject ReconstructSourceStore(
         NativeConfigurationDocument sourceStoreDocument)
     {
         if (!string.Equals(
