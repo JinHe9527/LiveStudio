@@ -48,12 +48,28 @@ public sealed class SnapshotTransferService
         var indexedCount = 0;
         var skippedUntrustedCount = 0;
         var errors = new List<string>();
+        var indexedByPath = (await snapshotIndex.GetAllAsync(cancellationToken))
+            .GroupBy(
+                record => Path.GetFullPath(record.PackagePath),
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First(),
+                StringComparer.OrdinalIgnoreCase);
         foreach (var packagePath in Directory.EnumerateFiles(snapshotDirectory, "*.lscfg")
                      .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                var fullPath = Path.GetFullPath(packagePath);
+                var fileInfo = new FileInfo(fullPath);
+                if (indexedByPath.TryGetValue(fullPath, out var indexed)
+                    && indexed.Length == fileInfo.Length)
+                {
+                    continue;
+                }
+
                 var inspection = await SnapshotPackageReader.InspectAsync(packagePath, cancellationToken);
                 var existing = await snapshotIndex.FindAsync(
                     inspection.Package.Snapshot.Id,
@@ -87,7 +103,7 @@ public sealed class SnapshotTransferService
                     new LocalSnapshotRecord(
                         package.Snapshot.Id,
                         package.Snapshot.Name,
-                        Path.GetFullPath(packagePath),
+                        fullPath,
                         identity.Sha256,
                         identity.Length,
                         package.Snapshot.CreatedAt,

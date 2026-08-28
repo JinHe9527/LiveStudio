@@ -232,6 +232,20 @@ public sealed class SnapshotTransferServiceTests : IDisposable
         Assert.Null(await fixture.Index.FindAsync(orphan.Id, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task ReconcileManagedDirectorySkipsUnchangedIndexedPackage()
+    {
+        var fixture = await CreateFixtureAsync();
+        var indexed = await fixture.AddSnapshotAsync("已登记存档");
+
+        var result = await fixture.Service.ReconcileManagedDirectoryAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.IndexedCount);
+        Assert.Equal(0, result.SkippedUntrustedCount);
+        Assert.Empty(result.Errors);
+        Assert.NotNull(await fixture.Index.FindAsync(indexed.Id, CancellationToken.None));
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

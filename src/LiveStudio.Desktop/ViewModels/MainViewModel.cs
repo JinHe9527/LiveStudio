@@ -719,8 +719,18 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        await LoadStateAsync(cancellationToken);
-        if (!supportsLocalAgent)
+        if (supportsLocalAgent)
+        {
+            try
+            {
+                ApplyAgentState(await WaitForLocalAgentAsync(cancellationToken));
+            }
+            catch (Exception exception) when (exception is LocalControlException or IOException)
+            {
+                ApplyDisconnectedState(exception.Message);
+            }
+        }
+        else
         {
             await LoadDesktopSnapshotLibraryAsync(cancellationToken);
         }
@@ -1310,19 +1320,37 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task<LocalAgentState> WaitForLocalAgentAsync(CancellationToken cancellationToken)
+    private Task<LocalAgentState> WaitForLocalAgentAsync(CancellationToken cancellationToken) =>
+        WaitForLocalAgentAsync(
+            localAgentClient.GetStateAsync,
+            maxAttempts: 12,
+            TimeSpan.FromMilliseconds(350),
+            cancellationToken);
+
+    internal static async Task<LocalAgentState> WaitForLocalAgentAsync(
+        Func<CancellationToken, Task<LocalAgentState>> getStateAsync,
+        int maxAttempts,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(getStateAsync);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxAttempts, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(retryDelay, TimeSpan.Zero);
+
         Exception? lastError = null;
-        for (var attempt = 0; attempt < 12; attempt++)
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             try
             {
-                return await localAgentClient.GetStateAsync(cancellationToken);
+                return await getStateAsync(cancellationToken);
             }
             catch (Exception exception) when (exception is LocalControlException or IOException)
             {
                 lastError = exception;
-                await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
+                if (attempt + 1 < maxAttempts)
+                {
+                    await Task.Delay(retryDelay, cancellationToken);
+                }
             }
         }
 
