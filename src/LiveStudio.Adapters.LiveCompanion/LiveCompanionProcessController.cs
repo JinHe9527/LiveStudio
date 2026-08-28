@@ -18,7 +18,7 @@ public sealed class LiveCompanionProcessController
 
     public static LiveCompanionProcessInfo? FindRunning()
     {
-        LiveCompanionProcessInfo? fallback = null;
+        var candidates = new List<(LiveCompanionProcessInfo Process, bool HasMainWindow)>();
         foreach (var processName in ProcessNames)
         {
             foreach (var process in Process.GetProcessesByName(processName))
@@ -33,22 +33,21 @@ public sealed class LiveCompanionProcessController
                             process.MainModule?.FileVersionInfo.ProductVersion,
                             process.MainModule?.FileVersionInfo.FileVersion);
                         var candidate = new LiveCompanionProcessInfo(process.Id, executablePath, version);
-                        if (process.MainWindowHandle != nint.Zero)
-                        {
-                            return candidate;
-                        }
-
-                        fallback ??= candidate;
+                        candidates.Add((candidate, process.MainWindowHandle != nint.Zero));
                     }
                     catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
                     {
-                        fallback ??= new LiveCompanionProcessInfo(process.Id, null, "unknown");
+                        candidates.Add((new LiveCompanionProcessInfo(process.Id, null, "unknown"), false));
                     }
                 }
             }
         }
 
-        return fallback;
+        return candidates
+            .OrderByDescending(candidate => candidate.HasMainWindow)
+            .ThenByDescending(candidate => ParseVersionOrZero(candidate.Process.Version))
+            .Select(candidate => candidate.Process)
+            .FirstOrDefault();
     }
 
     internal static string ResolveVersion(
@@ -82,6 +81,14 @@ public sealed class LiveCompanionProcessController
         if (!OperatingSystem.IsWindows())
         {
             return null;
+        }
+
+        // The launcher/uninstall registry can keep pointing at the previous version after an
+        // in-place update. Prefer the highest complete version directory that actually exists.
+        var latestVersionedInstallation = FindVersionedInstallation();
+        if (latestVersionedInstallation is not null)
+        {
+            return latestVersionedInstallation;
         }
 
         foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
@@ -127,8 +134,11 @@ public sealed class LiveCompanionProcessController
                 }
             }
 
-        return FindVersionedInstallation();
+        return null;
     }
+
+    private static Version ParseVersionOrZero(string version) =>
+        Version.TryParse(version, out var parsed) ? parsed : new Version(0, 0);
 
     private static string? FindVersionedInstallation()
     {
@@ -389,6 +399,32 @@ public sealed class LiveCompanionProcessController
         }
 
         throw new InvalidOperationException("直播伴侣启动超时");
+    }
+
+    public static async Task WaitUntilRunningAsync(
+        string executablePath,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var processes = FindProcesses(executablePath);
+            if (processes.Count > 0)
+            {
+                foreach (var process in processes)
+                {
+                    process.Dispose();
+                }
+
+                return;
+            }
+
+            await Task.Delay(500, cancellationToken);
+        }
+
+        var version = Path.GetFileName(Path.GetDirectoryName(executablePath));
+        throw new InvalidOperationException($"直播伴侣指定版本启动超时: {version}");
     }
 
     public static bool TryInspectWindowLiveState(int processId, out bool isLive)

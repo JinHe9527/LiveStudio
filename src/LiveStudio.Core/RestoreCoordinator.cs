@@ -21,6 +21,26 @@ public sealed class RestoreCoordinator(
         string assetDirectory,
         Func<CancellationToken, Task> prepareAssets,
         Func<JobStatus, string, CancellationToken, Task> reportProgress,
+        CancellationToken cancellationToken) => await ExecuteAsync(
+            jobId,
+            snapshot,
+            mappings,
+            isUnattended,
+            assetDirectory,
+            prepareAssets,
+            reportProgress,
+            null,
+            cancellationToken);
+
+    public async Task<RestoreExecutionResult> ExecuteAsync(
+        Guid jobId,
+        CombinedSnapshot snapshot,
+        IReadOnlyList<DeviceMapping> mappings,
+        bool isUnattended,
+        string assetDirectory,
+        Func<CancellationToken, Task> prepareAssets,
+        Func<JobStatus, string, CancellationToken, Task> reportProgress,
+        Func<CancellationToken, Task>? backupCurrent,
         CancellationToken cancellationToken)
     {
         using var operationLease = await _operationGate.EnterAsync(cancellationToken);
@@ -32,6 +52,7 @@ public sealed class RestoreCoordinator(
             assetDirectory,
             prepareAssets,
             reportProgress,
+            backupCurrent,
             cancellationToken);
     }
 
@@ -43,6 +64,7 @@ public sealed class RestoreCoordinator(
         string assetDirectory,
         Func<CancellationToken, Task> prepareAssets,
         Func<JobStatus, string, CancellationToken, Task> reportProgress,
+        Func<CancellationToken, Task>? backupCurrent,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -88,10 +110,16 @@ public sealed class RestoreCoordinator(
         }
 
         var sessions = new List<IApplicationRestoreSession>();
-        IReadOnlyList<string> verificationDifferences = [];
+        var verificationDifferences = new List<string>();
         var durablyCommitted = false;
         try
         {
+            if (backupCurrent is not null)
+            {
+                await reportProgress(JobStatus.BackingUp, "正在保存恢复前自动备份", cancellationToken);
+                await backupCurrent(cancellationToken);
+            }
+
             await reportProgress(JobStatus.BackingUp, "正在创建目标电脑事务快照", cancellationToken);
             foreach (var item in contexts)
             {
@@ -211,7 +239,13 @@ public sealed class RestoreCoordinator(
             await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
 
             await reportProgress(JobStatus.FailedRolledBack, "恢复失败，已还原目标电脑原状态", CancellationToken.None);
-            return new RestoreExecutionResult(JobStatus.FailedRolledBack, exception.Message, verificationDifferences);
+            var failureMessage = verificationDifferences.Count == 0
+                ? exception.Message
+                : $"{exception.Message}：{string.Join("；", verificationDifferences.Take(3))}"
+                  + (verificationDifferences.Count > 3
+                      ? $"；另有 {verificationDifferences.Count - 3} 项差异"
+                      : string.Empty);
+            return new RestoreExecutionResult(JobStatus.FailedRolledBack, failureMessage, verificationDifferences);
         }
         finally
         {

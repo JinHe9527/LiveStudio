@@ -82,4 +82,15 @@ public sealed class ObsRequestException : Exception
         : base(message, innerException)
     {
     }
+
+    public ObsRequestException(string requestType, int statusCode, string? comment)
+        : base($"{requestType} 失败 ({statusCode}): {comment}")
+    {
+        RequestType = requestType;
+        StatusCode = statusCode;
+    }
+
+    public string? RequestType { get; }
+
+    public int? StatusCode { get; }
 }

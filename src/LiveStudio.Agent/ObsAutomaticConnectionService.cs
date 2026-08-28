@@ -19,7 +19,7 @@ public sealed class ObsAutomaticConnectionService(AgentObsConfigurationStore con
                     ?? throw new InvalidOperationException(
                         "没有从 Windows 安装信息找到抖音直播伴侣，请先启动一次直播伴侣后重试");
                 await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
-                await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
+                await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
                 companionStarted = LiveCompanionProcessController.FindRunning()
                     ?? throw new InvalidOperationException("抖音直播伴侣已启动，但进程识别失败");
             }

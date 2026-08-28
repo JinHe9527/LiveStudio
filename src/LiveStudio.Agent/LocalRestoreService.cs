@@ -9,10 +9,12 @@ public sealed class LocalRestoreService(
     IDeviceCredentialStore credentialStore,
     LocalSnapshotIndex snapshotIndex,
     SnapshotTransferService transferService,
-    RestoreCoordinator restoreCoordinator)
+    RestoreCoordinator restoreCoordinator,
+    SnapshotCaptureService snapshotCaptureService)
 {
     public async Task<RestoreExecutionResult> RestoreAsync(
         Guid snapshotId,
+        IReadOnlyList<CameraStationSnapshot>? currentCameraStations,
         Func<JobStatus, string, CancellationToken, Task> reportProgress,
         CancellationToken cancellationToken)
     {
@@ -23,6 +25,7 @@ public sealed class LocalRestoreService(
             package,
             mappings,
             false,
+            currentCameraStations,
             reportProgress,
             cancellationToken);
     }
@@ -45,6 +48,7 @@ public sealed class LocalRestoreService(
             package,
             mappings,
             true,
+            null,
             reportProgress,
             cancellationToken);
     }
@@ -53,6 +57,7 @@ public sealed class LocalRestoreService(
         SnapshotPackage package,
         IReadOnlyList<DeviceMapping> mappings,
         bool isUnattended,
+        IReadOnlyList<CameraStationSnapshot>? currentCameraStations,
         Func<JobStatus, string, CancellationToken, Task> reportProgress,
         CancellationToken cancellationToken)
     {
@@ -70,10 +75,14 @@ public sealed class LocalRestoreService(
             assetDirectory,
             token => MaterializeAssetsAsync(package, assetDirectory, token),
             reportProgress,
+            token => snapshotCaptureService.CaptureForRestoreBackupAsync(
+                $"恢复前自动备份 {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                currentCameraStations,
+                token),
             cancellationToken);
     }
 
-    private static void ValidateAssetEntries(SnapshotPackage package)
+    internal static void ValidateAssetEntries(SnapshotPackage package)
     {
         foreach (var asset in package.Snapshot.Assets)
         {
@@ -91,9 +100,9 @@ public sealed class LocalRestoreService(
             }
         }
 
-        var blobs = package.Snapshot.Assets.Select(asset => asset.Sha256).ToHashSet(StringComparer.Ordinal);
+        var blobs = package.Snapshot.Assets.ToDictionary(asset => asset.Sha256, StringComparer.Ordinal);
         var bindings = SnapshotAssetBindings.Collect(package.Snapshot.Applications);
-        var missingBinding = bindings.FirstOrDefault(binding => !blobs.Contains(binding.BlobSha256));
+        var missingBinding = bindings.FirstOrDefault(binding => !blobs.ContainsKey(binding.BlobSha256));
         if (missingBinding is not null)
         {
             throw new SnapshotPackageException($"滤镜素材引用缺少内容 Blob: {missingBinding.OriginalFileName}");

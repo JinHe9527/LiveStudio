@@ -124,6 +124,57 @@ public sealed class RestoreCoordinatorTests
     }
 
     [Fact]
+    public async Task ExecuteAsyncCreatesPersistentBackupBeforeTransactionSessions()
+    {
+        var adapter = new FakeAdapter(ApplicationKind.Obs);
+        var coordinator = new RestoreCoordinator([adapter]);
+        var backupCount = 0;
+
+        var result = await coordinator.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateSnapshot(ApplicationKind.Obs),
+            [],
+            false,
+            "/tmp/assets",
+            _ => Task.CompletedTask,
+            (_, _, _) => Task.CompletedTask,
+            _ =>
+            {
+                Assert.Equal(0, adapter.BeginRestoreCount);
+                backupCount++;
+                return Task.CompletedTask;
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, backupCount);
+        Assert.Equal(1, adapter.BeginRestoreCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsyncDoesNotCreateTransactionWhenPersistentBackupFails()
+    {
+        var adapter = new FakeAdapter(ApplicationKind.Obs);
+        var coordinator = new RestoreCoordinator([adapter]);
+
+        var result = await coordinator.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateSnapshot(ApplicationKind.Obs),
+            [],
+            false,
+            "/tmp/assets",
+            _ => Task.CompletedTask,
+            (_, _, _) => Task.CompletedTask,
+            _ => Task.FromException(new IOException("自动备份失败")),
+            CancellationToken.None);
+
+        Assert.Equal(JobStatus.FailedRolledBack, result.Status);
+        Assert.Equal(0, adapter.BeginRestoreCount);
+        Assert.False(adapter.Session.WasStopped);
+        Assert.False(adapter.Session.WasRolledBack);
+    }
+
+    [Fact]
     public async Task ExecuteAsyncRollsBackWhenCancellationOccursAfterTransactionBegins()
     {
         var obs = new FakeAdapter(ApplicationKind.Obs)

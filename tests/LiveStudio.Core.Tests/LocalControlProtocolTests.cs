@@ -45,6 +45,33 @@ public sealed class LocalControlProtocolTests
     }
 
     [Fact]
+    public async Task RestoreRequestPreservesCurrentCameraStationsForAutomaticBackup()
+    {
+        var stations = Enumerable.Range(0, 3)
+            .Select(slot => new CameraStationSnapshot(
+                slot,
+                $"机位 {slot + 1}",
+                "F4",
+                "1/125",
+                "640",
+                "ST",
+                new CameraCreativeLookSnapshot(0, 0, 0, 0, 0, 0, 0, 0)))
+            .ToArray();
+        var expected = LocalControlProtocol.CreateRequest(
+            LocalControlMethod.RestoreSnapshot,
+            new RestoreLocalSnapshotRequest(Guid.NewGuid(), stations));
+        await using var stream = new MemoryStream();
+
+        await LocalControlProtocol.WriteAsync(stream, expected, CancellationToken.None);
+        stream.Position = 0;
+        var actual = await LocalControlProtocol.ReadAsync<LocalControlRequest>(stream, CancellationToken.None);
+        var payload = LocalControlProtocol.DeserializePayload<RestoreLocalSnapshotRequest>(actual.Payload);
+
+        Assert.Equal(3, payload.CurrentCameraStations!.Count);
+        Assert.Equal("机位 3", payload.CurrentCameraStations[2].Name);
+    }
+
+    [Fact]
     public void FailureResponsePreservesAgentErrorCode()
     {
         var response = LocalControlProtocol.CreateFailure(

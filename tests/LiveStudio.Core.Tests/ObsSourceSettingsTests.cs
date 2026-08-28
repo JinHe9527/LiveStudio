@@ -7,6 +7,25 @@ namespace LiveStudio.Core.Tests;
 public sealed class ObsSourceSettingsTests
 {
     [Fact]
+    public void OptionalDefaultsFailureRequiresStructuredMatchingRequest()
+    {
+        var rejected = new ObsRequestException("GetInputDefaultSettings", 605, null);
+        var disconnected = new ObsRequestException("OBS WebSocket 已关闭连接");
+
+        Assert.True(ObsSnapshotMapper.IsOptionalDefaultSettingsFailure(
+            rejected,
+            "GetInputDefaultSettings"));
+        Assert.Equal("GetInputDefaultSettings", rejected.RequestType);
+        Assert.Equal(605, rejected.StatusCode);
+        Assert.False(ObsSnapshotMapper.IsOptionalDefaultSettingsFailure(
+            rejected,
+            "GetSourceFilterDefaultSettings"));
+        Assert.False(ObsSnapshotMapper.IsOptionalDefaultSettingsFailure(
+            disconnected,
+            "GetInputDefaultSettings"));
+    }
+
+    [Fact]
     public void TargetSettingsPreserveUnknownNestedVideoParameters()
     {
         var sourceId = Guid.NewGuid();

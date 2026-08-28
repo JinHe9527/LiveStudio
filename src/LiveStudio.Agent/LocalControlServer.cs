@@ -347,6 +347,7 @@ public sealed class LocalControlServer(
             {
                 var result = await restoreService.RestoreAsync(
                     restore.SnapshotId,
+                    restore.CurrentCameraStations,
                     (status, message, _) =>
                     {
                         SetOperationMessage(message);
@@ -876,7 +877,7 @@ public sealed class LocalControlServer(
     {
         if (!status.CanDetermineLiveState)
         {
-            return status.IsRunning ? "已读取 · 只读备份可用" : "未运行 · 可读取磁盘配置";
+            return status.IsRunning ? "已读取" : "未运行 · 已读取磁盘配置";
         }
 
         if (status.IsStreaming)

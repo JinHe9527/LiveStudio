@@ -306,7 +306,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         nativePath,
         field.UnifiedKind.ToString(),
         valueType,
-        LiveCompanionConfigurationStore.IsRestorableField(field),
+        LiveCompanionConfigurationStore.IsRequiredRestorableField(field),
         LiveCompanionConfigurationStore.IsRestorableField(field),
         "SignedAdapterReadback",
         $"{field.Id}:{nativePath}",
@@ -341,7 +341,9 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         finally
         {
             await LiveCompanionProcessController.StartAsync(process.ExecutablePath, CancellationToken.None);
-            await LiveCompanionProcessController.WaitUntilRunningAsync(CancellationToken.None);
+            await LiveCompanionProcessController.WaitUntilRunningAsync(
+                process.ExecutablePath,
+                CancellationToken.None);
         }
     }
 
@@ -396,12 +398,14 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         }
 
         var runtime = await InspectAsync(cancellationToken);
+        var targetDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
 
         var snapshotMatch = adapterCatalog.MatchSnapshot(
             runtime.Version,
             context.Snapshot.AdapterId,
             context.Snapshot.AdapterDefinitionSha256,
-            context.Snapshot.StructureFingerprint);
+            context.Snapshot.StructureFingerprint,
+            targetDocuments);
         if (snapshotMatch.Level != AdapterMatchLevel.Verified || snapshotMatch.Adapter is null)
         {
             return RestorePreflightResult.Fail(
@@ -564,7 +568,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         {
             EnsureStopped();
             await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
-            await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
+            await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
         }
 
         public async Task<RestoreVerificationResult> VerifyAsync(CancellationToken cancellationToken)
@@ -624,32 +628,38 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     packagePath,
                     cancellationToken);
             }
-            else if (active.Length == 1)
-            {
-                // OBS 或其他应用单独发生变化时，直播伴侣可能已经与目标存档逐字段
-                // 完全一致。先用与最终提交相同的完整验证器回读，完全一致时不打开
-                // 摄像头设置、不重复导入效果包，也不让一次身份恢复依赖原生菜单。
-                var existingDifferences = await LiveCompanionRestoreVerifier.VerifyAsync(
-                    configurationStore.RootPath,
-                    expected,
-                    target,
-                    active[0],
-                    cancellationToken);
-                if (existingDifferences.Count == 0)
-                {
-                    return new RestoreVerificationResult(true, []);
-                }
-
-                await LiveCompanionNativeUiRestorer.ImportEffectForExistingCameraAsync(
-                    running.ProcessId,
-                    packagePath,
-                    cancellationToken);
-            }
             else
             {
-                return new RestoreVerificationResult(
-                    false,
-                    [$"直播伴侣中存在多个同名摄像头 {target.DeviceId}，无法安全选择恢复目标"]);
+                // 直播伴侣可能在其他场景保留同一设备的摄像头实例。不能仅凭设备名
+                // 任选一个；逐个执行完整回读，任一实例与目标完全一致即可证明当前
+                // 存档已经落地，无需再打开原生菜单或重复导入效果包。
+                foreach (var candidate in active)
+                {
+                    var existingDifferences = await LiveCompanionRestoreVerifier.VerifyAsync(
+                        configurationStore.RootPath,
+                        expected,
+                        target,
+                        candidate,
+                        cancellationToken);
+                    if (existingDifferences.Count == 0)
+                    {
+                        return new RestoreVerificationResult(true, []);
+                    }
+                }
+
+                if (active.Length == 1)
+                {
+                    await LiveCompanionNativeUiRestorer.ImportEffectForExistingCameraAsync(
+                        running.ProcessId,
+                        packagePath,
+                        cancellationToken);
+                }
+                else
+                {
+                    return new RestoreVerificationResult(
+                        false,
+                        [$"直播伴侣中存在 {active.Length} 个同名摄像头 {target.DeviceId}，且没有一个通过完整回读"]);
+                }
             }
 
             running = LiveCompanionProcessController.FindRunning()
@@ -658,7 +668,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             await cameraPayloadStore.ApplyAsync(sourceStore, cancellationToken);
             await cameraPayloadStore.ApplyToActiveSourcesAsync(sourceStore, cancellationToken);
             await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
-            await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
+            await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
 
             await Task.Delay(TimeSpan.FromSeconds(24), cancellationToken);
             var restored = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
@@ -729,7 +739,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             if (originalProcess is not null)
             {
                 await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
-                await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
+                await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
             }
 
             await journal.CompleteAsync(cancellationToken);

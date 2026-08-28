@@ -142,7 +142,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 var runtimePath = runtimeBinding.ToRuntimePointer(field.NativePath);
                 if (!TryGetPointer(json.RootElement, runtimePath, out var value))
                 {
-                    if (IsRestorableField(field))
+                    if (IsRequiredRestorableField(field))
                     {
                         throw new InvalidOperationException(
                             $"直播伴侣配置缺少必需字段 {store.Id}:{field.NativePath}");
@@ -276,7 +276,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         var missing = adapter.Definition.Fields.FirstOrDefault(field =>
-            IsRestorableField(field)
+            IsRequiredRestorableField(field)
             && !capturedKeys.Contains($"{field.StoreId}\0{field.NativePath}"));
         if (missing is not null)
         {
@@ -988,12 +988,14 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
     // state, so keep it in technical evidence but outside the write/readback
     // projection.
     internal static bool IsRestorableField(FieldMappingDefinition field) =>
-        field.Required
-        && field.Writable
+        field.Writable
         && !(string.Equals(field.StoreId, "effect-store", StringComparison.Ordinal)
              && field.NativePath.StartsWith(
                   "/effectStore/carnivalInfo/sourceLink/",
                   StringComparison.Ordinal));
+
+    internal static bool IsRequiredRestorableField(FieldMappingDefinition field) =>
+        field.Required && IsRestorableField(field);
 
     private static bool IsOptionalApplicationManagedCache(FieldMappingDefinition field) =>
         !field.Required

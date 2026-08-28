@@ -57,4 +57,36 @@ public static class CompatibilityMatcher
             ? new AdapterMatchResult(AdapterMatchLevel.Incompatible, null, $"没有{matchKind}匹配的适配定义")
             : new AdapterMatchResult(AdapterMatchLevel.Experimental, experimental, $"{matchKind}匹配，但应用版本未验证");
     }
+
+    internal static AdapterMatchResult MatchStructurallyCompatibleCandidates(
+        IReadOnlyList<VerifiedAdapterDefinition> candidates,
+        string matchKind)
+    {
+        if (candidates.Count == 0)
+        {
+            return new AdapterMatchResult(
+                AdapterMatchLevel.Incompatible,
+                null,
+                $"没有{matchKind}匹配的签名适配定义");
+        }
+
+        var selected = candidates
+            .OrderByDescending(candidate => GetDefinitionRevision(candidate.Definition.Id))
+            .ThenByDescending(candidate => candidate.Definition.Id, StringComparer.Ordinal)
+            .ThenByDescending(candidate => Version.Parse(candidate.Definition.MaximumVersion))
+            .First();
+        return new AdapterMatchResult(
+            AdapterMatchLevel.Verified,
+            selected,
+            $"版本号已变化，但{matchKind}全部一致");
+    }
+
+    private static int GetDefinitionRevision(string definitionId)
+    {
+        var marker = definitionId.LastIndexOf("-v", StringComparison.OrdinalIgnoreCase);
+        return marker >= 0
+               && int.TryParse(definitionId[(marker + 2)..], out var revision)
+            ? revision
+            : 0;
+    }
 }

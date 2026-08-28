@@ -65,9 +65,10 @@ public sealed class LocalAgentClient
 
     public Task<LocalSnapshotOperationResult> RestoreAsync(
         Guid snapshotId,
+        IReadOnlyList<CameraStationSnapshot>? currentCameraStations,
         CancellationToken cancellationToken) => SendAsync<RestoreLocalSnapshotRequest, LocalSnapshotOperationResult>(
             LocalControlMethod.RestoreSnapshot,
-            new RestoreLocalSnapshotRequest(snapshotId),
+            new RestoreLocalSnapshotRequest(snapshotId, currentCameraStations),
             cancellationToken);
 
     public Task<LocalAgentState> ConfigureObsAsync(

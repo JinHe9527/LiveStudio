@@ -118,7 +118,9 @@ public sealed record CameraReferenceImageChange(
     string? ExpectedSha256,
     bool Remove);
 
-public sealed record RestoreLocalSnapshotRequest(Guid SnapshotId);
+public sealed record RestoreLocalSnapshotRequest(
+    Guid SnapshotId,
+    IReadOnlyList<CameraStationSnapshot>? CurrentCameraStations = null);
 
 public sealed record DeleteLocalSnapshotRequest(Guid SnapshotId);
 

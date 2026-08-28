@@ -41,11 +41,13 @@ internal static partial class ObsSnapshotMapper
             }
 
             var capturedSettings = CloneObject(settings, excludeAudioSettings: true);
-            var defaultSettingsResponse = await client.CallAsync(
+            var defaultSettingsResponse = await TryGetOptionalDefaultsAsync(
+                client,
                 "GetInputDefaultSettings",
                 new { inputKind },
                 cancellationToken);
-            var defaultSettings = defaultSettingsResponse.TryGetProperty("defaultInputSettings", out var rawDefaults)
+            var defaultSettings = defaultSettingsResponse is { } inputDefaults
+                                  && inputDefaults.TryGetProperty("defaultInputSettings", out var rawDefaults)
                 ? CloneObject(rawDefaults, excludeAudioSettings: true)
                 : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
             var filterResponse = await client.CallAsync(
@@ -65,11 +67,13 @@ internal static partial class ObsSnapshotMapper
                 var explicitFilterSettings = filter.TryGetProperty("filterSettings", out var rawFilterSettings)
                     ? CloneObject(rawFilterSettings, excludeAudioSettings: false)
                     : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-                var defaultFilterSettingsResponse = await client.CallAsync(
+                var defaultFilterSettingsResponse = await TryGetOptionalDefaultsAsync(
+                    client,
                     "GetSourceFilterDefaultSettings",
                     new { filterKind },
                     cancellationToken);
-                var defaultFilterSettings = defaultFilterSettingsResponse.TryGetProperty(
+                var defaultFilterSettings = defaultFilterSettingsResponse is { } filterDefaults
+                                            && filterDefaults.TryGetProperty(
                     "defaultFilterSettings",
                     out var rawFilterDefaults)
                     ? CloneObject(rawFilterDefaults, excludeAudioSettings: false)
@@ -256,6 +260,31 @@ internal static partial class ObsSnapshotMapper
 
         return effective;
     }
+
+    private static async Task<JsonElement?> TryGetOptionalDefaultsAsync(
+        ObsWebSocketClient client,
+        string requestType,
+        object requestData,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await client.CallAsync(requestType, requestData, cancellationToken);
+        }
+        catch (ObsRequestException exception) when (IsOptionalDefaultSettingsFailure(exception, requestType))
+        {
+            // Some input/filter plug-ins do not implement optional defaults requests. Explicit
+            // settings remain authoritative; transport and authentication failures are not hidden.
+            return null;
+        }
+    }
+
+    internal static bool IsOptionalDefaultSettingsFailure(
+        ObsRequestException exception,
+        string requestType) =>
+        exception.StatusCode is not null
+        && string.Equals(exception.RequestType, requestType, StringComparison.Ordinal)
+        && requestType is "GetInputDefaultSettings" or "GetSourceFilterDefaultSettings";
 
     public static Dictionary<string, JsonElement> PreserveExcludedAudioSettings(
         IReadOnlyDictionary<string, JsonElement> targetVideoSettings,

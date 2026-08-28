@@ -1687,6 +1687,15 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        var cameraEditors = SnapshotInspector?.CameraStations ?? CameraStations;
+        if (!TryCollectCameraStations(cameraEditors, out var currentCameraStations, out var cameraError))
+        {
+            ControlStatusTitle = "相机参数有误";
+            ControlStatusDescription = cameraError;
+            PendingImportMessage = cameraError;
+            return;
+        }
+
         IsBusy = true;
         IsRestoringSnapshot = true;
         ControlStatusTitle = $"正在恢复“{SelectedSnapshot.Name}”";
@@ -1697,11 +1706,12 @@ public partial class MainViewModel : ViewModelBase
             var result = await RestoreLocalSnapshotWithProgressAsync(
                 SelectedSnapshot.Id,
                 SelectedSnapshot.Name,
+                currentCameraStations,
                 cancellationToken);
             await LoadStateAsync(cancellationToken);
             ControlStatusTitle = "恢复完成";
-            ControlStatusDescription = $"“{result.Name}”已应用并通过逐字段回读。";
-            PendingImportMessage = $"恢复完成：“{result.Name}”已应用并通过逐字段回读";
+            ControlStatusDescription = $"“{result.Name}”已应用并通过逐字段回读；恢复前状态已另存为自动备份。";
+            PendingImportMessage = $"恢复完成：“{result.Name}”已应用；恢复前状态已自动备份";
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
@@ -2234,9 +2244,13 @@ public partial class MainViewModel : ViewModelBase
     private async Task<LocalSnapshotOperationResult> RestoreLocalSnapshotWithProgressAsync(
         Guid snapshotId,
         string snapshotName,
+        IReadOnlyList<CameraStationSnapshot> currentCameraStations,
         CancellationToken cancellationToken)
     {
-        var restoreTask = localAgentClient.RestoreAsync(snapshotId, cancellationToken);
+        var restoreTask = localAgentClient.RestoreAsync(
+            snapshotId,
+            currentCameraStations,
+            cancellationToken);
         var lastMessage = string.Empty;
         while (!restoreTask.IsCompleted)
         {

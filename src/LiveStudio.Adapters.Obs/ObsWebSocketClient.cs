@@ -92,7 +92,7 @@ public sealed class ObsWebSocketClient(Uri endpoint, string password) : IAsyncDi
                     var comment = status.TryGetProperty("comment", out var commentElement)
                         ? commentElement.GetString()
                         : null;
-                    throw new ObsRequestException($"{requestType} 失败 ({code}): {comment}");
+                    throw new ObsRequestException(requestType, code, comment);
                 }
 
                 return data.TryGetProperty("responseData", out var responseData)

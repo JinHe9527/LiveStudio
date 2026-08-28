@@ -7,9 +7,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $expectedVersion = '12.8.1.454484231'
-$expectedFingerprint = '68ba3cc2b53cc19deaff9633f7d2e1ab1dbd36345ae44ef6e234b830c25816b1'
-$adapterId = 'webcast-mate-12.8.1.454484231-68ba3cc2-v2'
-$keyId = 'livestudio-adapter-2026-68ba3cc2-v2'
+$expectedFingerprint = '8216f9eec3a699ad9095eb3ec7857fcb49668022f455d707c8b9bb5e060a8e7a'
+$adapterId = 'webcast-mate-12.8.1.454484231-8216f9ee-v3'
+$keyId = 'livestudio-adapter-2026-8216f9ee-v3'
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $SnapshotPackage))
@@ -60,6 +60,41 @@ $stores = foreach ($path in $storeByPath.Keys) {
 $coverageByPath = @{}
 foreach ($field in $application.fieldCoverage) {
     $coverageByPath[$field.nativePath] = $field
+}
+
+$previousDefinitionPath = Join-Path $OutputDirectory 'webcast-mate-12.8.1.454484231-68ba3cc2-v2.adapter.json'
+if (-not [IO.File]::Exists($previousDefinitionPath)) {
+    throw "找不到上一版签名字段清单: $previousDefinitionPath"
+}
+
+$previousDefinition = [IO.File]::ReadAllText($previousDefinitionPath) | ConvertFrom-Json -Depth 100
+$currentSourceDocument = @($application.nativeDocuments | Where-Object {
+    $_.relativePath -eq 'WBStore\sourceStore.json'
+})[0]
+$currentCameraType = @($currentSourceDocument.values | Where-Object {
+    $_.jsonPointer -match '^/sourceStore/sceneSource/[^/]+/data/[^/]+/type$' -and $_.value -eq 'camera'
+})[0]
+$currentCameraSegments = $currentCameraType.jsonPointer.Split('/')
+$currentSceneId = $currentCameraSegments[3]
+$currentSourceId = $currentCameraSegments[5]
+$currentEffectId = @($currentSourceDocument.values | Where-Object {
+    $_.jsonPointer -eq "/sourceStore/sceneSource/$currentSceneId/data/$currentSourceId/effectConfigId"
+})[0].value
+$previousCameraType = @($previousDefinition.fields | Where-Object {
+    $_.storeId -eq 'source-store' -and $_.nativePath -match '^/sourceStore/sceneSource/[^/]+/data/[^/]+/type$'
+})[0]
+$previousCameraSegments = $previousCameraType.nativePath.Split('/')
+$previousSceneId = $previousCameraSegments[3]
+$previousSourceId = $previousCameraSegments[5]
+$previousEffectId = @($previousDefinition.fields | Where-Object {
+    $_.storeId -eq 'effect-config' -and $_.nativePath -match '^/effectConfigStore/configs/[^/]+/'
+})[0].nativePath.Split('/')[3]
+$previousFieldKeys = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($field in $previousDefinition.fields) {
+    $runtimePath = $field.nativePath.Replace($previousSceneId, $currentSceneId)
+    $runtimePath = $runtimePath.Replace($previousSourceId, $currentSourceId)
+    $runtimePath = $runtimePath.Replace($previousEffectId, [string]$currentEffectId)
+    [void]$previousFieldKeys.Add("$($field.storeId)`0$runtimePath")
 }
 
 function Get-UnifiedKind([string]$pointer) {
@@ -125,13 +160,14 @@ foreach ($document in $application.nativeDocuments) {
         $applicationManaged = $value.jsonPointer -eq '/effectStore/giftPlayConfig/alphaV2GiftIds' -or
             $value.jsonPointer -match '/filterData/filterDataList/\d+/id$' -or
             $value.jsonPointer -match '^/effectStore/deviceFacing/[^/]+$'
+        $optionalVersionField = -not $previousFieldKeys.Contains("${storeId}`0$($value.jsonPointer)")
         $fields.Add([ordered]@{
             id = "${storeId}:$($value.jsonPointer)"
             unifiedKind = Get-UnifiedKind $value.jsonPointer
             storeId = $storeId
             nativePath = $value.jsonPointer
             valueType = Get-ValueType $coverage.valueType
-            required = -not $applicationManaged
+            required = -not $applicationManaged -and -not $optionalVersionField
             writable = -not $applicationManaged
             nativeName = $coverage.nativeName
             uiPath = $coverage.uiPath
@@ -149,8 +185,8 @@ foreach ($document in $application.nativeDocuments) {
     }
 }
 
-if ($fields.Count -ne 1028) {
-    throw "字段总数不是预期的 1028，实际为 $($fields.Count)"
+if ($fields.Count -ne 1042) {
+    throw "字段总数不是预期的 1042，实际为 $($fields.Count)"
 }
 
 $requiredKinds = 0..6
@@ -170,7 +206,7 @@ if ($null -eq $liveStatePlaceholder) {
 $definition = [ordered]@{
     id = $adapterId
     minimumVersion = $expectedVersion
-    maximumVersion = $expectedVersion
+    maximumVersion = '12.9.2.470033184'
     structureFingerprint = $expectedFingerprint
     stores = @($stores)
     fields = @($fields)

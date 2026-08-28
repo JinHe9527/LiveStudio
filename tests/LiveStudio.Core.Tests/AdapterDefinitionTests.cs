@@ -144,6 +144,86 @@ public sealed class AdapterDefinitionTests
     }
 
     [Fact]
+    public void CrossVersionCompatibilityAllowsDeclaredOptionalFieldsAndRejectsUnknownFields()
+    {
+        var baseDefinition = CreateDefinition();
+        var optional = new FieldMappingDefinition(
+            "optional-new-version-field",
+            UnifiedFieldKind.NativeField,
+            "main",
+            "/video/optionalNewVersionField",
+            "number",
+            false,
+            true);
+        var definition = baseDefinition with
+        {
+            Stores = [new ConfigurationStoreDefinition(
+                "main",
+                ConfigurationStorageKind.JsonFile,
+                "config.json",
+                null,
+                true)],
+            Fields = baseDefinition.Fields.Append(optional).ToArray()
+        };
+        var withoutOptional = CreateDiscoveredDocument(baseDefinition.Fields);
+        var withOptional = CreateDiscoveredDocument(definition.Fields);
+        var unknownValues = withOptional.Values.Append(new NativeConfigurationValue(
+            "/video/newVersionField",
+            NativeParameterCategories.Filter,
+            JsonSerializer.SerializeToElement(1))).ToArray();
+
+        Assert.True(LiveCompanionAdapterCatalog.MatchesCompatibleShape(definition, [withoutOptional]));
+        Assert.True(LiveCompanionAdapterCatalog.MatchesCompatibleShape(definition, [withOptional]));
+        Assert.False(LiveCompanionAdapterCatalog.MatchesCompatibleShape(
+            definition,
+            [withOptional with { Values = unknownValues }]));
+    }
+
+    [Fact]
+    public void CatalogAllowsNewVersionOnlyWhenEveryRequiredPathAndTypeMatches()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"livestudio-adapter-catalog-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(directory, "trusted-keys"));
+        try
+        {
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var definition = CreateDefinition() with
+            {
+                Stores = [new ConfigurationStoreDefinition(
+                    "main",
+                    ConfigurationStorageKind.JsonFile,
+                    "config.json",
+                    null,
+                    true)]
+            };
+            var (definitionJson, signatureJson) = Sign(definition, signingKey);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.adapter.json"), definitionJson);
+            File.WriteAllBytes(Path.Combine(directory, "live-companion-1.signature.json"), signatureJson);
+            File.WriteAllText(
+                Path.Combine(directory, "trusted-keys", "catalog.pem"),
+                signingKey.ExportSubjectPublicKeyInfoPem());
+            var catalog = new LiveCompanionAdapterCatalog(directory);
+            var discovered = new[] { CreateDiscoveredDocument(definition.Fields) };
+
+            var captureMatch = catalog.Match("2.0.0", new string('b', 64), discovered);
+            var restoreMatch = catalog.MatchSnapshot(
+                "2.0.0",
+                definition.Id,
+                captureMatch.Adapter!.DefinitionSha256,
+                definition.StructureFingerprint,
+                discovered);
+
+            Assert.Equal(AdapterMatchLevel.Verified, captureMatch.Level);
+            Assert.Equal(AdapterMatchLevel.Verified, restoreMatch.Level);
+            Assert.Contains("版本号已变化", restoreMatch.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void BundledCurrentMachineAdapterIsSignedCompleteAndExactlyMatched()
     {
         var repositoryRoot = FindRepositoryRoot();
@@ -166,10 +246,17 @@ public sealed class AdapterDefinitionTests
             "webcast-mate-12.8.1.454484231-68ba3cc2-v2",
             new string('0', 64),
             "68ba3cc2b53cc19deaff9633f7d2e1ab1dbd36345ae44ef6e234b830c25816b1");
+        var structuralMatch = catalog.Match(
+            "12.9.2.470033184",
+            new string('f', 64),
+            CreateStructurallyCompatibleDocuments(match.Adapter.Definition));
 
         Assert.Equal(AdapterMatchLevel.Verified, match.Level);
         Assert.Equal(AdapterMatchLevel.Verified, snapshotMatch.Level);
         Assert.Equal(AdapterMatchLevel.Incompatible, alteredSnapshot.Level);
+        Assert.Equal(
+            "webcast-mate-12.8.1.454484231-8216f9ee-v3",
+            structuralMatch.Adapter?.Definition.Id);
         var definition = Assert.IsType<LiveCompanionAdapterDefinition>(match.Adapter?.Definition);
         Assert.Equal("webcast-mate-12.8.1.454484231-68ba3cc2-v2", definition.Id);
         Assert.Equal(4, definition.Stores.Count);
@@ -203,6 +290,19 @@ public sealed class AdapterDefinitionTests
         Assert.All(
             definition.Fields.Where(field => !field.Writable),
             field => Assert.Equal("ApplicationManaged", field.ControlKind));
+
+        var versionFlexible = catalog.GetAll().Single(adapter =>
+            string.Equals(
+                adapter.Definition.Id,
+                "webcast-mate-12.8.1.454484231-8216f9ee-v3",
+                StringComparison.Ordinal));
+        Assert.Equal(1042, versionFlexible.Definition.Fields.Count);
+        Assert.Equal(14, versionFlexible.Definition.Fields.Count(field =>
+            !field.Required && field.Writable));
+        Assert.Equal(980, versionFlexible.Definition.Fields.Count(
+            LiveCompanionConfigurationStore.IsRestorableField));
+        Assert.Equal(966, versionFlexible.Definition.Fields.Count(
+            LiveCompanionConfigurationStore.IsRequiredRestorableField));
     }
 
     private static LiveCompanionAdapterDefinition CreateDefinition()
@@ -255,6 +355,51 @@ public sealed class AdapterDefinitionTests
                 "null" => JsonSerializer.SerializeToElement<object?>(null),
                 _ => JsonSerializer.SerializeToElement(1)
             })).ToArray());
+
+    private static NativeConfigurationDocument[] CreateStructurallyCompatibleDocuments(
+        LiveCompanionAdapterDefinition definition)
+    {
+        var canonicalEffectId = definition.Fields
+            .Select(field => field.NativePath.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            .Where(segments => segments.Length >= 3
+                               && segments[0] == "effectConfigStore"
+                               && segments[1] == "configs")
+            .Select(segments => segments[2])
+            .First();
+        return definition.Stores.Select(store =>
+        {
+            var values = definition.Fields
+                .Where(field => string.Equals(field.StoreId, store.Id, StringComparison.Ordinal))
+                .Select(field => new NativeConfigurationValue(
+                    field.NativePath,
+                    NativeParameterCategories.Filter,
+                    field.NativePath.EndsWith("/effectConfigId", StringComparison.Ordinal)
+                        ? JsonSerializer.SerializeToElement(canonicalEffectId)
+                        : field.NativePath.EndsWith("/type", StringComparison.Ordinal)
+                          && field.NativePath.Contains("/sourceStore/sceneSource/", StringComparison.Ordinal)
+                          && string.Equals(field.ValueType, "string", StringComparison.Ordinal)
+                            ? JsonSerializer.SerializeToElement("camera")
+                            : field.ValueType switch
+                            {
+                                "string" => JsonSerializer.SerializeToElement("value"),
+                                "bool" or "boolean" => JsonSerializer.SerializeToElement(true),
+                                "object" => JsonSerializer.SerializeToElement(new { value = 1 }),
+                                "array" => JsonSerializer.SerializeToElement(new List<int> { 1 }),
+                                "null" => JsonSerializer.SerializeToElement<object?>(null),
+                                _ => JsonSerializer.SerializeToElement(1)
+                            }))
+                .ToArray();
+            return new NativeConfigurationDocument(
+                store.Id,
+                store.Kind.ToString(),
+                "json-v1",
+                store.Location,
+                store.Location,
+                new string('0', 64),
+                Guid.NewGuid(),
+                values);
+        }).ToArray();
+    }
 
     private static (byte[] Definition, byte[] Signature) Sign(
         LiveCompanionAdapterDefinition definition,

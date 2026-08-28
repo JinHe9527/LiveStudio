@@ -175,7 +175,9 @@ internal sealed class LiveCompanionTransactionJournal
             if (manifest.WasRunning && File.Exists(manifest.ExecutablePath))
             {
                 await LiveCompanionProcessController.StartAsync(manifest.ExecutablePath, cancellationToken);
-                await LiveCompanionProcessController.WaitUntilRunningAsync(cancellationToken);
+                await LiveCompanionProcessController.WaitUntilRunningAsync(
+                    manifest.ExecutablePath,
+                    cancellationToken);
             }
 
             Directory.Delete(directory, recursive: true);

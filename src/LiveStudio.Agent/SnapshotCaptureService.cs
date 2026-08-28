@@ -72,6 +72,17 @@ public sealed class SnapshotCaptureService
         return await CaptureCoreAsync(name, normalizedStations, cancellationToken);
     }
 
+    internal Task<LocalSnapshotRecord> CaptureForRestoreBackupAsync(
+        string name,
+        IReadOnlyList<CameraStationSnapshot>? cameraStations,
+        CancellationToken cancellationToken)
+    {
+        var normalizedStations = NormalizeCameraStations(cameraStations)
+            .Select(station => station with { ReferenceImage = null })
+            .ToArray();
+        return CaptureCoreAsync(name, normalizedStations, cancellationToken);
+    }
+
     private async Task<LocalSnapshotRecord> CaptureCoreAsync(
         string name,
         IReadOnlyList<CameraStationSnapshot> cameraStations,
