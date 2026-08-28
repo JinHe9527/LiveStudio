@@ -87,11 +87,10 @@ public sealed class ApplicationUpdateService(
             throw new InvalidOperationException("当前安装包没有内置更新签名身份，禁止安装更新");
         }
 
-        await VerifyPackageIdentityAsync(
+        ApplicationUpdateSignatureVerifier.Verify(
             packagePath,
             trustedPublisher,
-            trustedCertificateThumbprint,
-            cancellationToken);
+            trustedCertificateThumbprint);
 
         return new PreparedApplicationUpdate(release, packagePath);
     }
@@ -286,42 +285,6 @@ public sealed class ApplicationUpdateService(
         }
     }
 
-    private static async Task VerifyPackageIdentityAsync(
-        string packagePath,
-        string trustedPublisher,
-        string trustedCertificateThumbprint,
-        CancellationToken cancellationToken)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        startInfo.ArgumentList.Add("-NoLogo");
-        startInfo.ArgumentList.Add("-NoProfile");
-        startInfo.ArgumentList.Add("-NonInteractive");
-        startInfo.ArgumentList.Add("-Command");
-        startInfo.ArgumentList.Add(VerifyPackageScript);
-        startInfo.ArgumentList.Add(packagePath);
-        startInfo.ArgumentList.Add(trustedPublisher);
-        startInfo.ArgumentList.Add(trustedCertificateThumbprint);
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("无法启动 MSIX 签名验证");
-        var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        var output = await standardOutput;
-        var error = await standardError;
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidDataException(
-                $"MSIX 签名身份校验失败：{string.Join(' ', new[] { output, error }.Where(value => !string.IsNullOrWhiteSpace(value))).Trim()}");
-        }
-    }
-
     private static string GetAssemblyMetadata(string key) =>
         Assembly.GetEntryAssembly()?.GetCustomAttributes<AssemblyMetadataAttribute>()
             .FirstOrDefault(attribute => string.Equals(attribute.Key, key, StringComparison.Ordinal))
@@ -342,26 +305,5 @@ public sealed class ApplicationUpdateService(
             ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0))
             : throw new InvalidDataException($"无法解析 Release 版本号：{tagName}");
     }
-
-    private const string VerifyPackageScript = """
-& {
-    param($PackagePath, $ExpectedPublisher, $ExpectedThumbprint)
-    $ErrorActionPreference = 'Stop'
-    $signature = Get-AuthenticodeSignature -LiteralPath $PackagePath
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-        throw "签名状态不是 Valid: $($signature.Status)"
-    }
-    if (-not $signature.SignerCertificate) {
-        throw '安装包没有签名证书'
-    }
-    $actualThumbprint = $signature.SignerCertificate.Thumbprint.Replace(' ', '')
-    if (-not $actualThumbprint.Equals($ExpectedThumbprint, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "证书指纹不匹配: $actualThumbprint"
-    }
-    if (-not $signature.SignerCertificate.Subject.Equals($ExpectedPublisher, [StringComparison]::Ordinal)) {
-        throw "Publisher 不匹配: $($signature.SignerCertificate.Subject)"
-    }
-} $args[0] $args[1] $args[2]
-""";
 
 }
