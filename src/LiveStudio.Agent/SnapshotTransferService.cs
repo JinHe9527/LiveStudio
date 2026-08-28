@@ -4,6 +4,11 @@ using LiveStudio.Packaging;
 
 namespace LiveStudio.Agent;
 
+public sealed record SnapshotReconciliationResult(
+    int IndexedCount,
+    int SkippedUntrustedCount,
+    IReadOnlyList<string> Errors);
+
 public sealed class SnapshotTransferService
 {
     private static readonly string DefaultSnapshotDirectory = Path.GetFullPath(Path.Combine(
@@ -30,6 +35,78 @@ public sealed class SnapshotTransferService
         this.snapshotIndex = snapshotIndex ?? throw new ArgumentNullException(nameof(snapshotIndex));
         ArgumentException.ThrowIfNullOrWhiteSpace(snapshotDirectory);
         this.snapshotDirectory = Path.GetFullPath(snapshotDirectory);
+    }
+
+    public async Task<SnapshotReconciliationResult> ReconcileManagedDirectoryAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(snapshotDirectory))
+        {
+            return new SnapshotReconciliationResult(0, 0, []);
+        }
+
+        var indexedCount = 0;
+        var skippedUntrustedCount = 0;
+        var errors = new List<string>();
+        foreach (var packagePath in Directory.EnumerateFiles(snapshotDirectory, "*.lscfg")
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var inspection = await SnapshotPackageReader.InspectAsync(packagePath, cancellationToken);
+                var existing = await snapshotIndex.FindAsync(
+                    inspection.Package.Snapshot.Id,
+                    cancellationToken);
+                var identity = await ComputeFileIdentityAsync(packagePath, cancellationToken);
+                if (existing is not null)
+                {
+                    if (string.Equals(existing.Sha256, identity.Sha256, StringComparison.Ordinal)
+                        && existing.Length == identity.Length)
+                    {
+                        continue;
+                    }
+
+                    errors.Add($"{Path.GetFileName(packagePath)}：存档 ID 已存在但文件内容不同");
+                    continue;
+                }
+
+                if (!await ResolveTrustAsync(inspection.Signer, cancellationToken))
+                {
+                    skippedUntrustedCount++;
+                    continue;
+                }
+
+                var package = await SnapshotPackageReader.ReadAsync(
+                    packagePath,
+                    keyId => string.Equals(keyId, inspection.Signer.KeyId, StringComparison.Ordinal)
+                        ? CreatePublicKey(inspection.Signer.PublicKeyPem)
+                        : null,
+                    cancellationToken);
+                await snapshotIndex.SaveAsync(
+                    new LocalSnapshotRecord(
+                        package.Snapshot.Id,
+                        package.Snapshot.Name,
+                        Path.GetFullPath(packagePath),
+                        identity.Sha256,
+                        identity.Length,
+                        package.Snapshot.CreatedAt,
+                        false,
+                        IsUploadEligible(package.Snapshot, inspection.Signer),
+                        package.Snapshot.RoomId == Guid.Empty ? null : package.Snapshot.RoomId),
+                    cancellationToken);
+                indexedCount++;
+            }
+            catch (Exception exception) when (exception is IOException
+                or UnauthorizedAccessException
+                or SnapshotPackageException
+                or CryptographicException)
+            {
+                errors.Add($"{Path.GetFileName(packagePath)}：{exception.Message}");
+            }
+        }
+
+        return new SnapshotReconciliationResult(indexedCount, skippedUntrustedCount, errors);
     }
 
     public async Task<SnapshotPackage> ReadLocalAsync(

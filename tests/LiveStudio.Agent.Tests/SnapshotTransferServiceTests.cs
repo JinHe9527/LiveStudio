@@ -197,6 +197,41 @@ public sealed class SnapshotTransferServiceTests : IDisposable
             trusted.FingerprintSha256);
     }
 
+    [Fact]
+    public async Task ReconcileManagedDirectoryIndexesTrustedOrphanPackage()
+    {
+        var fixture = await CreateFixtureAsync();
+        var orphan = await fixture.CreateSignedPackageWithoutIndexAsync("已保存但索引缺失");
+
+        var result = await fixture.Service.ReconcileManagedDirectoryAsync(CancellationToken.None);
+
+        var indexed = Assert.IsType<LocalSnapshotRecord>(
+            await fixture.Index.FindAsync(orphan.Id, CancellationToken.None));
+        Assert.Equal(1, result.IndexedCount);
+        Assert.Equal(0, result.SkippedUntrustedCount);
+        Assert.Empty(result.Errors);
+        Assert.Equal("已保存但索引缺失", indexed.Name);
+        Assert.Equal(orphan.Path, indexed.PackagePath);
+    }
+
+    [Fact]
+    public async Task ReconcileManagedDirectoryDoesNotTrustCopiedForeignPackageSilently()
+    {
+        var fixture = await CreateFixtureAsync();
+        using var foreignKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var orphan = await fixture.CreateSignedPackageWithoutIndexAsync(
+            "另一台电脑的存档",
+            Guid.NewGuid().ToString("N"),
+            foreignKey.ExportPkcs8PrivateKeyPem());
+
+        var result = await fixture.Service.ReconcileManagedDirectoryAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.IndexedCount);
+        Assert.Equal(1, result.SkippedUntrustedCount);
+        Assert.Empty(result.Errors);
+        Assert.Null(await fixture.Index.FindAsync(orphan.Id, CancellationToken.None));
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
@@ -301,6 +336,35 @@ public sealed class SnapshotTransferServiceTests : IDisposable
                 null);
             await Index.SaveAsync(record, CancellationToken.None);
             return record;
+        }
+
+        public async Task<(Guid Id, string Path)> CreateSignedPackageWithoutIndexAsync(
+            string name,
+            string? keyId = null,
+            string? signingPrivateKeyPem = null)
+        {
+            var id = Guid.NewGuid();
+            var path = Path.Combine(SnapshotDirectory, $"{id:N}.lscfg");
+            var snapshot = new CombinedSnapshot(
+                id,
+                Credentials.OrganizationId,
+                Credentials.RoomId,
+                name,
+                DateTimeOffset.UtcNow,
+                3,
+                [],
+                [],
+                []);
+            using var signingKey = ECDsa.Create();
+            signingKey.ImportFromPem(signingPrivateKeyPem ?? Credentials.PackageSigningPrivateKeyPem);
+            await SnapshotPackageWriter.WriteAsync(
+                path,
+                snapshot,
+                [],
+                signingKey,
+                keyId ?? Credentials.DeviceId.ToString("N"),
+                CancellationToken.None);
+            return (id, path);
         }
     }
 

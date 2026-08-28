@@ -16,9 +16,9 @@ public sealed class ApplicationUpdateServiceTests
             {
                 "/owner/repository/releases/latest" => Redirect(
                     "https://github.com/owner/repository/releases/tag/v0.2.0"),
-                "/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix" =>
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe" =>
                     Redirect("https://release-assets.githubusercontent.com/package"),
-                "/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix.sha256" =>
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe.sha256" =>
                     Redirect("https://release-assets.githubusercontent.com/checksum"),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)
             };
@@ -30,7 +30,7 @@ public sealed class ApplicationUpdateServiceTests
         Assert.NotNull(release);
         Assert.Equal(new Version(0, 2, 0), release.Version);
         Assert.Equal(
-            "https://github.com/owner/repository/releases/download/v0.2.0/LiveStudio-Windows-x64.msix",
+            "https://github.com/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe",
             release.PackageDownloadUrl.ToString());
         Assert.Equal(3, capturedRequests.Count);
         Assert.All(capturedRequests, request => Assert.Null(request.Headers.Authorization));
@@ -79,7 +79,7 @@ public sealed class ApplicationUpdateServiceTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.CheckAsync(CancellationToken.None));
 
-        Assert.Equal("最新发布中还没有 LiveStudio-Windows-x64.msix", exception.Message);
+        Assert.Equal("最新发布中还没有 LiveStudio-Setup.exe", exception.Message);
     }
 
     [Fact]

@@ -46,6 +46,16 @@ public sealed class LocalControlServer(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await snapshotIndex.InitializeAsync(stoppingToken);
+        var reconciliation = await transferService.ReconcileManagedDirectoryAsync(stoppingToken);
+        if (reconciliation.IndexedCount > 0)
+        {
+            SetOperationMessage($"已恢复显示 {reconciliation.IndexedCount} 份本地存档");
+        }
+        else if (reconciliation.Errors.Count > 0)
+        {
+            SetOperationMessage($"有 {reconciliation.Errors.Count} 份本地存档无法读取：{reconciliation.Errors[0]}");
+        }
+
         var listeners = Enumerable.Range(0, ListenerCount)
             .Select(_ => RunListenerAsync(stoppingToken));
         await Task.WhenAll(listeners);

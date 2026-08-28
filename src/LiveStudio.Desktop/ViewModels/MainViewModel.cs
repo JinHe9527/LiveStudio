@@ -1233,6 +1233,7 @@ public partial class MainViewModel : ViewModelBase
             or IOException
             or UnauthorizedAccessException
             or InvalidOperationException
+            or System.ComponentModel.Win32Exception
             or PlatformNotSupportedException)
         {
             UpdateStatus = $"安装更新失败：{exception.Message}";

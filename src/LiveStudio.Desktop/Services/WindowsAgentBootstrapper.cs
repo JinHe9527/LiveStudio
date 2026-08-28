@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 
 namespace LiveStudio.Desktop.Services;
 
@@ -11,14 +12,46 @@ internal static class WindowsAgentBootstrapper
             return false;
         }
 
-        using var existing = Process.GetProcessesByName("LiveStudio.Agent").FirstOrDefault();
-        if (existing is not null)
+        var agentPath = FindAgentPath();
+        if (agentPath is null)
         {
             return false;
         }
 
-        var agentPath = FindAgentPath();
-        if (agentPath is null)
+        var expectedAgentRunning = false;
+        foreach (var existing in Process.GetProcessesByName("LiveStudio.Agent"))
+        {
+            using (existing)
+            {
+                var existingPath = TryGetExecutablePath(existing);
+                if (PathsEqual(existingPath, agentPath))
+                {
+                    expectedAgentRunning = true;
+                    continue;
+                }
+
+                if (existingPath is null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    existing.Kill();
+                    existing.WaitForExit(5_000);
+                }
+                catch (InvalidOperationException)
+                {
+                    // 进程已在检查与结束之间退出，可以继续启动当前包内 Agent。
+                }
+                catch (Win32Exception)
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (expectedAgentRunning)
         {
             return false;
         }
@@ -30,6 +63,39 @@ internal static class WindowsAgentBootstrapper
             WorkingDirectory = Path.GetDirectoryName(agentPath)
         });
         return true;
+    }
+
+    internal static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryGetExecutablePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private static string? FindAgentPath()

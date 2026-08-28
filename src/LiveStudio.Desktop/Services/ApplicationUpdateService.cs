@@ -15,8 +15,7 @@ public sealed record ApplicationUpdateRelease(
 
 public sealed record PreparedApplicationUpdate(
     ApplicationUpdateRelease Release,
-    string InstallerScriptPath,
-    string PackagePath);
+    string InstallerPath);
 
 public sealed class ApplicationUpdateService(
     HttpMessageHandler? messageHandler = null,
@@ -26,8 +25,8 @@ public sealed class ApplicationUpdateService(
     string? trustedPublisher = null,
     string? trustedCertificateThumbprint = null)
 {
-    private const string WindowsAssetName = "LiveStudio-Windows-x64.msix";
-    private const string ChecksumAssetName = "LiveStudio-Windows-x64.msix.sha256";
+    private const string WindowsAssetName = "LiveStudio-Setup.exe";
+    private const string ChecksumAssetName = "LiveStudio-Setup.exe.sha256";
     private readonly HttpMessageHandler? messageHandler = messageHandler;
     private readonly Version applicationVersion = applicationVersion ?? GetCurrentVersion();
     private readonly string trustedPublisher = trustedPublisher ?? GetAssemblyMetadata("LiveStudioUpdatePublisher");
@@ -94,34 +93,18 @@ public sealed class ApplicationUpdateService(
             trustedCertificateThumbprint,
             cancellationToken);
 
-        var scriptPath = Path.Combine(updateRoot, "install-update.ps1");
-        await File.WriteAllTextAsync(scriptPath, InstallerScript, cancellationToken);
-        return new PreparedApplicationUpdate(
-            release,
-            scriptPath,
-            packagePath);
+        return new PreparedApplicationUpdate(release, packagePath);
     }
 
     public static void LaunchInstaller(PreparedApplicationUpdate update)
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
+            FileName = update.InstallerPath,
+            UseShellExecute = true,
+            Verb = "runas",
+            WorkingDirectory = Path.GetDirectoryName(update.InstallerPath)
         };
-        startInfo.ArgumentList.Add("-NoLogo");
-        startInfo.ArgumentList.Add("-NoProfile");
-        startInfo.ArgumentList.Add("-NonInteractive");
-        startInfo.ArgumentList.Add("-ExecutionPolicy");
-        startInfo.ArgumentList.Add("Bypass");
-        startInfo.ArgumentList.Add("-File");
-        startInfo.ArgumentList.Add(update.InstallerScriptPath);
-        startInfo.ArgumentList.Add("-DesktopPid");
-        startInfo.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        startInfo.ArgumentList.Add("-PackagePath");
-        startInfo.ArgumentList.Add(update.PackagePath);
         _ = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动更新安装程序");
     }
 
@@ -379,31 +362,6 @@ public sealed class ApplicationUpdateService(
         throw "Publisher 不匹配: $($signature.SignerCertificate.Subject)"
     }
 } $args[0] $args[1] $args[2]
-""";
-
-    private const string InstallerScript = """
-param(
-    [Parameter(Mandatory = $true)][int]$DesktopPid,
-    [Parameter(Mandatory = $true)][string]$PackagePath
-)
-$ErrorActionPreference = 'Stop'
-try {
-    Wait-Process -Id $DesktopPid -Timeout 45 -ErrorAction SilentlyContinue
-    Get-Process -Name 'LiveStudio.Agent' -ErrorAction SilentlyContinue | ForEach-Object {
-        Stop-Process -Id $_.Id -Force
-    }
-    Add-AppxPackage -Path $PackagePath -ForceApplicationShutdown
-    $package = Get-AppxPackage -Name 'LiveStudio.BroadcastConfiguration' |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if (-not $package) {
-        throw 'MSIX 已安装，但无法读取包身份'
-    }
-    Start-Process explorer.exe "shell:AppsFolder\$($package.PackageFamilyName)!LiveStudio"
-} catch {
-    $_ | Out-File -FilePath (Join-Path (Split-Path $PackagePath -Parent) 'install-error.log') -Encoding utf8
-    throw
-}
 """;
 
 }
