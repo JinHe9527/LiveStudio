@@ -920,3 +920,9 @@ OBS 设备映射还增加了物理设备枚举：即使目标 OBS 已删除全�
 公开 `v0.1.17` 安装器已再次从 GitHub Release 下载到本机临时隔离目录，核对版本 `0.1.17.0`、SHA-256、Authenticode 签名和 `--verify-only` 后覆盖到 `E:\参数恢复软件\LiveStudio-Setup.exe`。U 盘副本长度为 217853328 字节，SHA-256 为 `9B590A1BC398CF97AA7CECC0ABB9ECE2DC8C95E7E08AD2296EEC971913C4416A`，Signer 为 `CN=LiveStudio Internal`，自检退出码为 0；被替换文件先备份到本机 `%LOCALAPPDATA%\LiveStudio\InstallerBackups\usb-before-v0.1.17-20260829-145239`，没有删除 U 盘或目标电脑的其他数据。
 
 跨电脑验收包已复制为 `E:\参数恢复软件\跨电脑恢复测试\LiveStudio-跨电脑恢复测试.lscfg`，长度为 3104940 字节，SHA-256 为 `76038651369B963B1F949FAEE0767FC3D88AF72ECF1A7B8063A3AACCADBC2BC7`。运行中的正式 `0.1.17` Agent 已直接从 U 盘路径完成包检查，返回存档 ID `c9c8f9e0-ad32-4bab-867c-9757374a8042`、签名者受信任；同目录包含独立 SHA-256 文件和中文五轮操作说明。该动作只证明交接介质逐字节一致且正式读取器可打开，不能替代第二台 4KPro 真机上的设备映射、保存、恢复、逐字段回读和故障回滚证据。
+
+### 40.2 第二台电脑可重复验收工具
+
+仓库新增 `tools/LiveStudio.SecondMachineValidation/Run-SecondMachineValidation.ps1`，U 盘副本使用 ASCII 名称 `LiveStudio-CrossMachine-Test.lscfg`，避免 Windows PowerShell 5.1 对无 BOM 脚本中中文默认文件名的错误解码。工具默认只读采集 Windows、LiveStudio Desktop/Agent、OBS、直播伴侣、采集卡硬件 ID 与驱动版本，并同时核对安装器固定 SHA-256、原生 `--verify-only`、测试包 SHA-256 和固定包签名者指纹。五轮模式必须人工输入 `RESTORE-5`，随后只通过正式 Agent 的检查、导入、唯一候选设备映射和 `RestoreSnapshot` 接口执行；候选不唯一时停止，不直接写 OBS 或直播伴侣原生文件。
+
+Windows PowerShell 5.1 实测发现，重定向启动的子进程可能无法自动加载 `Get-FileHash` 与 `Get-AuthenticodeSignature` 所属模块。工具已改用 .NET SHA-256，Authenticode 命令只作为辅助显示；强制门仍由固定哈希、安装器原生自检和正式 Agent 包读取器完成。U 盘相对路径只读冒烟返回 `EvidenceOnly`、退出码 0，准确读取安装器 `0.1.17.0`、OBS `32.2.2`、直播伴侣 `12.9.2.470033184`、受信测试包和 Agent 连接。五轮入口输入错误确认词时退出码为 1、循环数为 0，取消前后的 10 份本机 `.lscfg` 路径、长度和 SHA-256 逐项无差异。工具尚未在第二台实体 4KPro 电脑执行，因此这些结果只是交接工具的本机安全冒烟，不提升 `Verified=0`。
