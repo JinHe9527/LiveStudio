@@ -8,6 +8,34 @@ namespace LiveStudio.Core.Tests;
 public sealed class SnapshotInspectorViewModelTests
 {
     [Fact]
+    public void PortableLiveCompanionSnapshotIsNotReportedAsUnrecoverable()
+    {
+        var application = new ApplicationSnapshot(
+            ApplicationKind.LiveCompanion,
+            "12.9.2.470033184",
+            "webcast-mate-portable-v1",
+            new string('b', 64),
+            new string('c', 64),
+            CompatibilityLevel.Experimental,
+            true,
+            [],
+            [],
+            [],
+            CreateTree());
+        var inspector = new SnapshotInspectorViewModel(
+            "2026-08-29 14:38",
+            DateTimeOffset.Now,
+            [application]);
+
+        var applicationViewModel = Assert.Single(inspector.Applications);
+        Assert.True(applicationViewModel.IsRestorable);
+        Assert.Equal("已保存 · 可跨电脑还原", applicationViewModel.AdapterStatus);
+        Assert.False(inspector.HasRecoveryWarning);
+        Assert.Equal(string.Empty, inspector.RecoveryWarning);
+        Assert.Equal("存档完整 · 可执行事务恢复", inspector.CoverageStatus);
+    }
+
+    [Fact]
     public void CameraTabKeepsLastApplicationAvailableForTechnicalPanel()
     {
         var application = CreateApplication(ApplicationKind.Obs);
