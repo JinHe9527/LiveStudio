@@ -381,6 +381,28 @@ public sealed class AdapterDefinitionTests
             LiveCompanionConfigurationStore.IsRequiredRestorableField));
     }
 
+    [Fact]
+    public void PortableTargetUsesCompleteRequiredShapeBeyondRecordedVersionRange()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(
+            repositoryRoot,
+            "src",
+            "LiveStudio.Agent",
+            "Adapters"));
+        var definition = catalog.GetAll().Single(adapter => string.Equals(
+            adapter.Definition.Id,
+            "webcast-mate-12.8.1.454484231-8216f9ee-v3",
+            StringComparison.Ordinal));
+        var documents = CreateStructurallyCompatibleDocuments(definition.Definition);
+
+        var match = catalog.MatchPortableTarget("99.0.0.0", documents);
+
+        Assert.Equal(AdapterMatchLevel.Verified, match.Level);
+        Assert.Equal(definition.Definition.Id, match.Adapter?.Definition.Id);
+        Assert.Contains("必需恢复字段", match.Reason, StringComparison.Ordinal);
+    }
+
     private static LiveCompanionAdapterDefinition CreateDefinition()
     {
         var fields = new[]

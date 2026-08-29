@@ -7,8 +7,7 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
 {
     private static readonly string[] RequiredPayloadProperties =
     [
-        "deviceId", "name", "format", "width", "height", "rate", "effect1",
-        "videoRange", "colorSpace", "filterData"
+        "deviceId", "format", "width", "height", "rate"
     ];
 
     public string Path { get; } = System.IO.Path.GetFullPath(System.IO.Path.Combine(

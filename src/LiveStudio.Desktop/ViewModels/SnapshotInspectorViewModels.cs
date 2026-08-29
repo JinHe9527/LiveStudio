@@ -41,7 +41,9 @@ public sealed partial class SnapshotInspectorViewModel : ObservableObject
         CoverageDetail = $"已保存 {ReadFieldCount} 项 · 可恢复 {RestorableFieldCount} 项";
         HasRecoveryWarning = Applications.Any(application => !application.IsRestorable);
         RecoveryWarning = HasRecoveryWarning
-            ? "此存档存在无法逐字段恢复的内容；打开技术信息查看具体原因。"
+            ? "当前不能完整恢复：" + string.Join("；", Applications
+                .Where(application => !application.IsRestorable)
+                .Select(application => $"{application.ShortName} · {application.RestoreBlockReason}"))
             : string.Empty;
         var lookOptions = creativeLooks ??
         [
@@ -211,6 +213,20 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
                               UnknownCount: 0,
                               EvidenceOnlyCount: 0
                           };
+        RestoreBlockReason = IsRestorable
+            ? string.Empty
+            : IsLiveCompanion && string.Equals(
+                application.AdapterId,
+                "webcast-mate-json-discovery",
+                StringComparison.Ordinal)
+                ? "没有生成可跨电脑恢复的摄像头配置"
+                : IsObs && Sources.Count == 0
+                    ? "没有读取到 OBS 视频来源"
+                    : application.Compatibility == CompatibilityLevel.Unsupported
+                        ? "当前应用结构不受支持"
+                        : GapCount > 0
+                            ? $"有 {GapCount} 项字段缺失或尚未映射"
+                            : "字段树尚未达到完整恢复条件";
         RestorableFieldCount = IsRestorable ? ReadFieldCount : 0;
         CoverageStatus = isPortableLiveCompanion
             ? $"已提取 {RestorableFieldCount} 项可移植画面参数 · 恢复时逐项回读"
@@ -361,6 +377,8 @@ public sealed partial class SnapshotApplicationViewModel : ObservableObject
     public int RestorableFieldCount { get; }
 
     public bool IsRestorable { get; }
+
+    public string RestoreBlockReason { get; }
 
     public int MappedFieldCount { get; }
 

@@ -148,7 +148,47 @@ public sealed class LiveCompanionConfigurationStoreTests
                 Value("/effectConfigStore/configs/effect-b/effect/items/1/value", 2)
             ]);
 
-        Assert.Null(LiveCompanionPortableProfile.TryCreate([source, effect]));
+        Assert.Null(LiveCompanionPortableProfile.TryCreate([source, effect], out var reason));
+        Assert.Contains("2 套不同画面配置", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PortableProfileAcceptsVersionsWithoutOptionalCameraProperties()
+    {
+        const string prefix = "/sourceStore/sceneSource/scene-a/data/camera-a";
+        var source = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\sourceStore.json",
+            @"WBStore\sourceStore.json",
+            "hash",
+            Guid.NewGuid(),
+            [
+                Value($"{prefix}/type", "camera"),
+                Value($"{prefix}/effectConfigId", "effect-a"),
+                Value($"{prefix}/payload/deviceId", "device-a"),
+                Value($"{prefix}/payload/format", 6),
+                Value($"{prefix}/payload/width", 1920),
+                Value($"{prefix}/payload/height", 1080),
+                Value($"{prefix}/payload/rate", 60)
+            ]);
+        var effect = new NativeConfigurationDocument(
+            "webcast_mate",
+            "JsonFile",
+            "json-v1",
+            @"WBStore\effectConfigStore.json",
+            @"WBStore\effectConfigStore.json",
+            "hash",
+            Guid.NewGuid(),
+            [Value("/effectConfigStore/configs/effect-a/effect/items/1/value", 1)]);
+
+        var profile = Assert.IsType<LiveCompanionPortableProfile>(
+            LiveCompanionPortableProfile.TryCreate([source, effect], out var reason));
+
+        Assert.Empty(reason);
+        Assert.Equal("device-a", profile.Camera.DeviceId);
+        Assert.Equal(string.Empty, profile.CreateVideoSource().Mode?.ColorSpace);
     }
 
     [Fact]

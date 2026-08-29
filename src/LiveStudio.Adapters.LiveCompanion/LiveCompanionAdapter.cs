@@ -112,55 +112,44 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         // 存档不能绑定来源电脑生成的场景、来源、效果与滤镜实例标识。即使当前电脑
         // 命中精确签名定义，持久化时仍保存经过敏感字段审计的完整原生树，并投影为
         // 可移植摄像头配置；签名定义只负责限定可写字段与目标版本结构。
-        var portableProfile = LiveCompanionPortableProfile.TryCreate(discoveredDocuments);
-        var portableMatch = portableProfile is null
-            ? null
-            : match.Level == AdapterMatchLevel.Verified && match.Adapter is not null
-                ? match
-                : adapterCatalog.MatchPortableTarget(version, discoveredDocuments);
-        var canRestorePortable = portableMatch is
+        var portableProfile = LiveCompanionPortableProfile.TryCreate(
+            discoveredDocuments,
+            out var portableFailureReason);
+        if (portableProfile is null)
         {
-            Level: AdapterMatchLevel.Verified,
-            Adapter: not null
-        };
-        var documents = canRestorePortable ? discoveredDocuments : definedDocuments;
-        IReadOnlyList<VideoSource> sources = portableProfile is null
-            ? []
-            : [portableProfile.CreateVideoSource()];
-        var coverage = canRestorePortable
-            ? portableProfile!.CreateFieldCoverage()
-            : match.Adapter is null
-                ? documents.SelectMany(document => document.Values.SelectMany(value =>
+            throw new InvalidOperationException(
+                $"直播伴侣当前配置无法生成可跨电脑恢复的画面存档：{portableFailureReason}");
+        }
+
+        var portableMatch = match.Level == AdapterMatchLevel.Verified && match.Adapter is not null
+            ? match
+            : adapterCatalog.MatchPortableTarget(version, discoveredDocuments);
+        if (portableMatch is not
             {
-                var presentation = LiveCompanionDiscoveryPresentation.Present(document, value);
-                return EnumerateDiscoveryCoverage(
-                    document,
-                    value.Value,
-                    $"{document.RelativePath}:{value.JsonPointer}",
-                    presentation.Category,
-                    presentation.NativeName,
-                    presentation.UiPath);
-            })).ToArray()
-                : CreateDefinedCoverage(match.Adapter, documents);
-        var configurationTree = LiveCompanionConfigurationTree.Create(documents, match.Adapter);
+                Level: AdapterMatchLevel.Verified,
+                Adapter: not null
+            })
+        {
+            throw new InvalidOperationException(
+                $"直播伴侣当前配置无法生成可跨电脑恢复的画面存档：{portableMatch.Reason}");
+        }
+
+        var documents = discoveredDocuments;
+        IReadOnlyList<VideoSource> sources = [portableProfile.CreateVideoSource()];
+        var coverage = portableProfile.CreateFieldCoverage();
+        // Portable documents intentionally retain the complete discovery tree and its original
+        // document identities. They are rebound through the signed adapter only during restore;
+        // projecting them as signed stores here would collapse the four discovery documents that
+        // share a probe StoreId and can create duplicate dictionary keys.
+        var configurationTree = LiveCompanionConfigurationTree.Create(documents, null);
         IReadOnlyList<FilterChainSnapshot> filterChains = [];
         return new ApplicationSnapshot(
             ApplicationKind.LiveCompanion,
             version,
-            canRestorePortable
-                ? LiveCompanionPortableProfile.AdapterId
-                : match.Adapter?.Definition.Id ?? "webcast-mate-json-discovery",
-            canRestorePortable
-                ? portableMatch!.Adapter!.DefinitionSha256
-                : match.Adapter?.DefinitionSha256 ?? string.Empty,
+            LiveCompanionPortableProfile.AdapterId,
+            portableMatch.Adapter.DefinitionSha256,
             structureFingerprint,
-            match.Level switch
-            {
-                _ when canRestorePortable => CompatibilityLevel.Experimental,
-                AdapterMatchLevel.Verified => CompatibilityLevel.Verified,
-                AdapterMatchLevel.Experimental => CompatibilityLevel.Experimental,
-                _ => CompatibilityLevel.Unsupported
-            },
+            CompatibilityLevel.Experimental,
             wasRunning,
             coverage,
             sources,

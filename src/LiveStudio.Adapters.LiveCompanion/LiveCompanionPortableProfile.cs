@@ -28,15 +28,20 @@ internal sealed record LiveCompanionPortableProfile(
 
     private static readonly string[] RequiredPayloadProperties =
     [
-        "deviceId", "name", "format", "width", "height", "rate", "effect1",
-        "videoRange", "colorSpace", "filterData"
+        "deviceId", "format", "width", "height", "rate"
     ];
 
     public Guid SourceLogicalId => SourceStoreDocument.SourceLogicalId;
 
     public static LiveCompanionPortableProfile? TryCreate(
-        IReadOnlyList<NativeConfigurationDocument> documents)
+        IReadOnlyList<NativeConfigurationDocument> documents) =>
+        TryCreate(documents, out _);
+
+    public static LiveCompanionPortableProfile? TryCreate(
+        IReadOnlyList<NativeConfigurationDocument> documents,
+        out string failureReason)
     {
+        failureReason = string.Empty;
         var sourceStore = documents.SingleOrDefault(document => string.Equals(
             Path.GetFileName(document.RelativePath),
             "sourceStore.json",
@@ -47,12 +52,35 @@ internal sealed record LiveCompanionPortableProfile(
             StringComparison.OrdinalIgnoreCase));
         if (sourceStore is null || effectConfigurationStore is null)
         {
+            var missing = new List<string>();
+            if (sourceStore is null)
+            {
+                missing.Add("sourceStore.json");
+            }
+
+            if (effectConfigurationStore is null)
+            {
+                missing.Add("effectConfigStore.json");
+            }
+
+            failureReason = $"没有读取到直播伴侣必需存储：{string.Join("、", missing)}";
             return null;
         }
 
-        var targets = LiveCompanionCameraPayloadStore.GetTargets(sourceStore);
+        IReadOnlyList<LiveCompanionCameraTarget> targets;
+        try
+        {
+            targets = LiveCompanionCameraPayloadStore.GetTargets(sourceStore);
+        }
+        catch (InvalidOperationException exception)
+        {
+            failureReason = exception.Message;
+            return null;
+        }
+
         if (targets.Count == 0)
         {
+            failureReason = "sourceStore.json 中没有找到包含设备和视频模式的摄像头来源";
             return null;
         }
 
@@ -65,13 +93,18 @@ internal sealed record LiveCompanionPortableProfile(
             .ToArray();
         if (equivalentGroups.Length != 1)
         {
+            failureReason = $"检测到 {targets.Count} 个摄像头来源，包含 {equivalentGroups.Length} 套不同画面配置；当前存档无法安全判断应恢复哪一套";
             return null;
         }
 
         var originalCamera = equivalentGroups[0].First();
         var camera = originalCamera with { Payload = CreatePortablePayload(originalCamera.Payload) };
-        if (RequiredPayloadProperties.Any(property => !camera.Payload.ContainsKey(property)))
+        var missingProperties = RequiredPayloadProperties
+            .Where(property => !camera.Payload.ContainsKey(property))
+            .ToArray();
+        if (missingProperties.Length > 0)
         {
+            failureReason = $"摄像头配置缺少设备或视频模式字段：{string.Join("、", missingProperties)}";
             return null;
         }
 
@@ -91,9 +124,17 @@ internal sealed record LiveCompanionPortableProfile(
             .Where(value => value.JsonPointer.StartsWith(effectPrefix + "/", StringComparison.Ordinal))
             .ToArray();
         if (sourceValues.Length == 0
-            || effectValues.Length == 0
-            || sourceValues.Concat(effectValues).Any(value => ContainsSensitiveTerm(value.JsonPointer)))
+            || effectValues.Length == 0)
         {
+            failureReason = sourceValues.Length == 0
+                ? "摄像头来源没有可保存的画面参数"
+                : "摄像头没有对应的美颜、滤镜效果配置";
+            return null;
+        }
+
+        if (sourceValues.Concat(effectValues).Any(value => ContainsSensitiveTerm(value.JsonPointer)))
+        {
+            failureReason = "摄像头画面配置中混入账号或登录敏感字段，已拒绝生成存档";
             return null;
         }
 
@@ -105,8 +146,9 @@ internal sealed record LiveCompanionPortableProfile(
                 LiveCompanionCameraPayloadStore.ReconstructSourceStore(portableSource));
             _ = ReconstructEffectConfiguration(portableEffect, camera.EffectConfigurationId);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
+            failureReason = $"摄像头画面配置无法重建：{exception.Message}";
             return null;
         }
 
