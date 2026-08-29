@@ -914,3 +914,9 @@ OBS 设备映射还增加了物理设备枚举：即使目标 OBS 已删除全�
 新增 UI 防回归测试确认 `webcast-mate-portable-v1` 即使证据等级仍为 `Experimental`，也必须显示“已保存 · 可跨电脑还原”，不得生成恢复警告。最终 Release 构建为 0 错误、0 警告；LiveStudio.Setup.Tests 8 项、LiveStudio.Core.Tests 253 项、LiveStudio.Agent.Tests 29 项，共 290 项全部通过；全部直接与传递 NuGet 包无已知漏洞，格式验证通过。
 
 本节证明了当前一台 Windows 机器上的真实升级、独立导出删除再导入、12.8.1 到 12.9.2 跨版本恢复，以及 12.9.2 五轮连续事务恢复。当前 PnP 枚举仍没有天创恒达或美乐威实体采集卡，且第二台电脑没有接入本轮自动化控制，所以不能把本节外推为所有 Windows、所有 OBS 插件或所有采集卡均已完成百分之百验证；正式 `Verified` 计数继续保持 0。下一项最小证据是把本节导出的 `.lscfg` 带到第二台 4KPro 电脑，记录精确硬件 ID 和驱动版本后执行同样五轮恢复与逐字段回读。
+
+### 40.1 U 盘跨电脑验收交接
+
+公开 `v0.1.17` 安装器已再次从 GitHub Release 下载到本机临时隔离目录，核对版本 `0.1.17.0`、SHA-256、Authenticode 签名和 `--verify-only` 后覆盖到 `E:\参数恢复软件\LiveStudio-Setup.exe`。U 盘副本长度为 217853328 字节，SHA-256 为 `9B590A1BC398CF97AA7CECC0ABB9ECE2DC8C95E7E08AD2296EEC971913C4416A`，Signer 为 `CN=LiveStudio Internal`，自检退出码为 0；被替换文件先备份到本机 `%LOCALAPPDATA%\LiveStudio\InstallerBackups\usb-before-v0.1.17-20260829-145239`，没有删除 U 盘或目标电脑的其他数据。
+
+跨电脑验收包已复制为 `E:\参数恢复软件\跨电脑恢复测试\LiveStudio-跨电脑恢复测试.lscfg`，长度为 3104940 字节，SHA-256 为 `76038651369B963B1F949FAEE0767FC3D88AF72ECF1A7B8063A3AACCADBC2BC7`。运行中的正式 `0.1.17` Agent 已直接从 U 盘路径完成包检查，返回存档 ID `c9c8f9e0-ad32-4bab-867c-9757374a8042`、签名者受信任；同目录包含独立 SHA-256 文件和中文五轮操作说明。该动作只证明交接介质逐字节一致且正式读取器可打开，不能替代第二台 4KPro 真机上的设备映射、保存、恢复、逐字段回读和故障回滚证据。
