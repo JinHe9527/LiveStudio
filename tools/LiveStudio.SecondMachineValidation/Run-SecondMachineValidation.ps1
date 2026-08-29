@@ -12,8 +12,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expectedInstallerSha256 = '69338CD01ADC93A430B8953A8C801EE238F202C2452770DD5D5C98976D5C65AA'
-$expectedPackageSha256 = '76038651369B963B1F949FAEE0767FC3D88AF72ECF1A7B8063A3AACCADBC2BC7'
+$expectedInstallerSha256 = 'E84FAD5E486FE11A540274634FF09CA8144120BED51A33F4B799F64C471CD451'
+$expectedPackageSha256 = '5DD96B230AE1DDD7615B62EA30174C0C61A23D71CA6531C3511323456FB3D55A'
 $expectedSignerFingerprint = '0FBED9794A588A1D6B597A608CB3DFC944A17E536A83AED18C5384064AECFFE0'
 $maximumMessageLength = 32 * 1024 * 1024
 $startedAt = [DateTimeOffset]::Now
@@ -587,9 +587,9 @@ try {
         if (-not $report.applications.obsRunning -or -not $report.applications.liveCompanionRunning) {
             throw 'OBS and Live Companion must both be running before the five-cycle validation starts.'
         }
-        if ($report.applications.liveStudioVersion -ne '0.1.18.0' -or
-            $report.applications.liveStudioAgentVersion -ne '0.1.18.0') {
-            throw "LiveStudio Desktop and Agent must both be 0.1.18.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
+        if ($report.applications.liveStudioVersion -ne '0.1.19.0' -or
+            $report.applications.liveStudioAgentVersion -ne '0.1.19.0') {
+            throw "LiveStudio Desktop and Agent must both be 0.1.19.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
         }
 
         $import = Invoke-LiveStudioAgent -Method 14 -Payload ([ordered]@{

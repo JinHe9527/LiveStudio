@@ -951,3 +951,5 @@ GitHub Release `v0.1.18` 的 Windows 流水线随后完成全部测试、格式�
 本机使用修复后的 Release Agent 通过正式本机协议对存档 `9b0fe748-b214-45e2-a8a3-b3d42d5750bd` 执行一次身份恢复。执行时间为 16:43:50–16:44:28；永久恢复前备份从 14 份增加到 15 份，操作结果为“恢复完成”；OBS 保持运行，直播伴侣回到恢复前的关闭状态，三类事务文件数和权限探针残留均为 0。脱敏记录为 `artifacts/windows-validation/2026-08-29/DESKTOP-2C8JIC2/restore-permission-fix/restore-permission-identity-001.json`。
 
 本机的直播伴侣本轮不是高权限进程，因此真实 UAC 交互分支还需在报错的那台电脑安装修复版后选择“是”并完成恢复，才能记录为该电脑的真机通过。本轮不新增第二种实体采集卡或 20 轮证据，全局 `Verified` 仍为 0。Release 整仓构建为 0 警告、0 错误；Setup 8 项、Core 259 项、Agent 29 项，共 296 项测试通过；格式验证和 `git diff --check` 通过。NuGet 漏洞服务在本轮首次检查时 TLS 握手被远端提前终止，本次修改没有变更任何包引用；发布前仍必须在网络恢复后重跑并通过该检查。
+
+GitHub Release `v0.1.19` 的 Windows 流水线 `33245353452` 随后完成整仓还原、296 项测试、格式检查、依赖漏洞检查、MSIX 签名、安装器签名及 Release 创建，全部为成功。公开 `LiveStudio-Setup.exe` 长度为 217858960 字节，SHA-256 为 `E84FAD5E486FE11A540274634FF09CA8144120BED51A33F4B799F64C471CD451`；回下载副本的 Authenticode 状态为 `Valid`，Signer 为 `CN=LiveStudio Internal`，证书指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，`--verify-only` 退出码为 0。对应 MSIX SHA-256 为 `5DD96B230AE1DDD7615B62EA30174C0C61A23D71CA6531C3511323456FB3D55A`。第二台电脑仍必须安装 0.1.19、在恢复时接受 UAC，并形成实际恢复结果；发布流水线成功不能替代该电脑的高权限分支真机证据。
