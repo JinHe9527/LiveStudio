@@ -973,3 +973,11 @@ GitHub Release `v0.1.19` 的 Windows 流水线 `33245353452` 随后完成整仓�
 该结果证明当前电脑上关闭状态启动、永久备份、事务写入、严格回读和恢复原进程状态的五轮闭环，并解决了本轮可复现的重复启停性能问题。当前电脑仍未检测到天创恒达或美乐威实体采集卡，第二台物理采集卡电脑也没有接入本轮自动化，因此证据等级记录为 `Mapped`，正式 `Verified` 继续保持 0；不能把这五轮外推为所有 Windows、OBS 插件、直播伴侣版本和采集卡组合均已完成验证。
 
 本节最终质量门：Release 整仓构建 0 警告、0 错误；LiveStudio.Setup.Tests 8 项、LiveStudio.Core.Tests 274 项、LiveStudio.Agent.Tests 31 项，共 313 项全部通过；格式验证和 `git diff --check` 通过，全部直接与传递 NuGet 包无已知漏洞。
+
+### 44.1 v0.1.20 发布与 U 盘交接
+
+性能修复提交 `52f1b0a79277d2f8882c4d4913e5c34243704b1b` 已推送到公开仓库 `main`。普通 CI `33249909434` 的 Windows Release 构建、313 项测试、格式检查、依赖漏洞检查，以及隔离 PostgreSQL/MinIO 集成测试全部通过。使用者随后明确要求生成并放入 U 盘，因此以 `v0.1.20` 触发正式发布；Release 工作流 `33250073491` 完成同一质量门、固定证书导入、MSIX/安装器签名、内嵌载荷自检和 GitHub Release 创建，全部成功。
+
+公开 `LiveStudio-Setup.exe` 长度为 217866640 字节，SHA-256 为 `616B6FEF6F733AB8E85C5EA916CB72611F1F28992CA7E9400CEFB22709757935`；该值与随附校验文件和 GitHub Release Asset Digest 完全一致。Authenticode 状态为 `Valid`，Signer 为 `CN=LiveStudio Internal`，指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，`--verify-only` 退出码为 0。外层安装器文件版本仍继承 Setup 项目的 `0.1.19.0`，但直接读取已签名 MSIX 的 `AppxManifest.xml` 确认为 `0.1.20.0`；MSIX 长度为 159141108 字节，SHA-256 为 `F625D5F8AC7C7207DE6210DE05DB56F0A399CCF5B1A91815CA555A11F59B4243`，同样与校验文件和 Release Digest 一致且签名有效。
+
+U 盘 `E:\参数恢复软件\LiveStudio-Setup.exe` 已覆盖为上述逐字节相同的 v0.1.20 安装器，并从 U 盘路径重新完成 SHA-256、侧车校验、Authenticode 和 `--verify-only`；目录中的跨电脑测试文件夹未改动。旧 v0.1.19 安装器先复制到 `%LOCALAPPDATA%\LiveStudio\InstallerBackups\usb-before-v0.1.20-20260829-193500`，备份 SHA-256 与旧 U 盘文件均为 `E84FAD5E486FE11A540274634FF09CA8144120BED51A33F4B799F64C471CD451`。Windows 仍报告该 FAT32 U 盘 `HealthStatus=Warning`、`OperationalStatus=Full Repair Needed`；本轮复制后哈希完全一致，但正式批量下发前仍应更换介质或先备份后修复文件系统，不能把介质后续损坏误判为安装器问题。
