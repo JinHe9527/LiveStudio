@@ -38,6 +38,31 @@ public sealed class RestoreCoordinatorTests
     }
 
     [Fact]
+    public async Task ExecuteAsyncKeepsPreparedRuntimeForWholeTransactionAndReleasesIt()
+    {
+        var adapter = new FakeAdapter(ApplicationKind.Obs)
+        {
+            RuntimeWasRunningBefore = false
+        };
+        var coordinator = new RestoreCoordinator([adapter]);
+
+        var result = await coordinator.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateSnapshot(ApplicationKind.Obs),
+            [],
+            false,
+            "/tmp/assets",
+            _ => Task.CompletedTask,
+            (_, _, _) => Task.CompletedTask,
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(adapter.BeginContextWasRunningBefore);
+        Assert.NotNull(adapter.RuntimeLease);
+        Assert.True(adapter.RuntimeLease.WasDisposed);
+    }
+
+    [Fact]
     public async Task ExecuteAsyncRollsBackEveryApplicationWhenVerificationFails()
     {
         var obs = new FakeAdapter(ApplicationKind.Obs);
@@ -509,6 +534,12 @@ public sealed class RestoreCoordinatorTests
 
         public int InspectCount { get; private set; }
 
+        public bool RuntimeWasRunningBefore { get; init; } = true;
+
+        public bool? BeginContextWasRunningBefore { get; private set; }
+
+        public FakeRuntimeLease? RuntimeLease { get; private set; }
+
         public Task<ApplicationRuntimeStatus> InspectAsync(CancellationToken cancellationToken)
         {
             InspectCount++;
@@ -534,6 +565,12 @@ public sealed class RestoreCoordinatorTests
         public Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken) =>
             Task.FromResult<PreviewCapture?>(null);
 
+        public Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken)
+        {
+            RuntimeLease = new FakeRuntimeLease(RuntimeWasRunningBefore);
+            return Task.FromResult<IApplicationRuntimeLease>(RuntimeLease);
+        }
+
         public Task<RestorePreflightResult> PreflightAsync(
             RestoreExecutionContext context,
             CancellationToken cancellationToken) => Task.FromResult(Preflight);
@@ -543,6 +580,7 @@ public sealed class RestoreCoordinatorTests
             CancellationToken cancellationToken)
         {
             BeginRestoreCount++;
+            BeginContextWasRunningBefore = context.ApplicationWasRunningBeforeRestore;
             if (Fault == RestoreFault.BeginRestore)
             {
                 return Task.FromException<IApplicationRestoreSession>(
@@ -552,6 +590,19 @@ public sealed class RestoreCoordinatorTests
             Session.Verification = Verification;
             Session.Fault = Fault;
             return Task.FromResult<IApplicationRestoreSession>(Session);
+        }
+    }
+
+    private sealed class FakeRuntimeLease(bool wasRunning) : IApplicationRuntimeLease
+    {
+        public bool WasRunning { get; } = wasRunning;
+
+        public bool WasDisposed { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            WasDisposed = true;
+            return ValueTask.CompletedTask;
         }
     }
 

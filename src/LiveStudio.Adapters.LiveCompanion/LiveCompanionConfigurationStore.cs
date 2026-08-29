@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using LiveStudio.Contracts;
@@ -891,6 +892,121 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         throw new TimeoutException("直播伴侣启动后配置在 35 秒内未稳定，恢复结果不予通过");
+    }
+
+    public async Task WaitForStableStoreFilesAsync(
+        VerifiedAdapterDefinition adapter,
+        TimeSpan minimumObservationTime,
+        TimeSpan timeout,
+        TimeSpan pollInterval,
+        int requiredMatchingCaptures,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(minimumObservationTime, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(pollInterval, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(requiredMatchingCaptures, 1);
+        if (minimumObservationTime >= timeout)
+        {
+            throw new ArgumentException("最短观察时间必须小于稳定性超时", nameof(minimumObservationTime));
+        }
+
+        var timer = Stopwatch.StartNew();
+        string? previousHash = null;
+        var matchingCaptures = 0;
+        Exception? lastReadError = null;
+        while (timer.Elapsed < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var hash = await ComputeStoreFileSetHashAsync(adapter, cancellationToken);
+                if (string.Equals(hash, previousHash, StringComparison.Ordinal))
+                {
+                    matchingCaptures++;
+                    if (timer.Elapsed >= minimumObservationTime
+                        && matchingCaptures >= requiredMatchingCaptures)
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    matchingCaptures = 0;
+                }
+
+                previousHash = hash;
+                lastReadError = null;
+            }
+            catch (Exception exception) when (exception is IOException or JsonException)
+            {
+                previousHash = null;
+                matchingCaptures = 0;
+                lastReadError = exception;
+            }
+
+            var remaining = timeout - timer.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(
+                remaining < pollInterval ? remaining : pollInterval,
+                cancellationToken);
+        }
+
+        var details = lastReadError is null ? string.Empty : $"：{lastReadError.Message}";
+        throw new TimeoutException(
+            $"直播伴侣启动后原生配置在 {timeout.TotalSeconds:0} 秒内未稳定，恢复结果不予通过{details}");
+    }
+
+    private async Task<string> ComputeStoreFileSetHashAsync(
+        VerifiedAdapterDefinition adapter,
+        CancellationToken cancellationToken)
+    {
+        using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var store in adapter.Definition.Stores.OrderBy(store => store.Id, StringComparer.Ordinal))
+        {
+            if (store.Kind != ConfigurationStorageKind.JsonFile)
+            {
+                throw new InvalidOperationException(
+                    $"适配器 {adapter.Definition.Id} 的存储 {store.Id} 尚未实现: {store.Kind}");
+            }
+
+            var path = ResolveDefinitionPath(store.Location);
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                131_072,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (stream.Length is <= 0 or > MaximumConfigurationFileLength)
+            {
+                throw new IOException($"直播伴侣配置文件长度异常：{store.Location}");
+            }
+
+            var content = new byte[checked((int)stream.Length)];
+            await stream.ReadExactlyAsync(content, cancellationToken);
+            ReadOnlyMemory<byte> jsonContent = content;
+            if (content.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
+            {
+                jsonContent = jsonContent[3..];
+            }
+
+            using var json = JsonDocument.Parse(jsonContent);
+            if (json.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException($"直播伴侣配置文件根节点不是对象：{store.Location}");
+            }
+
+            aggregate.AppendData(System.Text.Encoding.UTF8.GetBytes(store.Id));
+            aggregate.AppendData([0]);
+            aggregate.AppendData(SHA256.HashData(content));
+        }
+
+        return Convert.ToHexStringLower(aggregate.GetHashAndReset());
     }
 
     private static void AddDiscoveryValue(

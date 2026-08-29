@@ -6,6 +6,55 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class ObsFilterAssetMapperTests
 {
+    [Theory]
+    [InlineData(typeof(HttpRequestException), true)]
+    [InlineData(typeof(System.Net.WebSockets.WebSocketException), true)]
+    [InlineData(typeof(ObsRequestException), true)]
+    [InlineData(typeof(InvalidOperationException), false)]
+    public void ObsStartupConnectionFailuresAreRetried(Type exceptionType, bool expected)
+    {
+        var exception = (Exception)Activator.CreateInstance(exceptionType, "test")!;
+
+        Assert.Equal(expected, ObsAdapter.IsConnectionFailure(exception));
+    }
+
+    [Fact]
+    public async Task ObsStartupConnectionWaitHasRealDeadline()
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ObsAdapter.WaitUntilConnectedAsync(
+            token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            TimeSpan.FromMilliseconds(180),
+            TimeSpan.FromMilliseconds(40),
+            TimeSpan.FromMilliseconds(10),
+            CancellationToken.None));
+
+        Assert.InRange(timer.Elapsed, TimeSpan.FromMilliseconds(120), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void ObsUnattendedStartupIncludesLegacyCompatibilityArguments()
+    {
+        var startInfo = ObsProcessController.CreateStartInfo(
+            @"C:\Program Files\obs-studio\bin\64bit\obs64.exe");
+
+        Assert.Contains("--minimize-to-tray", startInfo.Arguments, StringComparison.Ordinal);
+        Assert.Contains("--disable-shutdown-check", startInfo.Arguments, StringComparison.Ordinal);
+        Assert.True(startInfo.UseShellExecute);
+    }
+
+    [Theory]
+    [InlineData("OBS Studio Crash Detected", true)]
+    [InlineData("检测到 OBS Studio 崩溃", true)]
+    [InlineData("偵測到 OBS Studio 當機", true)]
+    [InlineData("OBS Studio 32.2.2 - 场景", false)]
+    [InlineData("安全模式", false)]
+    public void OnlyObsUncleanShutdownDialogIsDismissed(string title, bool expected)
+    {
+        Assert.Equal(expected, ObsProcessController.IsUncleanShutdownDialogTitle(title));
+    }
+
     [Fact]
     public async Task CapturesAndMaterializesNestedAssetsByExactSourcePath()
     {

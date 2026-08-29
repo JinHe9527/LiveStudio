@@ -7,6 +7,9 @@ namespace LiveStudio.Adapters.LiveCompanion;
 
 public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCatalog) : IApplicationAdapter
 {
+    private static readonly TimeSpan ReadbackMinimumObservation = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan ReadbackPollInterval = TimeSpan.FromMilliseconds(500);
+    private const int RequiredStableReadbackCaptures = 2;
     private readonly LiveCompanionConfigurationStore configurationStore = new();
 
     public ApplicationKind Kind => ApplicationKind.LiveCompanion;
@@ -384,6 +387,13 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             DateTimeOffset.UtcNow));
     }
 
+    public Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IApplicationRuntimeLease>(
+            new PassiveApplicationRuntimeLease(LiveCompanionProcessController.FindRunning() is not null));
+    }
+
     public ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot)
     {
         if (snapshot.Kind != ApplicationKind.LiveCompanion || snapshot.NativeDocuments.Count == 0)
@@ -612,7 +622,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
               ?? throw new InvalidOperationException("找不到抖音直播伴侣安装程序")
             : detectedProcess.ExecutablePath
               ?? throw new InvalidOperationException("无法确认正在运行的抖音直播伴侣版本，配置没有写入");
-        var originalProcess = detectedProcess is null
+        var processAtPreparation = detectedProcess is null
             ? null
             : detectedProcess with
             {
@@ -646,14 +656,16 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     context.Snapshot.StructureFingerprint,
                     StringComparison.Ordinal)) ?? throw new InvalidOperationException("找不到存档对应的已签名直播伴侣适配器");
         }
+        var wasRunningBefore = context.ApplicationWasRunningBeforeRestore ?? processAtPreparation is not null;
         var journal = await LiveCompanionTransactionJournal.CreateAsync(
             context.JobId,
-            originalProcess,
+            wasRunningBefore ? processAtPreparation : null,
             cancellationToken);
         return new LiveCompanionRestoreSession(
             configurationStore,
             context,
-            originalProcess,
+            processAtPreparation,
+            wasRunningBefore,
             executablePath,
             journal,
             restoreAdapter,
@@ -675,7 +687,8 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
     private sealed class LiveCompanionRestoreSession(
         LiveCompanionConfigurationStore configurationStore,
         RestoreExecutionContext context,
-        LiveCompanionProcessInfo? originalProcess,
+        LiveCompanionProcessInfo? processAtPreparation,
+        bool wasRunningBefore,
         string executablePath,
         LiveCompanionTransactionJournal journal,
         VerifiedAdapterDefinition restoreAdapter,
@@ -691,9 +704,9 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            if (originalProcess is not null)
+            if (processAtPreparation is not null)
             {
-                await LiveCompanionProcessController.StopAsync(originalProcess.ProcessId, cancellationToken);
+                await LiveCompanionProcessController.StopAsync(processAtPreparation.ProcessId, cancellationToken);
             }
 
             stopped = true;
@@ -828,9 +841,16 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                 target.EffectConfigurationId,
                 cancellationToken);
 
-            // 等待渲染进程完成 StoreCache -> MediaSDK 的初始化与反向同步，不能在旧来源
-            // 尚未被原生层判定无效时误认为已经恢复。
-            await Task.Delay(TimeSpan.FromSeconds(28), cancellationToken);
+            // StoreCache -> MediaSDK 的初始化与反向同步完成时间随电脑性能变化。
+            // 连续读取四份原生存储，稳定后立即回读；超时仍沿用原来的 28 秒安全门，
+            // 不能只因进程已出现就把尚未落稳的字段判定为恢复成功。
+            await configurationStore.WaitForStableStoreFilesAsync(
+                restoreAdapter,
+                ReadbackMinimumObservation,
+                TimeSpan.FromSeconds(28),
+                ReadbackPollInterval,
+                RequiredStableReadbackCaptures,
+                cancellationToken);
             var running = LiveCompanionProcessController.FindRunning()
                 ?? throw new InvalidOperationException("直播伴侣在原生恢复前意外退出");
             var active = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
@@ -912,7 +932,13 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
             await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);
 
-            await Task.Delay(TimeSpan.FromSeconds(24), cancellationToken);
+            await configurationStore.WaitForStableStoreFilesAsync(
+                restoreAdapter,
+                ReadbackMinimumObservation,
+                TimeSpan.FromSeconds(24),
+                ReadbackPollInterval,
+                RequiredStableReadbackCaptures,
+                cancellationToken);
             var restored = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
                 .Where(camera => string.Equals(camera.DeviceId, target.DeviceId, StringComparison.Ordinal))
                 .ToArray();
@@ -942,7 +968,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         public async Task CommitAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (originalProcess is null
+            if (!wasRunningBefore
                 && LiveCompanionProcessController.FindRunning() is { } running)
             {
                 await LiveCompanionProcessController.StopAsync(running.ProcessId, cancellationToken);
@@ -985,7 +1011,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             }
 
             await LiveCompanionConfigurationStore.RestoreBackupAsync(backup, cancellationToken);
-            if (originalProcess is not null)
+            if (wasRunningBefore)
             {
                 await LiveCompanionProcessController.StartAsync(executablePath, cancellationToken);
                 await LiveCompanionProcessController.WaitUntilRunningAsync(executablePath, cancellationToken);

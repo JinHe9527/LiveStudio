@@ -34,7 +34,20 @@ public sealed record RestoreExecutionContext(
     ApplicationSnapshot Snapshot,
     IReadOnlyList<DeviceMapping> Mappings,
     bool IsUnattended,
-    string AssetDirectory);
+    string AssetDirectory,
+    bool? ApplicationWasRunningBeforeRestore = null);
+
+public interface IApplicationRuntimeLease : IAsyncDisposable
+{
+    bool WasRunning { get; }
+}
+
+public sealed class PassiveApplicationRuntimeLease(bool wasRunning) : IApplicationRuntimeLease
+{
+    public bool WasRunning { get; } = wasRunning;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
 
 public interface IApplicationAdapter
 {
@@ -47,6 +60,9 @@ public interface IApplicationAdapter
     Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken);
 
     Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken);
+
+    Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IApplicationRuntimeLease>(new PassiveApplicationRuntimeLease(true));
 
     ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot) => snapshot;
 

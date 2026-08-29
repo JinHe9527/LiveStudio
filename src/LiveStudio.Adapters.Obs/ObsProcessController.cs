@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using LiveStudio.Core;
 using Microsoft.Win32;
 
@@ -8,6 +9,9 @@ public sealed record ObsProcessInfo(int ProcessId, string ExecutablePath);
 
 public static class ObsProcessController
 {
+    private const uint WindowMessageClose = 0x0010;
+    private delegate bool EnumWindowsCallback(nint windowHandle, nint parameter);
+
     public static ObsProcessInfo? FindRunning()
     {
         if (!OperatingSystem.IsWindows())
@@ -69,12 +73,8 @@ public static class ObsProcessController
     public static async Task<ObsProcessInfo> StartAsync(CancellationToken cancellationToken)
     {
         var executable = FindExecutable();
-        var process = Process.Start(new ProcessStartInfo(executable)
-        {
-            UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(executable),
-            Arguments = "--minimize-to-tray"
-        }) ?? throw new InvalidOperationException("无法启动 OBS Studio");
+        var process = Process.Start(CreateStartInfo(executable))
+            ?? throw new InvalidOperationException("无法启动 OBS Studio");
         for (var attempt = 0; attempt < 60; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -89,6 +89,13 @@ public static class ObsProcessController
         throw new InvalidOperationException("OBS Studio 启动失败");
     }
 
+    internal static ProcessStartInfo CreateStartInfo(string executable) => new(executable)
+    {
+        UseShellExecute = true,
+        WorkingDirectory = Path.GetDirectoryName(executable),
+        Arguments = "--minimize-to-tray --disable-shutdown-check"
+    };
+
     public static async Task StopAsync(int processId, CancellationToken cancellationToken)
     {
         using var process = Process.GetProcessById(processId);
@@ -98,25 +105,108 @@ public static class ObsProcessController
         }
 
         _ = process.CloseMainWindow();
-        try
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (process.HasExited)
+            {
+                return;
+            }
+
+            _ = TryRequestNormalClose(processId);
+            await Task.Delay(250, cancellationToken);
         }
-        catch (TimeoutException)
-        {
-            await WindowsProcessTerminator.TerminateAsync(
-                processId,
-                process.ProcessName,
-                "OBS Studio",
-                cancellationToken);
-        }
-        catch (Exception exception) when (WindowsProcessTerminator.RequiresElevation(exception))
-        {
-            await WindowsProcessTerminator.TerminateAsync(
-                processId,
-                process.ProcessName,
-                "OBS Studio",
-                cancellationToken);
-        }
+
+        await WindowsProcessTerminator.TerminateAsync(
+            processId,
+            process.ProcessName,
+            "OBS Studio",
+            cancellationToken);
     }
+
+    internal static bool TryDismissUncleanShutdownDialog(int processId)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        var dismissed = false;
+        _ = EnumWindows((windowHandle, ignored) =>
+        {
+            _ = ignored;
+            _ = GetWindowThreadProcessId(windowHandle, out var ownerProcessId);
+            if (ownerProcessId != processId)
+            {
+                return true;
+            }
+
+            var length = GetWindowTextLength(windowHandle);
+            if (length <= 0)
+            {
+                return true;
+            }
+
+            var title = new char[length + 1];
+            var written = GetWindowText(windowHandle, title, title.Length);
+            if (written <= 0 || !IsUncleanShutdownDialogTitle(new string(title, 0, written)))
+            {
+                return true;
+            }
+
+            dismissed = PostMessage(windowHandle, WindowMessageClose, nuint.Zero, nint.Zero);
+            return !dismissed;
+        }, nint.Zero);
+        return dismissed;
+    }
+
+    internal static bool TryRequestNormalClose(int processId)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        var requested = false;
+        _ = EnumWindows((windowHandle, ignored) =>
+        {
+            _ = ignored;
+            _ = GetWindowThreadProcessId(windowHandle, out var ownerProcessId);
+            if (ownerProcessId == processId)
+            {
+                requested |= PostMessage(windowHandle, WindowMessageClose, nuint.Zero, nint.Zero);
+            }
+
+            return true;
+        }, nint.Zero);
+        return requested;
+    }
+
+    internal static bool IsUncleanShutdownDialogTitle(string title) =>
+        title.Contains("OBS Studio", StringComparison.OrdinalIgnoreCase)
+        && (title.Contains("Crash Detected", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("崩溃", StringComparison.Ordinal)
+            || title.Contains("當機", StringComparison.Ordinal));
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, nint parameter);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint windowHandle, out int processId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(nint windowHandle, [Out] char[] text, int maximumLength);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowTextLength(nint windowHandle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(
+        nint windowHandle,
+        uint message,
+        nuint wordParameter,
+        nint longParameter);
 }

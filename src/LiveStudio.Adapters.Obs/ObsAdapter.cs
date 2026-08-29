@@ -29,7 +29,7 @@ public sealed class ObsAdapter(
                 version.GetProperty("obsVersion").GetString() ?? "unknown",
                 true);
         }
-        catch (Exception exception) when (exception is WebSocketException or ObsRequestException)
+        catch (Exception exception) when (IsConnectionFailure(exception))
         {
             var running = ObsProcessController.FindRunning() is not null;
             return new ApplicationRuntimeStatus(running, false, false, "unknown", !running);
@@ -108,6 +108,28 @@ public sealed class ObsAdapter(
             {
                 await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
             }
+        }
+    }
+
+    public async Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken)
+    {
+        var original = ObsProcessController.FindRunning();
+        if (original is not null)
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return new PassiveApplicationRuntimeLease(true);
+        }
+
+        var temporary = await ObsProcessController.StartAsync(cancellationToken);
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return new ObsRuntimeLease(temporary);
+        }
+        catch
+        {
+            await ObsProcessController.StopAsync(temporary.ProcessId, CancellationToken.None);
+            throw;
         }
     }
 
@@ -271,8 +293,11 @@ public sealed class ObsAdapter(
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var original = ObsProcessController.FindRunning();
-        var temporary = original is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        var running = ObsProcessController.FindRunning();
+        var startedHere = running is null ? await ObsProcessController.StartAsync(cancellationToken) : null;
+        running ??= startedHere;
+        var wasRunningBefore = context.ApplicationWasRunningBeforeRestore ?? startedHere is null;
+        var temporary = wasRunningBefore ? null : running;
         try
         {
             await WaitUntilConnectedAsync(cancellationToken);
@@ -287,7 +312,7 @@ public sealed class ObsAdapter(
             var journal = await ObsTransactionJournal.CreateAsync(
                 context.JobId,
                 rollbackSnapshot,
-                original is not null,
+                wasRunningBefore,
                 plannedCreatedSources,
                 cancellationToken);
             return new ObsRestoreSession(this, context, rollbackSnapshot, temporary, journal);
@@ -558,26 +583,75 @@ public sealed class ObsAdapter(
 
     private async Task WaitUntilConnectedAsync(CancellationToken cancellationToken)
     {
+        await WaitUntilConnectedAsync(
+            async token =>
+            {
+                if (ObsProcessController.FindRunning() is { } running)
+                {
+                    _ = ObsProcessController.TryDismissUncleanShutdownDialog(running.ProcessId);
+                }
+
+                await using var client = await CreateClientAsync(token);
+            },
+            TimeSpan.FromSeconds(35),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(250),
+            cancellationToken);
+    }
+
+    internal static async Task WaitUntilConnectedAsync(
+        Func<CancellationToken, Task> connect,
+        TimeSpan readyTimeout,
+        TimeSpan attemptTimeout,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connect);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(readyTimeout, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(attemptTimeout, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(retryDelay, TimeSpan.Zero);
+
+        var deadline = DateTimeOffset.UtcNow + readyTimeout;
         Exception? lastError = null;
-        for (var attempt = 0; attempt < 60; attempt++)
+        while (DateTimeOffset.UtcNow < deadline)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            attemptCancellation.CancelAfter(remaining < attemptTimeout ? remaining : attemptTimeout);
             try
             {
-                await using var client = await CreateClientAsync(cancellationToken);
+                await connect(attemptCancellation.Token);
                 return;
             }
-            catch (Exception exception) when (exception is WebSocketException or ObsRequestException)
+            catch (Exception exception) when (IsConnectionFailure(exception))
             {
                 lastError = exception;
-                await Task.Delay(250, cancellationToken);
             }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastError = new TimeoutException("OBS WebSocket 单次连接超时", exception);
+            }
+
+            remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(remaining < retryDelay ? remaining : retryDelay, cancellationToken);
         }
 
-        throw new InvalidOperationException("OBS 已启动，但 obs-websocket 在 15 秒内没有就绪", lastError);
+        throw new InvalidOperationException(
+            $"OBS 已启动，但 obs-websocket 在 {readyTimeout.TotalSeconds:0.#} 秒内没有就绪",
+            lastError);
     }
 
     internal Task WaitUntilConnectedForRecoveryAsync(CancellationToken cancellationToken) =>
         WaitUntilConnectedAsync(cancellationToken);
+
+    internal static bool IsConnectionFailure(Exception exception) =>
+        exception is WebSocketException or ObsRequestException or HttpRequestException;
 
     private Dictionary<string, JsonElement> MaterializeFilterSettings(
         VideoFilter filter,
@@ -658,5 +732,19 @@ public sealed class ObsAdapter(
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ObsRuntimeLease(ObsProcessInfo temporaryProcess) : IApplicationRuntimeLease
+    {
+        public bool WasRunning => false;
+
+        public async ValueTask DisposeAsync()
+        {
+            var running = ObsProcessController.FindRunning();
+            if (running?.ProcessId == temporaryProcess.ProcessId)
+            {
+                await ObsProcessController.StopAsync(temporaryProcess.ProcessId, CancellationToken.None);
+            }
+        }
     }
 }

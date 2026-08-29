@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1115,6 +1116,112 @@ public sealed class LiveCompanionConfigurationStoreTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task StableStoreFilesCompleteAfterMinimumObservationInsteadOfFullTimeout()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            var store = new LiveCompanionConfigurationStore(fixture.RootPath);
+            var timer = Stopwatch.StartNew();
+
+            await store.WaitForStableStoreFilesAsync(
+                CreateSingleStoreAdapter(),
+                TimeSpan.FromMilliseconds(80),
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromMilliseconds(20),
+                2,
+                CancellationToken.None);
+
+            Assert.InRange(timer.Elapsed, TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            Directory.Delete(fixture.RootPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StableStoreFilesRetryTransientInvalidJsonAndStillRequireMatchingCaptures()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            await File.WriteAllTextAsync(fixture.ConfigurationPath, "{", Encoding.UTF8);
+            var repair = Task.Run(async () =>
+            {
+                await Task.Delay(80);
+                await File.WriteAllTextAsync(
+                    fixture.ConfigurationPath,
+                    OriginalConfiguration(fixture.LutPath),
+                    Encoding.UTF8);
+            });
+            var store = new LiveCompanionConfigurationStore(fixture.RootPath);
+            var timer = Stopwatch.StartNew();
+
+            await store.WaitForStableStoreFilesAsync(
+                CreateSingleStoreAdapter(),
+                TimeSpan.FromMilliseconds(20),
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromMilliseconds(20),
+                2,
+                CancellationToken.None);
+            await repair;
+
+            Assert.True(timer.Elapsed >= TimeSpan.FromMilliseconds(80));
+        }
+        finally
+        {
+            Directory.Delete(fixture.RootPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StableStoreFilesRejectPermanentlyInvalidJsonAtOriginalSafetyDeadline()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            await File.WriteAllTextAsync(fixture.ConfigurationPath, "{", Encoding.UTF8);
+            var store = new LiveCompanionConfigurationStore(fixture.RootPath);
+
+            var exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+                store.WaitForStableStoreFilesAsync(
+                    CreateSingleStoreAdapter(),
+                    TimeSpan.FromMilliseconds(20),
+                    TimeSpan.FromMilliseconds(140),
+                    TimeSpan.FromMilliseconds(20),
+                    2,
+                    CancellationToken.None));
+
+            Assert.Contains("未稳定", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.RootPath, recursive: true);
+        }
+    }
+
+    private static VerifiedAdapterDefinition CreateSingleStoreAdapter()
+    {
+        var definition = new LiveCompanionAdapterDefinition(
+            "stable-store-test",
+            "1.0.0",
+            "1.0.0",
+            new string('a', 64),
+            [new ConfigurationStoreDefinition(
+                "main",
+                ConfigurationStorageKind.JsonFile,
+                @"WBStore\sourceStore.json",
+                null,
+                true)],
+            [],
+            [],
+            new LiveStateRuleDefinition("main", "/isLive", "false"),
+            new ScreenshotRuleDefinition("window", "main"));
+        return new VerifiedAdapterDefinition(definition, "test", new string('b', 64));
     }
 
     private static async Task<LiveCompanionFixture> CreateFixtureAsync()

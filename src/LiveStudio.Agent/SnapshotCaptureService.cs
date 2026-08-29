@@ -90,7 +90,7 @@ public sealed class SnapshotCaptureService
     {
         var credentials = credentialStore.Load();
         EnsureAdapterSet();
-        var snapshots = await Task.WhenAll(adapters.Select(adapter => adapter.CaptureAsync(cancellationToken)));
+        var snapshots = await Task.WhenAll(adapters.Select(adapter => adapter.CaptureStableAsync(cancellationToken)));
         var inconsistent = snapshots.FirstOrDefault(snapshot => snapshot.CaptureConsistency?.IsConsistent != true);
         if (inconsistent is not null)
         {

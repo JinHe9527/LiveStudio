@@ -40,9 +40,11 @@ public sealed record PendingJobEvent(
     string? VerificationDetail,
     DateTimeOffset CreatedAt);
 
-public sealed class LocalSnapshotIndex
+public sealed class LocalSnapshotIndex : IDisposable
 {
     private readonly string connectionString;
+    private readonly SemaphoreSlim initializationGate = new(1, 1);
+    private int initialized;
 
     public LocalSnapshotIndex()
         : this(Path.Combine(
@@ -65,10 +67,23 @@ public sealed class LocalSnapshotIndex
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await using var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-        var command = connection.CreateCommand();
-        command.CommandText = """
+        if (Volatile.Read(ref initialized) == 1)
+        {
+            return;
+        }
+
+        await initializationGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (Volatile.Read(ref initialized) == 1)
+            {
+                return;
+            }
+
+            await using var connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
             CREATE TABLE IF NOT EXISTS snapshots (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -127,22 +142,30 @@ public sealed class LocalSnapshotIndex
             CREATE INDEX IF NOT EXISTS ix_job_event_outbox_pending
                 ON job_event_outbox(uploaded, created_at);
             """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-        await EnsureUploadEligibleColumnAsync(connection, cancellationToken);
-        await EnsureRoomIdColumnAsync(connection, cancellationToken);
-        var interrupted = connection.CreateCommand();
-        interrupted.CommandText = """
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            await EnsureUploadEligibleColumnAsync(connection, cancellationToken);
+            await EnsureRoomIdColumnAsync(connection, cancellationToken);
+            var interrupted = connection.CreateCommand();
+            interrupted.CommandText = """
             UPDATE local_operations
             SET status = $failed,
                 message = 'Agent 在操作完成前退出',
                 completed_at = $completedAt
             WHERE status = $running;
             """;
-        interrupted.Parameters.AddWithValue("$failed", (int)LocalOperationStatus.Failed);
-        interrupted.Parameters.AddWithValue("$running", (int)LocalOperationStatus.Running);
-        interrupted.Parameters.AddWithValue("$completedAt", DateTimeOffset.UtcNow.ToString("O"));
-        await interrupted.ExecuteNonQueryAsync(cancellationToken);
+            interrupted.Parameters.AddWithValue("$failed", (int)LocalOperationStatus.Failed);
+            interrupted.Parameters.AddWithValue("$running", (int)LocalOperationStatus.Running);
+            interrupted.Parameters.AddWithValue("$completedAt", DateTimeOffset.UtcNow.ToString("O"));
+            await interrupted.ExecuteNonQueryAsync(cancellationToken);
+            Volatile.Write(ref initialized, 1);
+        }
+        finally
+        {
+            initializationGate.Release();
+        }
     }
+
+    public void Dispose() => initializationGate.Dispose();
 
     public async Task SaveOperationAsync(
         LocalOperationRecord operation,

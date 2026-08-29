@@ -84,10 +84,12 @@ public sealed class RestoreCoordinator(
         await reportProgress(JobStatus.Preflight, "正在检查设备映射和版本兼容性", cancellationToken);
 
         var contexts = new List<(IApplicationAdapter Adapter, RestoreExecutionContext Context)>();
+        var runtimeLeases = new List<IApplicationRuntimeLease>();
         foreach (var originalApplication in snapshot.Applications)
         {
             if (!_adapters.TryGetValue(originalApplication.Kind, out var adapter))
             {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
                 return new RestoreExecutionResult(
                     JobStatus.IncompatibleVersion,
                     $"没有可用的 {originalApplication.Kind} 适配器",
@@ -101,10 +103,23 @@ public sealed class RestoreCoordinator(
             }
             catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
             {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
                 return new RestoreExecutionResult(
                     JobStatus.IncompatibleVersion,
                     exception.Message,
                     []);
+            }
+
+            IApplicationRuntimeLease runtimeLease;
+            try
+            {
+                runtimeLease = await adapter.PrepareRuntimeAsync(cancellationToken);
+                runtimeLeases.Add(runtimeLease);
+            }
+            catch
+            {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
+                throw;
             }
 
             var context = new RestoreExecutionContext(
@@ -112,10 +127,22 @@ public sealed class RestoreCoordinator(
                 application,
                 mappings.Where(mapping => mapping.Application == application.Kind).ToArray(),
                 isUnattended,
-                assetDirectory);
-            var preflight = await adapter.PreflightAsync(context, cancellationToken);
+                assetDirectory,
+                runtimeLease.WasRunning);
+            RestorePreflightResult preflight;
+            try
+            {
+                preflight = await adapter.PreflightAsync(context, cancellationToken);
+            }
+            catch
+            {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
+                throw;
+            }
+
             if (!preflight.CanProceed)
             {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
                 return new RestoreExecutionResult(preflight.FailureStatus, preflight.Message, []);
             }
 
@@ -288,7 +315,19 @@ public sealed class RestoreCoordinator(
             {
                 await sessions[index].DisposeAsync();
             }
+
+            await DisposeRuntimeLeasesAsync(runtimeLeases);
         }
+    }
+
+    private static async Task DisposeRuntimeLeasesAsync(List<IApplicationRuntimeLease> runtimeLeases)
+    {
+        for (var index = runtimeLeases.Count - 1; index >= 0; index--)
+        {
+            await runtimeLeases[index].DisposeAsync();
+        }
+
+        runtimeLeases.Clear();
     }
 
     public void Dispose()
