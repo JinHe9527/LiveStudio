@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using LiveStudio.Core;
 using Microsoft.Win32;
 
 namespace LiveStudio.Adapters.LiveCompanion;
@@ -25,6 +26,16 @@ public sealed class LiveCompanionProcessController
             {
                 using (process)
                 {
+                    bool hasMainWindow;
+                    try
+                    {
+                        hasMainWindow = process.MainWindowHandle != nint.Zero;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        continue;
+                    }
+
                     try
                     {
                         var executablePath = process.MainModule?.FileName;
@@ -33,11 +44,17 @@ public sealed class LiveCompanionProcessController
                             process.MainModule?.FileVersionInfo.ProductVersion,
                             process.MainModule?.FileVersionInfo.FileVersion);
                         var candidate = new LiveCompanionProcessInfo(process.Id, executablePath, version);
-                        candidates.Add((candidate, process.MainWindowHandle != nint.Zero));
+                        candidates.Add((candidate, hasMainWindow));
                     }
                     catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
                     {
-                        candidates.Add((new LiveCompanionProcessInfo(process.Id, null, "unknown"), false));
+                        var executablePath = TryGetProcessExecutablePath(process.Id);
+                        var version = executablePath is null
+                            ? "unknown"
+                            : ResolveVersion(executablePath, null, null);
+                        candidates.Add((
+                            new LiveCompanionProcessInfo(process.Id, executablePath, version),
+                            hasMainWindow));
                     }
                 }
             }
@@ -74,6 +91,44 @@ public sealed class LiveCompanionProcessController
             executablePath,
             versionInfo.ProductVersion,
             versionInfo.FileVersion);
+    }
+
+    internal static string? TryGetProcessExecutablePath(int processId)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        const uint processQueryLimitedInformation = 0x1000;
+        var processHandle = OpenProcess(processQueryLimitedInformation, false, processId);
+        if (processHandle == nint.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            var capacity = 32_768u;
+            var buffer = new char[capacity];
+            unsafe
+            {
+                fixed (char* bufferPointer = buffer)
+                {
+                    return QueryFullProcessImageName(
+                        processHandle,
+                        0,
+                        bufferPointer,
+                        ref capacity)
+                        ? Path.GetFullPath(new string(bufferPointer, 0, (int)capacity))
+                        : null;
+                }
+            }
+        }
+        finally
+        {
+            _ = CloseHandle(processHandle);
+        }
     }
 
     public static string? FindInstalledExecutable()
@@ -255,7 +310,37 @@ public sealed class LiveCompanionProcessController
             return;
         }
 
-        var executablePath = process.MainModule?.FileName;
+        var processName = process.ProcessName;
+        string? executablePath;
+        try
+        {
+            executablePath = process.MainModule?.FileName;
+        }
+        catch (Exception exception) when (WindowsProcessTerminator.RequiresElevation(exception))
+        {
+            try
+            {
+                _ = process.CloseMainWindow();
+            }
+            catch (Exception closeException) when (WindowsProcessTerminator.RequiresElevation(closeException))
+            {
+                // A higher-integrity process can also reject WM_CLOSE. The bounded wait keeps
+                // the normal path deterministic before requesting elevation.
+            }
+
+            if (await WaitUntilProcessStopsAsync(processId, TimeSpan.FromSeconds(8), cancellationToken))
+            {
+                return;
+            }
+
+            await WindowsProcessTerminator.TerminateAsync(
+                processId,
+                processName,
+                "抖音直播伴侣",
+                cancellationToken);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(executablePath))
         {
             throw new InvalidOperationException("无法确认直播伴侣进程路径，未修改任何配置");
@@ -267,7 +352,7 @@ public sealed class LiveCompanionProcessController
             return;
         }
 
-        ForceTerminate(executablePath);
+        await ForceTerminateAsync(executablePath, cancellationToken);
         if (!await WaitUntilStoppedAsync(executablePath, TimeSpan.FromSeconds(12), cancellationToken))
         {
             throw new InvalidOperationException("直播伴侣仍有同版本配置进程未退出，未修改任何配置");
@@ -288,25 +373,56 @@ public sealed class LiveCompanionProcessController
         }
     }
 
-    private static void ForceTerminate(string executablePath)
+    private static async Task ForceTerminateAsync(
+        string executablePath,
+        CancellationToken cancellationToken)
     {
         foreach (var process in FindProcesses(executablePath))
         {
             using (process)
             {
-                try
+                if (!process.HasExited)
                 {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch (InvalidOperationException)
-                {
-                    // 进程在枚举和终止之间已经退出。
+                    await WindowsProcessTerminator.TerminateAsync(
+                        process.Id,
+                        process.ProcessName,
+                        "抖音直播伴侣",
+                        cancellationToken);
                 }
             }
         }
+    }
+
+    private static async Task<bool> WaitUntilProcessStopsAsync(
+        int processId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                if (process.HasExited)
+                {
+                    return true;
+                }
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return true;
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        return false;
     }
 
     private static async Task<bool> WaitUntilStoppedAsync(
@@ -356,7 +472,15 @@ public sealed class LiveCompanionProcessController
                 catch (Exception exception) when (
                     exception is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
-                    process.Dispose();
+                    var limitedPath = TryGetProcessExecutablePath(process.Id);
+                    if (MatchesExecutablePath(limitedPath, executablePath))
+                    {
+                        result.Add(process);
+                    }
+                    else
+                    {
+                        process.Dispose();
+                    }
                 }
             }
         }
@@ -554,6 +678,24 @@ public sealed class LiveCompanionProcessController
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(nint windowHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint OpenProcess(
+        uint desiredAccess,
+        [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
+        int processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern unsafe bool QueryFullProcessImageName(
+        nint processHandle,
+        uint flags,
+        char* executablePath,
+        ref uint size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(nint handle);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRectangle

@@ -755,6 +755,52 @@ public sealed class LiveCompanionConfigurationStoreTests
     }
 
     [Fact]
+    public async Task RepairTargetRejectsReadOnlyConfigurationBeforeRestoreTransaction()
+    {
+        var fixture = await CreateFixtureAsync();
+        try
+        {
+            var store = new LiveCompanionConfigurationStore(fixture.RootPath);
+            var definition = new LiveCompanionAdapterDefinition(
+                "fixture-adapter",
+                "1.0.0",
+                "1.0.0",
+                new string('a', 64),
+                [new ConfigurationStoreDefinition(
+                    "main",
+                    ConfigurationStorageKind.JsonFile,
+                    @"WBStore\sourceStore.json",
+                    null,
+                    true)],
+                [new FieldMappingDefinition(
+                    "device",
+                    UnifiedFieldKind.DeviceSelection,
+                    "main",
+                    $"{CameraSourcePointer}/payload/deviceId",
+                    "string",
+                    true,
+                    true)],
+                [],
+                new LiveStateRuleDefinition("main", "/isLive", "false"),
+                new ScreenshotRuleDefinition("window", "main"));
+            var adapter = new VerifiedAdapterDefinition(definition, "test", new string('b', 64));
+            File.SetAttributes(
+                fixture.ConfigurationPath,
+                File.GetAttributes(fixture.ConfigurationPath) | FileAttributes.ReadOnly);
+
+            var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                store.ValidateRepairTargetAsync(adapter, CancellationToken.None));
+
+            Assert.Contains("只读", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.SetAttributes(fixture.ConfigurationPath, FileAttributes.Normal);
+            Directory.Delete(fixture.RootPath, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DetectsExplicitIdleAndLiveStates()
     {
         var fixture = await CreateFixtureAsync();

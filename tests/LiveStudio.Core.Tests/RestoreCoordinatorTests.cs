@@ -1,5 +1,7 @@
 using LiveStudio.Contracts;
 using LiveStudio.Core;
+using System.ComponentModel;
+using System.Diagnostics;
 
 namespace LiveStudio.Core.Tests;
 
@@ -172,6 +174,56 @@ public sealed class RestoreCoordinatorTests
         Assert.Equal(0, adapter.BeginRestoreCount);
         Assert.False(adapter.Session.WasStopped);
         Assert.False(adapter.Session.WasRolledBack);
+        Assert.Contains("恢复前自动备份失败", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsyncIdentifiesElevatedApplicationAndRollsBackWhenStopIsDenied()
+    {
+        var obs = new FakeAdapter(ApplicationKind.Obs);
+        var companion = new FakeAdapter(ApplicationKind.LiveCompanion)
+        {
+            Fault = RestoreFault.StopAccessDenied
+        };
+        var coordinator = new RestoreCoordinator([obs, companion]);
+
+        var result = await coordinator.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateSnapshot(ApplicationKind.Obs, ApplicationKind.LiveCompanion),
+            [],
+            false,
+            "/tmp/assets",
+            _ => Task.CompletedTask,
+            (_, _, _) => Task.CompletedTask,
+            CancellationToken.None);
+
+        Assert.Equal(JobStatus.FailedRolledBack, result.Status);
+        Assert.Contains("停止抖音直播伴侣失败", result.Message, StringComparison.Ordinal);
+        Assert.Contains("拒绝访问", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(obs.Session.WasRolledBack);
+        Assert.True(companion.Session.WasRolledBack);
+    }
+
+    [Fact]
+    public void WindowsProcessTerminatorRecognizesOnlyAccessDeniedAsElevationCase()
+    {
+        Assert.True(WindowsProcessTerminator.RequiresElevation(new UnauthorizedAccessException()));
+        Assert.True(WindowsProcessTerminator.RequiresElevation(new Win32Exception(5)));
+        Assert.True(WindowsProcessTerminator.RequiresElevation(
+            new InvalidOperationException("wrapped", new Win32Exception(5))));
+        Assert.False(WindowsProcessTerminator.RequiresElevation(new Win32Exception(2)));
+    }
+
+    [Fact]
+    public void WindowsProcessTerminatorUsesOnlySignedSystemTaskKillForElevation()
+    {
+        var startInfo = WindowsProcessTerminator.CreateElevatedStartInfo(1234);
+
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), startInfo.FileName);
+        Assert.Equal("/PID 1234 /T /F", startInfo.Arguments);
+        Assert.Equal("runas", startInfo.Verb);
+        Assert.True(startInfo.UseShellExecute);
+        Assert.Equal(ProcessWindowStyle.Hidden, startInfo.WindowStyle);
     }
 
     [Fact]
@@ -564,6 +616,8 @@ public sealed class RestoreCoordinatorTests
 
         private Task FailAt(RestoreFault stage) => Fault == stage
             ? Task.FromException(new InvalidOperationException($"注入 {stage} 故障"))
+            : Fault == RestoreFault.StopAccessDenied && stage == RestoreFault.Stop
+                ? Task.FromException(new UnauthorizedAccessException("拒绝访问"))
             : Task.CompletedTask;
     }
 
@@ -576,7 +630,8 @@ public sealed class RestoreCoordinatorTests
         Start,
         Verify,
         Commit,
-        ApplyCancellation
+        ApplyCancellation,
+        StopAccessDenied
     }
 
     private sealed class ThrowingFaultInjector(RestoreFaultPoint selectedPoint) : IRestoreFaultInjector

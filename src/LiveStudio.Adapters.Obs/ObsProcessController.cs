@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using LiveStudio.Core;
 using Microsoft.Win32;
 
 namespace LiveStudio.Adapters.Obs;
@@ -103,8 +104,19 @@ public static class ObsProcessController
         }
         catch (TimeoutException)
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(cancellationToken);
+            await WindowsProcessTerminator.TerminateAsync(
+                processId,
+                process.ProcessName,
+                "OBS Studio",
+                cancellationToken);
+        }
+        catch (Exception exception) when (WindowsProcessTerminator.RequiresElevation(exception))
+        {
+            await WindowsProcessTerminator.TerminateAsync(
+                processId,
+                process.ProcessName,
+                "OBS Studio",
+                cancellationToken);
         }
     }
 }

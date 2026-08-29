@@ -336,24 +336,25 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             return await CaptureAsync(cancellationToken);
         }
 
-        if (string.IsNullOrWhiteSpace(process.ExecutablePath))
-        {
-            throw new InvalidOperationException("无法读取直播伴侣启动路径，不会关闭应用");
-        }
+        var executablePath = process.ExecutablePath
+            ?? throw new InvalidOperationException("无法读取直播伴侣启动路径，不会关闭应用");
+        var version = string.Equals(process.Version, "unknown", StringComparison.OrdinalIgnoreCase)
+            ? LiveCompanionProcessController.ResolveInstalledVersion(executablePath)
+            : process.Version;
 
         await LiveCompanionProcessController.StopAsync(process.ProcessId, cancellationToken);
         try
         {
             return await CaptureConsistentFromDiskAsync(
-                NormalizeVersion(process.Version),
+                NormalizeVersion(version),
                 true,
                 cancellationToken);
         }
         finally
         {
-            await LiveCompanionProcessController.StartAsync(process.ExecutablePath, CancellationToken.None);
+            await LiveCompanionProcessController.StartAsync(executablePath, CancellationToken.None);
             await LiveCompanionProcessController.WaitUntilRunningAsync(
-                process.ExecutablePath,
+                executablePath,
                 CancellationToken.None);
         }
     }
@@ -503,9 +504,13 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     targetMatch.Adapter,
                     cancellationToken);
             }
-            catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException)
+            catch (Exception exception) when (
+                exception is InvalidOperationException or IOException or JsonException or UnauthorizedAccessException)
             {
-                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, exception.Message);
+                var status = exception is UnauthorizedAccessException
+                    ? JobStatus.FailedRolledBack
+                    : JobStatus.IncompatibleVersion;
+                return RestorePreflightResult.Fail(status, exception.Message);
             }
 
             return RestorePreflightResult.Success;
@@ -584,9 +589,13 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                 context.Snapshot.NativeDocuments);
             await configurationStore.ValidateRepairTargetAsync(restoreAdapter, cancellationToken);
         }
-        catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException)
+        catch (Exception exception) when (
+            exception is InvalidOperationException or IOException or JsonException or UnauthorizedAccessException)
         {
-            return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, exception.Message);
+            var status = exception is UnauthorizedAccessException
+                ? JobStatus.FailedRolledBack
+                : JobStatus.IncompatibleVersion;
+            return RestorePreflightResult.Fail(status, exception.Message);
         }
 
         return RestorePreflightResult.Success;
@@ -597,10 +606,24 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var originalProcess = LiveCompanionProcessController.FindRunning();
-        var executablePath = originalProcess?.ExecutablePath
-            ?? LiveCompanionProcessController.FindInstalledExecutable()
-            ?? throw new InvalidOperationException("找不到抖音直播伴侣安装程序");
+        var detectedProcess = LiveCompanionProcessController.FindRunning();
+        var executablePath = detectedProcess is null
+            ? LiveCompanionProcessController.FindInstalledExecutable()
+              ?? throw new InvalidOperationException("找不到抖音直播伴侣安装程序")
+            : detectedProcess.ExecutablePath
+              ?? throw new InvalidOperationException("无法确认正在运行的抖音直播伴侣版本，配置没有写入");
+        var originalProcess = detectedProcess is null
+            ? null
+            : detectedProcess with
+            {
+                ExecutablePath = executablePath,
+                Version = string.Equals(
+                    detectedProcess.Version,
+                    "unknown",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? LiveCompanionProcessController.ResolveInstalledVersion(executablePath)
+                    : detectedProcess.Version
+            };
         var portableProfile = LiveCompanionPortableProfile.TryCreate(context.Snapshot.NativeDocuments);
         VerifiedAdapterDefinition restoreAdapter;
         if (portableProfile is not null)

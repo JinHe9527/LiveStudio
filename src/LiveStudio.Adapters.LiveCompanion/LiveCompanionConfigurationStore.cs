@@ -221,6 +221,8 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 throw new InvalidOperationException($"目标版本缺少配置存储 {store.Id}");
             }
 
+            ValidateWritePermission(path);
+
             await using var stream = new FileStream(
                 path,
                 FileMode.Open,
@@ -249,6 +251,60 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     throw new InvalidOperationException(
                         $"目标配置存储 {store.Id} 缺少签名定义根节点 {rootName}");
                 }
+            }
+        }
+    }
+
+    private static void ValidateWritePermission(string path)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
+        {
+            throw new UnauthorizedAccessException(
+                $"直播伴侣配置文件为只读，LiveStudio 无法安全恢复：{path}");
+        }
+
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException($"无法确定直播伴侣配置目录：{path}");
+        var probePath = Path.Combine(directory, $".livestudio-permission-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var stream = new FileStream(
+                       probePath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       1,
+                       FileOptions.WriteThrough))
+            {
+                stream.WriteByte(0);
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Delete(probePath);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new UnauthorizedAccessException(
+                $"LiveStudio 没有权限写入直播伴侣配置目录：{directory}。"
+                + "请确保 LiveStudio 与直播伴侣使用同一 Windows 用户。",
+                exception);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(probePath))
+                {
+                    File.Delete(probePath);
+                }
+            }
+            catch (IOException)
+            {
+                // The original permission failure remains the actionable result. A uniquely
+                // named empty probe is never treated as configuration and is safe to retry.
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
     }

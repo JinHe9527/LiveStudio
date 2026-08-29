@@ -5,6 +5,25 @@ namespace LiveStudio.Core.Tests;
 public sealed class LiveCompanionProcessControllerTests
 {
     [Fact]
+    public void LimitedProcessQueryResolvesExactExecutablePathWithoutMainModuleAccess()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var path = LiveCompanionProcessController.TryGetProcessExecutablePath(process.Id);
+
+        Assert.NotNull(path);
+        Assert.True(File.Exists(path));
+        Assert.Equal(
+            Path.GetFullPath(Environment.ProcessPath!),
+            Path.GetFullPath(path),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void UsesVersionedInstallDirectoryWhenExecutableMetadataDropsBuildNumber()
     {
         var version = LiveCompanionProcessController.ResolveVersion(
