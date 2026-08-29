@@ -382,7 +382,7 @@ public sealed class AdapterDefinitionTests
     }
 
     [Fact]
-    public void PortableTargetUsesCompleteRequiredShapeBeyondRecordedVersionRange()
+    public void PortableTargetUsesStorageCapabilityBeyondRecordedVersionRange()
     {
         var repositoryRoot = FindRepositoryRoot();
         var catalog = new LiveCompanionAdapterCatalog(Path.Combine(
@@ -394,13 +394,46 @@ public sealed class AdapterDefinitionTests
             adapter.Definition.Id,
             "webcast-mate-12.8.1.454484231-8216f9ee-v3",
             StringComparison.Ordinal));
-        var documents = CreateStructurallyCompatibleDocuments(definition.Definition);
+        var documents = CreatePortableCapabilityDocuments(definition.Definition);
 
-        var match = catalog.MatchPortableTarget("99.0.0.0", documents);
+        var match = catalog.MatchPortableTarget("1.0.0.0", documents);
 
         Assert.Equal(AdapterMatchLevel.Verified, match.Level);
         Assert.Equal(definition.Definition.Id, match.Adapter?.Definition.Id);
-        Assert.Contains("必需恢复字段", match.Reason, StringComparison.Ordinal);
+        Assert.Contains("版本号不阻断", match.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PortableTargetStillRejectsMissingStorageOrCameraStructure()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(
+            repositoryRoot,
+            "src",
+            "LiveStudio.Agent",
+            "Adapters"));
+        var definition = catalog.GetAll().Single(adapter => string.Equals(
+            adapter.Definition.Id,
+            "webcast-mate-12.8.1.454484231-8216f9ee-v3",
+            StringComparison.Ordinal));
+        var complete = CreatePortableCapabilityDocuments(definition.Definition);
+        var missingStore = complete.Where(document => !string.Equals(
+            Path.GetFileName(document.RelativePath),
+            "filterStore.json",
+            StringComparison.OrdinalIgnoreCase)).ToArray();
+        var missingCamera = complete.Select(document => string.Equals(
+                Path.GetFileName(document.RelativePath),
+                "sourceStore.json",
+                StringComparison.OrdinalIgnoreCase)
+            ? document with { Values = [] }
+            : document).ToArray();
+
+        Assert.Equal(
+            AdapterMatchLevel.Incompatible,
+            catalog.MatchPortableTarget("1.0.0.0", missingStore).Level);
+        Assert.Equal(
+            AdapterMatchLevel.Incompatible,
+            catalog.MatchPortableTarget("1.0.0.0", missingCamera).Level);
     }
 
     private static LiveCompanionAdapterDefinition CreateDefinition()
@@ -498,6 +531,30 @@ public sealed class AdapterDefinitionTests
                 values);
         }).ToArray();
     }
+
+    private static NativeConfigurationDocument[] CreatePortableCapabilityDocuments(
+        LiveCompanionAdapterDefinition definition) => definition.Stores.Select(store =>
+    {
+        var isSourceStore = string.Equals(
+            Path.GetFileName(store.Location),
+            "sourceStore.json",
+            StringComparison.OrdinalIgnoreCase);
+        IReadOnlyList<NativeConfigurationValue> values = isSourceStore
+            ? [new NativeConfigurationValue(
+                "/sourceStore/sceneSource/legacy-scene/data/legacy-camera/payload/deviceId",
+                NativeParameterCategories.DeviceSelection,
+                JsonSerializer.SerializeToElement("legacy-device"))]
+            : [];
+        return new NativeConfigurationDocument(
+            store.Id,
+            store.Kind.ToString(),
+            "legacy-json-layout",
+            store.Location,
+            store.Location,
+            new string('0', 64),
+            Guid.NewGuid(),
+            values);
+    }).ToArray();
 
     private static (byte[] Definition, byte[] Signature) Sign(
         LiveCompanionAdapterDefinition definition,

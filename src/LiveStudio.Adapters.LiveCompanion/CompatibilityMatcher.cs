@@ -81,6 +81,32 @@ public static class CompatibilityMatcher
             $"版本号已变化，但{matchKind}全部一致");
     }
 
+    internal static AdapterMatchResult MatchPortableCapabilityCandidates(
+        string applicationVersion,
+        IReadOnlyList<VerifiedAdapterDefinition> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return new AdapterMatchResult(
+                AdapterMatchLevel.Incompatible,
+                null,
+                "没有同时包含四份原生存储和可移植摄像头结构的签名适配定义");
+        }
+
+        var selected = candidates
+            .OrderByDescending(candidate => GetDefinitionRevision(candidate.Definition.Id))
+            .ThenByDescending(candidate => candidate.Definition.Id, StringComparer.Ordinal)
+            .ThenByDescending(candidate => Version.Parse(candidate.Definition.MaximumVersion))
+            .First();
+        var versionText = string.IsNullOrWhiteSpace(applicationVersion)
+            ? "未知版本"
+            : applicationVersion;
+        return new AdapterMatchResult(
+            AdapterMatchLevel.Verified,
+            selected,
+            $"直播伴侣 {versionText} 已按四份原生存储和可移植摄像头结构匹配；版本号不阻断保存或事务恢复");
+    }
+
     private static int GetDefinitionRevision(string definitionId)
     {
         var marker = definitionId.LastIndexOf("-v", StringComparison.OrdinalIgnoreCase);

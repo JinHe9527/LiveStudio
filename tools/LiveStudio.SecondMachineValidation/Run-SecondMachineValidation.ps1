@@ -3,6 +3,7 @@ param(
     [string]$PackagePath = '',
     [string]$InstallerPath = '',
     [string]$OutputDirectory = '',
+    [switch]$DiagnoseCapture,
     [switch]$ExecuteFiveRestoreCycles,
     [ValidateRange(1, 5)]
     [int]$CycleCount = 5
@@ -20,6 +21,10 @@ $experimentId = 'cross-machine-restore-' + $startedAt.ToString('yyyyMMdd-HHmmss'
 $machineAlias = if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) { 'unknown-windows-machine' } else { $env:COMPUTERNAME }
 $outputPath = Join-Path $OutputDirectory ($experimentId + '.json')
 $scriptExitCode = 0
+
+if ($DiagnoseCapture -and $ExecuteFiveRestoreCycles) {
+    throw 'DiagnoseCapture and ExecuteFiveRestoreCycles cannot be used together.'
+}
 
 function Write-JsonFile {
     param(
@@ -277,6 +282,25 @@ function Get-LatestOperationForSnapshot {
     }
 }
 
+function Convert-RecentOperations {
+    param($State)
+
+    return @($State.operations |
+        Sort-Object startedAt -Descending |
+        Select-Object -First 20 |
+        ForEach-Object {
+            [ordered]@{
+                id = [string]$_.id
+                kind = [int]$_.kind
+                status = [int]$_.status
+                message = [string]$_.message
+                snapshotId = [string]$_.snapshotId
+                startedAt = [string]$_.startedAt
+                completedAt = [string]$_.completedAt
+            }
+        })
+}
+
 function Resolve-UniqueMappings {
     param(
         [Parameter(Mandatory = $true)][string]$SnapshotId,
@@ -386,6 +410,16 @@ $report = [ordered]@{
         mappingSourceCount = 0
         mappingTargetCount = 0
         mappingDecisions = @()
+    }
+    captureDiagnostic = [ordered]@{
+        requested = [bool]$DiagnoseCapture
+        snapshotCountBefore = 0
+        snapshotCountAfter = 0
+        succeeded = $false
+        snapshotId = ''
+        snapshotName = ''
+        error = ''
+        recentOperations = @()
     }
     cycles = @()
     observations = [ordered]@{
@@ -500,7 +534,44 @@ try {
         }
     }
 
-    if (-not $ExecuteFiveRestoreCycles) {
+    $report.captureDiagnostic.snapshotCountBefore = @($initialState.snapshots).Count
+
+    if ($DiagnoseCapture) {
+        try {
+            $capture = Invoke-LiveStudioAgent -Method 2 -Payload ([ordered]@{
+                name = 'Capture diagnosis ' + [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
+                cameraStations = $null
+                imageChanges = $null
+            }) -TimeoutSeconds 180
+            $report.captureDiagnostic.succeeded = $true
+            $report.captureDiagnostic.snapshotId = [string]$capture.snapshotId
+            $report.captureDiagnostic.snapshotName = [string]$capture.name
+        }
+        catch {
+            $report.captureDiagnostic.error = $_.Exception.Message
+        }
+
+        $captureState = Invoke-LiveStudioAgent -Method 0 -Payload ([ordered]@{}) -TimeoutSeconds 30
+        $report.captureDiagnostic.snapshotCountAfter = @($captureState.snapshots).Count
+        $report.captureDiagnostic.recentOperations = @(Convert-RecentOperations -State $captureState)
+        if ($report.captureDiagnostic.succeeded) {
+            if ($report.captureDiagnostic.snapshotCountAfter -ne $report.captureDiagnostic.snapshotCountBefore + 1) {
+                throw 'Capture returned success but the managed snapshot count did not increase by exactly one.'
+            }
+
+            $report.result = 'EvidenceOnly'
+            $report.notes = 'Production capture succeeded and created one signed managed snapshot. No restore was executed.'
+        }
+        else {
+            if ($report.captureDiagnostic.snapshotCountAfter -ne $report.captureDiagnostic.snapshotCountBefore) {
+                throw 'Capture failed but the managed snapshot count changed; package/index atomicity requires investigation.'
+            }
+
+            $report.result = 'EvidenceOnly'
+            $report.notes = 'Production capture failure reproduced without adding a partial managed snapshot. The exact Agent error and recent operation records are included.'
+        }
+    }
+    elseif (-not $ExecuteFiveRestoreCycles) {
         $report.result = 'EvidenceOnly'
         $report.notes = 'Read-only preflight completed. No OBS or Live Companion settings were changed.'
     }
@@ -516,9 +587,9 @@ try {
         if (-not $report.applications.obsRunning -or -not $report.applications.liveCompanionRunning) {
             throw 'OBS and Live Companion must both be running before the five-cycle validation starts.'
         }
-        if ($report.applications.liveStudioVersion -ne '0.1.17.0' -or
-            $report.applications.liveStudioAgentVersion -ne '0.1.17.0') {
-            throw "LiveStudio Desktop and Agent must both be 0.1.17.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
+        if ($report.applications.liveStudioVersion -ne '0.1.18.0' -or
+            $report.applications.liveStudioAgentVersion -ne '0.1.18.0') {
+            throw "LiveStudio Desktop and Agent must both be 0.1.18.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
         }
 
         $import = Invoke-LiveStudioAgent -Method 14 -Payload ([ordered]@{

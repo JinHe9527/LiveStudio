@@ -98,13 +98,11 @@ public sealed class LiveCompanionAdapterCatalog
         IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
     {
         var candidates = adapters.Value.Where(adapter =>
-            LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments)
-            && (LiveCompanionPortableProfile.IsVersionCovered(adapter.Definition, applicationVersion)
-                || MatchesRequiredShape(adapter.Definition, discoveredDocuments)))
+            LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments))
             .ToArray();
-        return CompatibilityMatcher.MatchStructurallyCompatibleCandidates(
-            candidates,
-            "签名版本或全部必需恢复字段路径、类型与可移植摄像头结构");
+        return CompatibilityMatcher.MatchPortableCapabilityCandidates(
+            applicationVersion,
+            candidates);
     }
 
     internal static bool MatchesRequiredShape(

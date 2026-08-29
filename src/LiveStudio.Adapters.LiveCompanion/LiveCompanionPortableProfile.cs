@@ -251,14 +251,6 @@ internal sealed record LiveCompanionPortableProfile(
             ? mapping.TargetDeviceId
             : Camera.DeviceId;
 
-    public static bool IsVersionCovered(
-        LiveCompanionAdapterDefinition definition,
-        string version) => Version.TryParse(version, out var actual)
-                           && Version.TryParse(definition.MinimumVersion, out var minimum)
-                           && Version.TryParse(definition.MaximumVersion, out var maximum)
-                           && actual >= minimum
-                           && actual <= maximum;
-
     public static bool CanRestoreTo(
         LiveCompanionAdapterDefinition definition,
         IReadOnlyList<NativeConfigurationDocument> targetDocuments)

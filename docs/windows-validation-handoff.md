@@ -926,3 +926,11 @@ OBS 设备映射还增加了物理设备枚举：即使目标 OBS 已删除全�
 仓库新增 `tools/LiveStudio.SecondMachineValidation/Run-SecondMachineValidation.ps1`，U 盘副本使用 ASCII 名称 `LiveStudio-CrossMachine-Test.lscfg`，避免 Windows PowerShell 5.1 对无 BOM 脚本中中文默认文件名的错误解码。工具默认只读采集 Windows、LiveStudio Desktop/Agent、OBS、直播伴侣、采集卡硬件 ID 与驱动版本，并同时核对安装器固定 SHA-256、原生 `--verify-only`、测试包 SHA-256 和固定包签名者指纹。五轮模式必须人工输入 `RESTORE-5`，随后只通过正式 Agent 的检查、导入、唯一候选设备映射和 `RestoreSnapshot` 接口执行；候选不唯一时停止，不直接写 OBS 或直播伴侣原生文件。
 
 Windows PowerShell 5.1 实测发现，重定向启动的子进程可能无法自动加载 `Get-FileHash` 与 `Get-AuthenticodeSignature` 所属模块。工具已改用 .NET SHA-256，Authenticode 命令只作为辅助显示；强制门仍由固定哈希、安装器原生自检和正式 Agent 包读取器完成。U 盘相对路径只读冒烟返回 `EvidenceOnly`、退出码 0，准确读取安装器 `0.1.17.0`、OBS `32.2.2`、直播伴侣 `12.9.2.470033184`、受信测试包和 Agent 连接。五轮入口输入错误确认词时退出码为 1、循环数为 0，取消前后的 10 份本机 `.lscfg` 路径、长度和 SHA-256 逐项无差异。工具尚未在第二台实体 4KPro 电脑执行，因此这些结果只是交接工具的本机安全冒烟，不提升 `Verified=0`。
+
+## 41. 2026-08-29 跨版本保存签名门槛修复与 0.1.18 发布前复验
+
+现场旧版直播伴侣电脑在保存阶段返回“没有签名适配定义”，而同一安装包在开发电脑 12.9.2 上能够保存。代码审查确认 `MatchPortableTarget` 错误地要求目标版本必须落入 12.8.1–12.9.2，或者与 966 个已记录必需字段逐项完全相同；这个写入适配门被错误地提前放进了只读保存入口，因此旧版本即使已经成功读取四份原生存储并生成可移植摄像头配置，仍会被版本号拒绝。
+
+0.1.18 将可移植存档的适配选择改为能力匹配：只要真实配置包含签名定义声明的 `effectConfigStore.json`、`effectStore.json`、`filterStore.json`、`sourceStore.json` 四份存储，并具备可移植摄像头结构，版本号不再阻断保存或事务恢复。缺少任一存储或摄像头结构仍会拒绝；恢复前仍执行目标存储根节点检查、设备映射、完整原生边界备份，写入后仍逐项回读，不一致时整次回滚。全套 291 项测试通过，新增回归覆盖“版本低于记录范围且不具备 966 项旧版完整字段仍可按存储能力匹配”，同时覆盖缺存储和缺摄像头时继续拒绝；`dotnet format --verify-no-changes`、依赖漏洞检查和 `git diff --check` 均通过。
+
+本机真实复验前将 `%LOCALAPPDATA%\LiveStudio` 的 536 个文件完整复制到 `%LOCALAPPDATA%\LiveStudio-PreReleaseBackups\before-v0.1.18-capability-test-20260829-160834\LiveStudio`，长度与 SHA-256 对比差异为 0。修复后的 Agent 在 OBS 32.2.2、直播伴侣 12.9.2.470033184 上通过正式控制协议保存存档 `9b0fe748-b214-45e2-a8a3-b3d42d5750bd`，受管存档从 12 增至 13；随后恢复该存档耗时 39.8 秒，恢复前永久备份使存档从 13 增至 14，操作状态为成功、文案为“恢复完成”，最终状态为“恢复完成并通过逐项验证”。该结果证明本机正式保存、事务备份、写入、回读链没有因兼容修改退化；旧版电脑仍需安装 0.1.18 后执行同一保存诊断与恢复循环，才能形成对应版本的真机证据，不能据此把未知存储结构宣称为已验证。
