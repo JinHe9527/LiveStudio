@@ -587,9 +587,9 @@ try {
         if (-not $report.applications.obsRunning -or -not $report.applications.liveCompanionRunning) {
             throw 'OBS and Live Companion must both be running before the five-cycle validation starts.'
         }
-        if ($report.applications.liveStudioVersion -ne '0.1.21.0' -or
-            $report.applications.liveStudioAgentVersion -ne '0.1.21.0') {
-            throw "LiveStudio Desktop and Agent must both be 0.1.21.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
+        if ($report.applications.liveStudioVersion -ne '0.1.22.0' -or
+            $report.applications.liveStudioAgentVersion -ne '0.1.22.0') {
+            throw "LiveStudio Desktop and Agent must both be 0.1.22.0. Desktop=$($report.applications.liveStudioVersion), Agent=$($report.applications.liveStudioAgentVersion)."
         }
 
         $import = Invoke-LiveStudioAgent -Method 14 -Payload ([ordered]@{

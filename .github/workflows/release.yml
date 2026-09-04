@@ -122,7 +122,8 @@ jobs:
           $manifest = $null
           for ($attempt = 1; $attempt -le 90; $attempt++) {
             try {
-              $manifest = Invoke-RestMethod "$manifestUrl?attempt=$attempt" -TimeoutSec 20
+              $manifestRequestUrl = '{0}?attempt={1}' -f $manifestUrl, $attempt
+              $manifest = Invoke-RestMethod $manifestRequestUrl -TimeoutSec 20
               if ($manifest.tagName -eq $expectedTag) { break }
             }
             catch {
