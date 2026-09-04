@@ -4,13 +4,13 @@
 
 LiveStudio 用于保存、查看并事务化恢复同一台 Windows 电脑上的 OBS 与抖音直播伴侣画面参数。范围严格限定为设备选择、分辨率、FPS、像素格式、色彩空间、色彩范围、视频滤镜、滤镜顺序和滤镜素材；相机机身参数当前只随存档手动记录，不会通过 HDMI 自动写入相机。软件不处理音频、场景布局、账号、Cookie、Token 或推流密钥。
 
-## 国内下载与软件更新
+## 下载与软件更新
 
-[下载最新版 Windows 安装器](https://wuyoupaiban.cn/livestudio/LiveStudio-Setup.exe)。这是固定地址，在国内网络可直接访问；新版本发布后地址会自动切换到新安装包。
+[从 GitHub 下载最新版 Windows 安装器](https://github.com/JinHe9527/LiveStudio/releases/latest/download/LiveStudio-Setup.exe)。这是 GitHub 官方固定地址，新版本发布后会自动指向新的安装包。
 
 新电脑首次安装只需下载并双击 `LiveStudio-Setup.exe`。安装器请求一次 Windows 管理员授权，校验自身签名、内置证书、MSIX Publisher 和 SHA-256 后，把固定发布证书加入 `Local Machine\Trusted People`，安装或升级 LiveStudio 并自动启动；不需要手工下载或导入证书。
 
-0.1.21 及后续 Windows 客户端优先从国内更新清单检查更新，国内服务临时不可用时再回退到公开 GitHub Releases。在设置页点击“检查更新”和“下载并安装”即可升级，不需要登录、Token 或重新寻找下载地址。客户端在退出 Desktop 和 Agent 前会先校验配套 SHA-256，再核对固定 Publisher 和证书指纹。0.1.20 及更早版本尚未内置国内更新地址，需要用上面的固定链接手动升级一次。
+0.1.23 及后续 Windows 客户端直接从公开 GitHub Releases 检查和下载安装更新。在设置页点击“检查更新”和“下载并安装”即可升级，不需要登录、Token 或重新寻找下载地址。客户端在退出 Desktop 和 Agent 前会先校验配套 SHA-256，再核对固定 Publisher 和证书指纹。0.1.22 及更早版本可用上面的 GitHub 固定链接手动升级一次，此后无需重复下载完整安装入口。
 
 推送 `v主版本.次版本.修订号` 标签会由 GitHub Actions 自动执行完整 Release 构建、全部单元测试、依赖漏洞检查、MSIX 和一键安装器签名复验，再创建 Windows x64 Release。
 

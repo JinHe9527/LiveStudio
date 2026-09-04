@@ -48,9 +48,9 @@ PFX 和密码不得离开受控的离线备份与 GitHub 加密 Secret。正式�
 
 脚本会分别 self-contained publish Desktop 与 Agent，放入 MSIX 的 `Desktop\`、`Agent\` 目录，生成 manifest，使用 SHA-256 签名并执行 `SignTool verify /pa /v`。内部自签名根不会写入一次性构建机的 Root；发布校验只接受签名摘要有效、Signer 指纹完全一致且唯一错误为“内部根尚未受系统信任”的结果。不得将两套 publish 输出直接合并到同一目录。
 
-GitHub Actions Release 发布推荐下载项 `LiveStudio-Setup.exe` 及其 SHA-256、签名报告，同时保留 `LiveStudio-Windows-x64.msix`、MSIX 校验与签名报告和公开证书供审计。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个安装包就不得更换。Release 创建后，流水线必须等待国内镜像的 `latest.json` 切换到同一标签，再从国内版本化地址回下载安装器，复核 SHA-256、固定证书签名和 `--verify-only`。
+GitHub Actions Release 发布推荐下载项 `LiveStudio-Setup.exe` 及其 SHA-256、签名报告，同时保留 `LiveStudio-Windows-x64.msix`、MSIX 校验与签名报告和公开证书供审计。仓库必须配置 `LIVESTUDIO_SIGNING_PFX_BASE64`、`LIVESTUDIO_SIGNING_PFX_PASSWORD`、`LIVESTUDIO_SIGNING_PUBLISHER` 三个 Secret；Publisher、证书和 Package Identity 一旦用于首个安装包就不得更换。Release 流水线直接以 GitHub Release 作为正式下载与软件内更新源，并在发布前完成 SHA-256、固定证书签名和 `--verify-only`。
 
-一键安装器把当前 Release 的 MSIX、SHA-256 和公钥证书作为资源封装在同一个签名 EXE 中。运行前检查 EXE 和 MSIX 的 Signer 指纹；提权后只安装完全匹配的证书，再要求两份 Authenticode 状态均为 `Valid`，随后执行 `Add-AppxPackage`。同版本重复运行只启动现有安装，更高版本执行升级。0.1.21 起，软件内更新优先读取 `https://wuyoupaiban.cn/livestudio/latest.json` 并下载同一份一键安装器，国内服务网络失败或返回 404 时回退到 GitHub；安装前始终校验 SHA-256、固定 Publisher 和证书指纹。
+一键安装器把当前 Release 的 MSIX、SHA-256 和公钥证书作为资源封装在同一个签名 EXE 中。运行前检查 EXE 和 MSIX 的 Signer 指纹；提权后只安装完全匹配的证书，再要求两份 Authenticode 状态均为 `Valid`，随后执行 `Add-AppxPackage`。同版本重复运行只启动现有安装，更高版本执行升级。0.1.23 起，软件内更新直接读取 GitHub 官方 Latest Release 并下载同一份一键安装器；安装前始终校验 SHA-256、固定 Publisher 和证书指纹。
 
 安装后在真实 Windows 用户会话验收：
 

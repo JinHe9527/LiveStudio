@@ -94,7 +94,7 @@
                     <Grid MinHeight="96" ColumnDefinitions="*,Auto" ColumnSpacing="20">
                         <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="4">
                             <TextBlock Classes="settings-title" Text="检查并安装新版本" />
-                            <TextBlock Classes="settings-copy" Text="直接读取 LiveStudio 公开发布版本，不需要 GitHub 账号或 Token" />
+                            <TextBlock Classes="settings-copy" Text="直接读取 GitHub 官方发布版本，不需要 GitHub 账号或 Token" />
                             <TextBlock MaxWidth="540" HorizontalAlignment="Left" Classes="settings-copy"
                                        Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
                         </StackPanel>

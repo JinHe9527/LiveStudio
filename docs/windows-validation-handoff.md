@@ -1005,3 +1005,11 @@ OBS 的自定义 LUT 原本已经通过滤镜素材映射进入 `.lscfg`，但�
 功能提交 `96c0460` 的普通 CI `33870256790` 已通过 Windows 全量质量门和 PostgreSQL/MinIO 集成测试。首次 `v0.1.21` 发布完成构建、测试、签名、安装器自检、Release 创建及服务器自动镜像，但国内验收步骤中的 PowerShell 字符串 `"$manifestUrl?attempt=..."` 把问号并入变量名，实际生成无效 URI，等待 15 分钟后失败；安装包和国内镜像本身没有失败。修复提交 `87654c7` 改为显式格式化 URL，普通 CI `33872404609` 再次全部通过，并以 `v0.1.22` 重新执行完整发布。
 
 `v0.1.22` Release 工作流 `33872801066` 的还原测试、签名 MSIX、签名一键安装器、Release 创建和国内回下载全部成功。服务器定时器在 Release 创建后自动识别版本，从 GitHub 官方 API 取得摘要并原子切换，不需要人工上传；GitHub Windows Runner 随后从 `https://wuyoupaiban.cn/livestudio/releases/v0.1.22/LiveStudio-Setup.exe` 完整回下载 217874832 字节，并通过 SHA-256、固定 Authenticode 签名和 `--verify-only`。安装器 SHA-256 为 `A1D4E26E4978D605ACE8D6263069FC22ABF511108005AD5CC7FEE489CE5E0890`，与 GitHub Asset Digest、国内侧车和服务器校验值完全一致；固定下载地址现已指向该版本。使用正式编译的更新服务并把当前版本设为 0.1.21 进行真实 HTTPS 检查，返回国内 `v0.1.22` 版本化安装器与校验地址；当前版本设为 0.1.22 时准确返回没有更新。当前电脑已安装包仍为 0.1.17，本节没有代替使用者触发 UAC 执行实际升级，因此证据严格限定为发布、下载、校验、安装器自检和更新发现链。
+
+## 47. 2026-09-04 GitHub 官方下载切换
+
+使用者从腾讯云轻量服务器固定地址下载 `v0.1.22` 时，浏览器实测约为 4.7 KB/s，207.8 MB 安装器预计需要约 13 小时；该线路不再适合作为正式大文件分发入口。按使用者明确要求，`v0.1.23` 起安装包人工下载和软件内更新均直接使用 GitHub 官方 Release：固定下载地址为 `https://github.com/JinHe9527/LiveStudio/releases/latest/download/LiveStudio-Setup.exe`，软件内继续匿名解析 GitHub Latest Release，并且只接受 `github.com` 与 `githubusercontent.com` 的 HTTPS 重定向。
+
+Release 构建不再写入腾讯云更新清单地址，也不再等待或从腾讯云镜像回下载 200 MB 安装包。安装前的 SHA-256、固定 Publisher `CN=LiveStudio Internal`、证书指纹 `4D42933F643E1E0B649513BCD10A15B485746E1D` 和安装器 `--verify-only` 要求保持不变。0.1.22 及更早版本可从 GitHub 固定地址手动升级一次；安装 0.1.23 后，后续版本可直接在软件内检查、下载和升级，无需重复寻找安装包。
+
+本节只改变发布下载入口和客户端更新源，不改变 `.lscfg`、LUT 封装、OBS/直播伴侣捕获或事务恢复实现，也不增加第二台实体采集卡和跨版本真机证据；正式恢复证据等级仍为 `Verified=0`。

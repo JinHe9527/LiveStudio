@@ -1,6 +1,6 @@
 # 国内 Windows 发布镜像
 
-本目录把公开 GitHub Latest Release 的 `LiveStudio-Setup.exe` 镜像到现有腾讯云站点：
+本目录保留把公开 GitHub Latest Release 的 `LiveStudio-Setup.exe` 镜像到现有腾讯云站点的旧部署方案。由于轻量服务器大文件实测速度不稳定，`v0.1.23` 起正式人工下载和软件内更新均直接使用 GitHub；这里的镜像不再是发布依赖或推荐下载入口。
 
 - 固定人工下载地址：`https://wuyoupaiban.cn/livestudio/LiveStudio-Setup.exe`
 - 软件更新清单：`https://wuyoupaiban.cn/livestudio/latest.json`
