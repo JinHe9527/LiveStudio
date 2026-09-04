@@ -144,7 +144,9 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         // document identities. They are rebound through the signed adapter only during restore;
         // projecting them as signed stores here would collapse the four discovery documents that
         // share a probe StoreId and can create duplicate dictionary keys.
-        var configurationTree = LiveCompanionConfigurationTree.Create(documents, null);
+        var configurationTree = await LiveCompanionAssetMapper.CaptureAsync(
+            LiveCompanionConfigurationTree.Create(documents, null),
+            cancellationToken);
         IReadOnlyList<FilterChainSnapshot> filterChains = [];
         return new ApplicationSnapshot(
             ApplicationKind.LiveCompanion,
@@ -367,7 +369,8 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         {
             snapshot.Version,
             snapshot.StructureFingerprint,
-            snapshot.NativeDocuments
+            snapshot.NativeDocuments,
+            Assets = SnapshotAssetBindings.Collect([snapshot])
         })));
 
     public Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken)
@@ -483,6 +486,18 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
+        var assets = SnapshotAssetBindings.Collect([context.Snapshot]);
+        var missingAsset = LiveCompanionAssetMapper.FindUnresolvedAssetPaths(
+                context.Snapshot.NativeDocuments,
+                assets)
+            .FirstOrDefault();
+        if (missingAsset is not null)
+        {
+            return RestorePreflightResult.Fail(
+                JobStatus.MissingAsset,
+                $"直播伴侣滤镜素材不存在，且存档未包含对应文件: {Path.GetFileName(missingAsset)}");
+        }
+
         var portableProfile = LiveCompanionPortableProfile.TryCreate(
             context.Snapshot.NativeDocuments);
         if (portableProfile is not null)
@@ -731,10 +746,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         {
             EnsureStopped();
             var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
-            var assets = context.Snapshot.Sources
-                .SelectMany(source => source.Filters)
-                .SelectMany(filter => filter.Assets)
-                .ToArray();
+            var assets = SnapshotAssetBindings.Collect([context.Snapshot]);
             IReadOnlyList<NativeConfigurationDocument> writableDocuments;
             if (portableProfile is not null)
             {
@@ -793,10 +805,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         public async Task<RestoreVerificationResult> VerifyAsync(CancellationToken cancellationToken)
         {
             var mappings = context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId);
-            var assets = context.Snapshot.Sources
-                .SelectMany(source => source.Filters)
-                .SelectMany(filter => filter.Assets)
-                .ToArray();
+            var assets = SnapshotAssetBindings.Collect([context.Snapshot]);
             var expected = portableProfile is not null
                 ? portableProfile.CreateExpectedDocuments(
                     restoreAdapter,

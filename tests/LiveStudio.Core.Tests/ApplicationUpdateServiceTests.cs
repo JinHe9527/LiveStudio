@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using System.Security.Cryptography.X509Certificates;
 using LiveStudio.Desktop.Services;
 
@@ -6,6 +7,132 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class ApplicationUpdateServiceTests
 {
+    [Fact]
+    public async Task CheckAsyncPrefersNewerDomesticRelease()
+    {
+        var capturedRequests = new List<HttpRequestMessage>();
+        var manifestUri = new Uri("https://download.example.cn/livestudio/latest.json");
+        var handler = new RouteHandler(request =>
+        {
+            capturedRequests.Add(request);
+            return request.RequestUri?.AbsolutePath switch
+            {
+                "/livestudio/latest.json" => JsonResponse(new
+                {
+                    version = "0.2.0",
+                    tagName = "v0.2.0",
+                    name = "LiveStudio v0.2.0",
+                    publishedAt = "2026-09-04T18:00:00+08:00",
+                    packageUrl = "https://download.example.cn/livestudio/LiveStudio-Setup.exe?v=0.2.0",
+                    checksumUrl = "https://download.example.cn/livestudio/LiveStudio-Setup.exe.sha256?v=0.2.0"
+                }),
+                "/livestudio/LiveStudio-Setup.exe" => new HttpResponseMessage(HttpStatusCode.OK),
+                "/livestudio/LiveStudio-Setup.exe.sha256" => new HttpResponseMessage(HttpStatusCode.OK),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+            };
+        });
+        var service = new ApplicationUpdateService(
+            handler,
+            "owner",
+            "repository",
+            new Version(0, 1, 0),
+            domesticManifestUri: manifestUri);
+
+        var release = await service.CheckAsync(CancellationToken.None);
+
+        Assert.NotNull(release);
+        Assert.Equal(new Version(0, 2, 0), release.Version);
+        Assert.Equal("download.example.cn", release.PackageDownloadUrl.Host);
+        Assert.Equal(3, capturedRequests.Count);
+        Assert.DoesNotContain(capturedRequests, request => request.RequestUri?.Host == "github.com");
+    }
+
+    [Fact]
+    public async Task CheckAsyncFallsBackToGitHubWhenDomesticServiceIsUnavailable()
+    {
+        var manifestUri = new Uri("https://download.example.cn/livestudio/latest.json");
+        var handler = new RouteHandler(request => request.RequestUri?.Host switch
+        {
+            "download.example.cn" => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            _ when request.RequestUri?.AbsolutePath == "/owner/repository/releases/latest" => Redirect(
+                "https://github.com/owner/repository/releases/tag/v0.2.0"),
+            _ when request.RequestUri?.AbsolutePath ==
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe" =>
+                Redirect("https://release-assets.githubusercontent.com/package"),
+            _ when request.RequestUri?.AbsolutePath ==
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe.sha256" =>
+                Redirect("https://release-assets.githubusercontent.com/checksum"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var service = new ApplicationUpdateService(
+            handler,
+            "owner",
+            "repository",
+            new Version(0, 1, 0),
+            domesticManifestUri: manifestUri);
+
+        var release = await service.CheckAsync(CancellationToken.None);
+
+        Assert.NotNull(release);
+        Assert.Equal("github.com", release.PackageDownloadUrl.Host);
+    }
+
+    [Fact]
+    public async Task CheckAsyncFallsBackToGitHubWhenDomesticServiceTimesOut()
+    {
+        var manifestUri = new Uri("https://download.example.cn/livestudio/latest.json");
+        var handler = new RouteHandler(request => request.RequestUri?.Host switch
+        {
+            "download.example.cn" => throw new TaskCanceledException("timeout"),
+            _ when request.RequestUri?.AbsolutePath == "/owner/repository/releases/latest" => Redirect(
+                "https://github.com/owner/repository/releases/tag/v0.2.0"),
+            _ when request.RequestUri?.AbsolutePath ==
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe" =>
+                Redirect("https://release-assets.githubusercontent.com/package"),
+            _ when request.RequestUri?.AbsolutePath ==
+                "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe.sha256" =>
+                Redirect("https://release-assets.githubusercontent.com/checksum"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var service = new ApplicationUpdateService(
+            handler,
+            "owner",
+            "repository",
+            new Version(0, 1, 0),
+            domesticManifestUri: manifestUri);
+
+        var release = await service.CheckAsync(CancellationToken.None);
+
+        Assert.NotNull(release);
+        Assert.Equal("github.com", release.PackageDownloadUrl.Host);
+    }
+
+    [Fact]
+    public async Task CheckAsyncRejectsDomesticManifestPointingToAnotherHost()
+    {
+        var manifestUri = new Uri("https://download.example.cn/livestudio/latest.json");
+        var handler = new RouteHandler(_ => JsonResponse(new
+        {
+            version = "0.2.0",
+            tagName = "v0.2.0",
+            name = "LiveStudio v0.2.0",
+            publishedAt = "2026-09-04T18:00:00+08:00",
+            packageUrl = "https://attacker.example/LiveStudio-Setup.exe",
+            checksumUrl = "https://attacker.example/LiveStudio-Setup.exe.sha256"
+        }));
+        var service = new ApplicationUpdateService(
+            handler,
+            "owner",
+            "repository",
+            new Version(0, 1, 0),
+            domesticManifestUri: manifestUri);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            service.CheckAsync(CancellationToken.None));
+
+        Assert.Contains("不受信任", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task CheckAsyncReturnsNewerPublicReleaseWithoutAuthorization()
     {
@@ -147,6 +274,11 @@ public sealed class ApplicationUpdateServiceTests
         response.Headers.Location = new Uri(location);
         return response;
     }
+
+    private static HttpResponseMessage JsonResponse<T>(T value) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(value))
+    };
 
     private sealed class RouteHandler(Func<HttpRequestMessage, HttpResponseMessage> route) : HttpMessageHandler
     {

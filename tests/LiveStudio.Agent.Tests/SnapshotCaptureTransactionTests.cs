@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using LiveStudio.Contracts;
 using LiveStudio.Core;
+using LiveStudio.Packaging;
 using Microsoft.Data.Sqlite;
 
 namespace LiveStudio.Agent.Tests;
@@ -98,6 +99,100 @@ public sealed class SnapshotCaptureTransactionTests
         }
     }
 
+    [Fact]
+    public async Task CaptureEmbedsExternalLiveCompanionLutInsidePackage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LiveStudioCaptureTests", Guid.NewGuid().ToString("N"));
+        var indexRoot = Path.Combine(root, "index");
+        var snapshotRoot = Path.Combine(root, "snapshots");
+        var externalRoot = Path.Combine(root, "external-assets");
+        Directory.CreateDirectory(externalRoot);
+        try
+        {
+            var lutPath = Path.Combine(externalRoot, "custom-live.cube");
+            var lutBytes = "TITLE Custom\nLUT_3D_SIZE 2"u8.ToArray();
+            await File.WriteAllBytesAsync(lutPath, lutBytes);
+            var assetHash = Convert.ToHexStringLower(SHA256.HashData(lutBytes));
+            var binding = new AssetBinding(
+                Guid.NewGuid(),
+                assetHash,
+                Path.GetFileName(lutPath),
+                lutPath,
+                "/sourceStore/filter/payload/file",
+                lutBytes.LongLength);
+            var field = new ConfigurationFieldSnapshot(
+                "live-companion:lut",
+                "素材文件",
+                "滤镜设置/LUT/素材文件",
+                0,
+                "String",
+                "Text",
+                System.Text.Json.JsonSerializer.SerializeToElement(lutPath),
+                null,
+                null,
+                null,
+                null,
+                [],
+                null,
+                new NativeLocatorSnapshot(
+                    "JsonFile",
+                    "source-store",
+                    binding.ReferencePath,
+                    "sourceStore.json",
+                    "String"),
+                FieldEvidenceStatus.Mapped,
+                true,
+                [binding]);
+            var tree = new ConfigurationTreeSnapshot(
+                [new ConfigurationSectionSnapshot("filter", "滤镜设置", "滤镜设置", 0, [], [field])],
+                0,
+                0,
+                1,
+                0,
+                true,
+                true);
+            var liveCompanionSnapshot = CreateApplicationSnapshot(ApplicationKind.LiveCompanion) with
+            {
+                ConfigurationTree = tree
+            };
+            var index = new LocalSnapshotIndex(indexRoot);
+            await index.InitializeAsync(CancellationToken.None);
+            using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var credentials = new DeviceCredentials(
+                new Uri("https://local.livestudio.invalid"),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                string.Empty,
+                signingKey.ExportPkcs8PrivateKeyPem(),
+                false);
+            using var operationGate = new ApplicationOperationGate();
+            var service = new SnapshotCaptureService(
+                [
+                    new CaptureAdapter(ApplicationKind.Obs, includeDevice: false),
+                    new CaptureAdapter(ApplicationKind.LiveCompanion, includeDevice: false, liveCompanionSnapshot)
+                ],
+                new TestCredentialStore(credentials),
+                index,
+                operationGate,
+                snapshotRoot);
+
+            var record = await service.CaptureAsync("外部 LUT 归档测试", CancellationToken.None);
+            File.Delete(lutPath);
+            var inspection = await SnapshotPackageReader.InspectAsync(record.PackagePath, CancellationToken.None);
+
+            var blob = Assert.Single(inspection.Package.Snapshot.Assets);
+            Assert.Equal(assetHash, blob.Sha256);
+            Assert.Equal(lutBytes, inspection.Package.Files[blob.PackagePath].Content.ToArray());
+            Assert.Equal(binding, Assert.Single(inspection.Package.Manifest.AssetBindings));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task DropDeviceMappingsTableAsync(string indexRoot)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -111,7 +206,28 @@ public sealed class SnapshotCaptureTransactionTests
         await command.ExecuteNonQueryAsync();
     }
 
-    private sealed class CaptureAdapter(ApplicationKind kind, bool includeDevice) : IApplicationAdapter
+    private static ApplicationSnapshot CreateApplicationSnapshot(ApplicationKind kind) => new(
+        kind,
+        "1.0.0",
+        "test-adapter",
+        new string('a', 64),
+        new string('b', 64),
+        CompatibilityLevel.Experimental,
+        false,
+        [],
+        [],
+        [],
+        CaptureConsistency: new CaptureConsistency(
+            "double-read",
+            new string('c', 64),
+            new string('c', 64),
+            1,
+            true));
+
+    private sealed class CaptureAdapter(
+        ApplicationKind kind,
+        bool includeDevice,
+        ApplicationSnapshot? applicationSnapshot = null) : IApplicationAdapter
     {
         public ApplicationKind Kind { get; } = kind;
 
@@ -136,6 +252,11 @@ public sealed class SnapshotCaptureTransactionTests
 
         private Task<ApplicationSnapshot> CreateSnapshot()
         {
+            if (applicationSnapshot is not null)
+            {
+                return Task.FromResult(applicationSnapshot);
+            }
+
             IReadOnlyList<VideoSource> sources = includeDevice
                 ?
                 [

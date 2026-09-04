@@ -16,6 +16,8 @@ param(
     [Parameter(Mandatory = $true)]
     [uri]$TimestampUrl,
 
+    [string]$UpdateManifestUrl = '',
+
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\..\output\windows')
 )
 
@@ -50,7 +52,8 @@ try {
         -c Release -r $runtimeIdentifier --self-contained true -o $desktopPublish `
         -p:Version=$Version `
         -p:LiveStudioUpdatePublisher=$Publisher `
-        -p:LiveStudioUpdateCertificateThumbprint=$CertificateThumbprint
+        -p:LiveStudioUpdateCertificateThumbprint=$CertificateThumbprint `
+        "-p:LiveStudioUpdateManifestUrl=$UpdateManifestUrl"
     if ($LASTEXITCODE -ne 0) { throw '桌面端发布失败。' }
 
     & dotnet publish (Join-Path $repositoryRoot 'src\LiveStudio.Agent\LiveStudio.Agent.csproj') `

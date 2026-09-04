@@ -9,6 +9,7 @@
     <ApplicationIcon>Assets\LiveStudio.ico</ApplicationIcon>
     <LiveStudioUpdatePublisher Condition="'$(LiveStudioUpdatePublisher)' == ''"></LiveStudioUpdatePublisher>
     <LiveStudioUpdateCertificateThumbprint Condition="'$(LiveStudioUpdateCertificateThumbprint)' == ''"></LiveStudioUpdateCertificateThumbprint>
+    <LiveStudioUpdateManifestUrl Condition="'$(LiveStudioUpdateManifestUrl)' == ''"></LiveStudioUpdateManifestUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +19,7 @@
                       LogicalName="LiveStudio.Desktop.Assets.Cloud.LiveStudio-Cloud-Root-CA.crt" />
     <AssemblyMetadata Include="LiveStudioUpdatePublisher" Value="$(LiveStudioUpdatePublisher)" />
     <AssemblyMetadata Include="LiveStudioUpdateCertificateThumbprint" Value="$(LiveStudioUpdateCertificateThumbprint)" />
+    <AssemblyMetadata Include="LiveStudioUpdateManifestUrl" Value="$(LiveStudioUpdateManifestUrl)" />
   </ItemGroup>
 
   <ItemGroup>

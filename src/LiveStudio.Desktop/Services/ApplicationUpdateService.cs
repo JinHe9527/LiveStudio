@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace LiveStudio.Desktop.Services;
 
@@ -17,21 +18,33 @@ public sealed record PreparedApplicationUpdate(
     ApplicationUpdateRelease Release,
     string InstallerPath);
 
+internal sealed record DomesticApplicationUpdateManifest(
+    string Version,
+    string TagName,
+    string Name,
+    DateTimeOffset PublishedAt,
+    string PackageUrl,
+    string ChecksumUrl);
+
 public sealed class ApplicationUpdateService(
     HttpMessageHandler? messageHandler = null,
     string repositoryOwner = "JinHe9527",
     string repositoryName = "LiveStudio",
     Version? applicationVersion = null,
     string? trustedPublisher = null,
-    string? trustedCertificateThumbprint = null)
+    string? trustedCertificateThumbprint = null,
+    Uri? domesticManifestUri = null)
 {
     private const string WindowsAssetName = "LiveStudio-Setup.exe";
     private const string ChecksumAssetName = "LiveStudio-Setup.exe.sha256";
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpMessageHandler? messageHandler = messageHandler;
     private readonly Version applicationVersion = applicationVersion ?? GetCurrentVersion();
     private readonly string trustedPublisher = trustedPublisher ?? GetAssemblyMetadata("LiveStudioUpdatePublisher");
     private readonly string trustedCertificateThumbprint = NormalizeThumbprint(
         trustedCertificateThumbprint ?? GetAssemblyMetadata("LiveStudioUpdateCertificateThumbprint"));
+    private readonly Uri? domesticManifestUri = domesticManifestUri ?? GetAssemblyMetadataUri(
+        "LiveStudioUpdateManifestUrl");
 
     public string CurrentVersionText => applicationVersion.ToString(3);
 
@@ -39,6 +52,19 @@ public sealed class ApplicationUpdateService(
         CancellationToken cancellationToken)
     {
         using var client = CreateClient();
+        var domesticResult = await TryCheckDomesticAsync(client, cancellationToken);
+        if (domesticResult.Handled)
+        {
+            return domesticResult.Release;
+        }
+
+        return await CheckGitHubAsync(client, cancellationToken);
+    }
+
+    private async Task<ApplicationUpdateRelease?> CheckGitHubAsync(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
         var releaseUri = await ResolveLatestReleaseUriAsync(client, cancellationToken);
         var tagName = ExtractReleaseTag(releaseUri);
         var version = ParseVersion(tagName);
@@ -58,6 +84,78 @@ public sealed class ApplicationUpdateService(
             DateTimeOffset.MinValue,
             packageUri,
             checksumUri);
+    }
+
+    private async Task<(bool Handled, ApplicationUpdateRelease? Release)> TryCheckDomesticAsync(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        if (domesticManifestUri is null)
+        {
+            return (false, null);
+        }
+
+        EnsureTrustedDownloadUri(domesticManifestUri);
+        try
+        {
+            using var response = await client.GetAsync(
+                domesticManifestUri,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return (false, null);
+            }
+
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var manifest = await JsonSerializer.DeserializeAsync<DomesticApplicationUpdateManifest>(
+                stream,
+                ManifestJsonOptions,
+                cancellationToken) ?? throw new InvalidDataException("国内更新清单为空");
+            var version = ParseVersion(manifest.Version);
+            if (!ParseVersion(manifest.TagName).Equals(version))
+            {
+                throw new InvalidDataException("国内更新清单的版本与标签不一致");
+            }
+
+            if (version <= applicationVersion)
+            {
+                return (true, null);
+            }
+
+            if (!Uri.TryCreate(manifest.PackageUrl, UriKind.Absolute, out var packageUri)
+                || !Uri.TryCreate(manifest.ChecksumUrl, UriKind.Absolute, out var checksumUri))
+            {
+                throw new InvalidDataException("国内更新清单包含无效的下载地址");
+            }
+
+            EnsureTrustedDownloadUri(packageUri);
+            EnsureTrustedDownloadUri(checksumUri);
+            if (!string.Equals(packageUri.Host, domesticManifestUri.Host, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(checksumUri.Host, domesticManifestUri.Host, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("国内更新清单引用了不同的下载主机");
+            }
+
+            await EnsureAssetPublishedAsync(client, packageUri, WindowsAssetName, cancellationToken);
+            await EnsureAssetPublishedAsync(client, checksumUri, ChecksumAssetName, cancellationToken);
+            return (true, new ApplicationUpdateRelease(
+                version,
+                manifest.TagName,
+                string.IsNullOrWhiteSpace(manifest.Name) ? $"LiveStudio {manifest.TagName}" : manifest.Name,
+                manifest.PublishedAt,
+                packageUri,
+                checksumUri));
+        }
+        catch (HttpRequestException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return (false, null);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return (false, null);
+        }
     }
 
     public async Task<PreparedApplicationUpdate> PrepareAsync(
@@ -183,7 +281,7 @@ public sealed class ApplicationUpdateService(
         }
     }
 
-    private static async Task DownloadAssetAsync(
+    private async Task DownloadAssetAsync(
         HttpClient client,
         Uri assetApiUrl,
         string targetPath,
@@ -203,7 +301,7 @@ public sealed class ApplicationUpdateService(
         await target.FlushAsync(cancellationToken);
     }
 
-    private static async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
+    private async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
         HttpClient client,
         Uri initialUri,
         CancellationToken cancellationToken)
@@ -237,10 +335,11 @@ public sealed class ApplicationUpdateService(
         or System.Net.HttpStatusCode.TemporaryRedirect
         or System.Net.HttpStatusCode.PermanentRedirect;
 
-    private static void EnsureTrustedDownloadUri(Uri uri)
+    private void EnsureTrustedDownloadUri(Uri uri)
     {
         var trustedHost = string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+            || uri.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(uri.Host, domesticManifestUri?.Host, StringComparison.OrdinalIgnoreCase);
         if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
             || !trustedHost)
         {
@@ -289,6 +388,19 @@ public sealed class ApplicationUpdateService(
         Assembly.GetEntryAssembly()?.GetCustomAttributes<AssemblyMetadataAttribute>()
             .FirstOrDefault(attribute => string.Equals(attribute.Key, key, StringComparison.Ordinal))
             ?.Value ?? string.Empty;
+
+    private static Uri? GetAssemblyMetadataUri(string key)
+    {
+        var value = GetAssemblyMetadata(key);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            ? uri
+            : throw new InvalidDataException($"程序集中的 {key} 不是有效地址");
+    }
 
     private static string NormalizeThumbprint(string value) => new(
         value.Where(character => !char.IsWhiteSpace(character)).ToArray());

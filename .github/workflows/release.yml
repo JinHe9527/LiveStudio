@@ -11,7 +11,7 @@ permissions:
 jobs:
   windows-release:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v6
@@ -73,6 +73,7 @@ jobs:
             -Publisher $env:PACKAGE_PUBLISHER `
             -CertificateThumbprint $env:LIVESTUDIO_CERTIFICATE_THUMBPRINT `
             -TimestampUrl 'http://timestamp.digicert.com' `
+            -UpdateManifestUrl 'https://wuyoupaiban.cn/livestudio/latest.json' `
             -OutputDirectory $output | Select-Object -Last 1
           $releasePackage = Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.msix'
           Copy-Item -LiteralPath $package -Destination $releasePackage
@@ -112,3 +113,54 @@ jobs:
             --title "LiveStudio ${{ github.ref_name }}" `
             --generate-notes `
             --verify-tag
+
+      - name: 验证国内固定下载与软件内更新
+        shell: pwsh
+        run: |
+          $expectedTag = '${{ github.ref_name }}'
+          $manifestUrl = 'https://wuyoupaiban.cn/livestudio/latest.json'
+          $manifest = $null
+          for ($attempt = 1; $attempt -le 90; $attempt++) {
+            try {
+              $manifest = Invoke-RestMethod "$manifestUrl?attempt=$attempt" -TimeoutSec 20
+              if ($manifest.tagName -eq $expectedTag) { break }
+            }
+            catch {
+              if ($attempt -eq 90) { throw }
+            }
+            Start-Sleep -Seconds 10
+          }
+          if (-not $manifest -or $manifest.tagName -ne $expectedTag) {
+            throw "国内更新镜像未在期限内同步 $expectedTag"
+          }
+          foreach ($url in @($manifest.packageUrl, $manifest.checksumUrl)) {
+            $uri = [Uri]$url
+            if ($uri.Scheme -ne 'https' -or $uri.Host -ne 'wuyoupaiban.cn') {
+              throw "国内更新清单包含不受信任的地址：$url"
+            }
+          }
+          $downloadedSetup = Join-Path $env:RUNNER_TEMP 'LiveStudio-Domestic-Setup.exe'
+          $downloadedChecksum = "$downloadedSetup.sha256"
+          Invoke-WebRequest $manifest.packageUrl -OutFile $downloadedSetup -TimeoutSec 1800
+          Invoke-WebRequest $manifest.checksumUrl -OutFile $downloadedChecksum -TimeoutSec 60
+          $expectedHash = (Get-Content -LiteralPath $downloadedChecksum -Raw).Split()[0]
+          $actualHash = (Get-FileHash -LiteralPath $downloadedSetup -Algorithm SHA256).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw '国内更新安装器回下载 SHA-256 不一致'
+          }
+          .\deploy\windows\Test-InternalAuthenticodeSignature.ps1 `
+            -SignedFilePath $downloadedSetup `
+            -ExpectedCertificateThumbprint $env:LIVESTUDIO_CERTIFICATE_THUMBPRINT `
+            -ReportPath (Join-Path $env:RUNNER_TEMP 'LiveStudio-Domestic.signature.txt')
+          $verificationProcess = Start-Process `
+            -FilePath $downloadedSetup `
+            -ArgumentList '--verify-only' `
+            -WindowStyle Hidden `
+            -PassThru
+          if (-not $verificationProcess.WaitForExit(60000)) {
+            Stop-Process -Id $verificationProcess.Id -Force -ErrorAction SilentlyContinue
+            throw '国内更新安装器自检超时'
+          }
+          if ($verificationProcess.ExitCode -ne 0) {
+            throw '国内更新安装器自检失败'
+          }

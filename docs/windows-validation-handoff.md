@@ -981,3 +981,23 @@ GitHub Release `v0.1.19` 的 Windows 流水线 `33245353452` 随后完成整仓�
 公开 `LiveStudio-Setup.exe` 长度为 217866640 字节，SHA-256 为 `616B6FEF6F733AB8E85C5EA916CB72611F1F28992CA7E9400CEFB22709757935`；该值与随附校验文件和 GitHub Release Asset Digest 完全一致。Authenticode 状态为 `Valid`，Signer 为 `CN=LiveStudio Internal`，指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`，`--verify-only` 退出码为 0。外层安装器文件版本仍继承 Setup 项目的 `0.1.19.0`，但直接读取已签名 MSIX 的 `AppxManifest.xml` 确认为 `0.1.20.0`；MSIX 长度为 159141108 字节，SHA-256 为 `F625D5F8AC7C7207DE6210DE05DB56F0A399CCF5B1A91815CA555A11F59B4243`，同样与校验文件和 Release Digest 一致且签名有效。
 
 U 盘 `E:\参数恢复软件\LiveStudio-Setup.exe` 已覆盖为上述逐字节相同的 v0.1.20 安装器，并从 U 盘路径重新完成 SHA-256、侧车校验、Authenticode 和 `--verify-only`；目录中的跨电脑测试文件夹未改动。旧 v0.1.19 安装器先复制到 `%LOCALAPPDATA%\LiveStudio\InstallerBackups\usb-before-v0.1.20-20260829-193500`，备份 SHA-256 与旧 U 盘文件均为 `E84FAD5E486FE11A540274634FF09CA8144120BED51A33F4B799F64C471CD451`。Windows 仍报告该 FAT32 U 盘 `HealthStatus=Warning`、`OperationalStatus=Full Repair Needed`；本轮复制后哈希完全一致，但正式批量下发前仍应更换介质或先备份后修复文件系统，不能把介质后续损坏误判为安装器问题。
+
+## 45. 2026-09-04 外部 LUT 随存档封装与环境边界复查
+
+OBS 的自定义 LUT 原本已经通过滤镜素材映射进入 `.lscfg`，但直播伴侣原生配置树中的外部 LUT 或图片路径此前没有生成 `AssetBinding`，恢复会保留来源电脑路径。当前保存链会递归检查直播伴侣配置树中的 `.3dl`、`.cube`、`.look`、`.lut` 及受支持图片素材：外部文件存在时计算 SHA-256、记录原生引用路径并把文件内容写入存档；文件不存在时整次保存明确失败，不能生成只含失效路径的存档。恢复预检要求每个外部素材路径都能由包内绑定解析，随后把素材释放到受管资产目录并改写原生路径；配置树素材也进入双读稳定哈希、包清单汇总和逐字段回读。路径比较统一为规范化后的 Windows 路径，避免大小写或分隔符差异导致绑定丢失。
+
+自动化新增直播伴侣外部 LUT 捕获、缺失 LUT 拒绝、来源文件删除后仍可由包内素材恢复、嵌套配置字段素材汇总，以及完整 `.lscfg` 事务保存五类覆盖。Debug 与 Release 的 Setup 8 项、Core 278 项、Agent 32 项，共 318 项全部通过；Release 整仓构建为 0 警告、0 错误，格式验证、`git diff --check` 和全部直接与传递 NuGet 包漏洞检查通过。Agent 与 Desktop 的 `win-x64` 自包含发布也分别成功。修复后的 Agent 已重新启动并通过正式本机协议返回可保存、可恢复、空闲；OBS 32.2.2 和直播伴侣 12.9.2.470033184 均可读取。本轮只读检查发现当前四份 WBStore 文档中的 `file` / `fileName` 值为空，因此没有改动用户配置，也没有伪造一条真实外部 LUT 恢复记录。
+
+环境复查结论仍需严格限定：项目安装下限为 Windows 10 `10.0.19041.0`，正式发布目标为 `win-x64`；本轮实际机器为 Windows 11 Pro `10.0.26200` x64、.NET SDK 10.0.400。直播伴侣已有签名/能力边界覆盖 12.8.1.454484231 至 12.9.2.470033184，未知新增字段、存储缺失或类型变化仍会在写入前拒绝；OBS 依赖 obs-websocket 5.x。当前机器没有匹配的实体采集卡，ARM64、第二台不同采集卡电脑以及所有历史/未来 OBS 和直播伴侣版本均没有形成真机证据；本机也未安装 Docker，因此本轮没有本地重跑 PostgreSQL/MinIO 云集成套件。正式 `Verified` 计数保持 0，不能宣称所有环境、所有版本已经完整验证。
+
+下一项最小真机证据是在隔离测试配置中只设置一个外部 LUT：保存 `.lscfg`，核对包内素材哈希，移动来源文件，再执行恢复和逐字段回读；之后还必须在第二台不同实体采集卡电脑上完成规定的 20 次保存、修改、恢复和故障回滚，才能提升为 `Verified`。
+
+## 46. 2026-09-04 国内固定下载与软件内更新
+
+腾讯云现有 HTTPS 站点新增独立 `/livestudio/` 静态路由，没有改变根路径的“团播派工”反向代理。固定下载地址为 `https://wuyoupaiban.cn/livestudio/LiveStudio-Setup.exe`，更新清单为 `https://wuyoupaiban.cn/livestudio/latest.json`，版本化安装器存放在 `/livestudio/releases/v<version>/`。Nginx 配置验证和重载成功；同步期间根站点仍返回 200，实测响应约 0.23 秒。HTTP 请求只重定向到同路径 HTTPS，目录列表关闭，响应包含 `nosniff` 和禁止缓存头。
+
+服务器 systemd 定时器每两分钟读取 GitHub 官方 Latest Release API。标签、官方安装器地址和 SHA-256 均取自 GitHub API；大文件允许通过国内传输代理获取，但只有与官方 Asset Digest 完全相同的字节才会进入版本目录。同步使用进程锁、临时目录、版本目录原子移动和固定链接原子替换，不删除历史版本。首次同步 `v0.1.20` 成功，国内侧车摘要为 `616b6fef6f733ab8e85c5ea916cb72611f1f28992ca7e9400cefb22709757935`，与第 44.1 节公开 Release 证据一致；固定地址、版本化地址、清单和侧车均返回 200。
+
+0.1.21 起，桌面端优先读取上述国内清单，清单网络失败或 404 时回退到原 GitHub 匿名更新链。清单版本与标签必须一致，安装器和校验文件必须为 HTTPS 且与清单同主机；下载阶段的每次重定向仍只接受明确受信任主机。安装前继续强制核对 SHA-256、Publisher `CN=LiveStudio Internal` 和证书指纹 `4D42933F643E1E0B649513BCD10A15B485746E1D`，然后才请求 UAC 启动既有一键安装器。标签发布工作流还会等待国内清单切换到同一标签，从国内版本化地址完整回下载并重复执行摘要、签名和 `--verify-only`，因此 GitHub Release 创建成功但国内分发不完整时流水线仍失败。
+
+本节发布前质量门为 Release 构建 0 警告、0 错误；Setup 8 项、Core 282 项、Agent 32 项，共 322 项测试全部通过；格式、Release YAML、PowerShell、服务器 Bash 语法和 `git diff --check` 通过，全部直接与传递 NuGet 包无已知漏洞。这里证明的是下载和更新分发链，不替代外部 LUT 真实恢复、第二台实体采集卡电脑或全部 OBS/直播伴侣版本的真机验证；恢复证据等级继续保持 `Verified=0`。

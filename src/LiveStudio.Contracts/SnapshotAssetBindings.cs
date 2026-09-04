@@ -11,7 +11,8 @@ public static class SnapshotAssetBindings
                     .SelectMany(filter => filter.Assets)
                     .Concat((application.FilterChains ?? [])
                         .SelectMany(chain => chain.Filters)
-                        .SelectMany(filter => filter.Assets)))
+                        .SelectMany(filter => filter.Assets))
+                    .Concat(CollectConfigurationTreeAssets(application.ConfigurationTree)))
             .GroupBy(binding => binding.Id)
             .Select(group =>
             {
@@ -27,4 +28,13 @@ public static class SnapshotAssetBindings
             .ToArray();
         return bindings;
     }
+
+    private static IEnumerable<AssetBinding> CollectConfigurationTreeAssets(ConfigurationTreeSnapshot? tree) =>
+        tree is null
+            ? []
+            : tree.Sections.SelectMany(CollectSectionAssets);
+
+    private static IEnumerable<AssetBinding> CollectSectionAssets(ConfigurationSectionSnapshot section) =>
+        section.Fields.SelectMany(field => field.Assets)
+            .Concat(section.Sections.SelectMany(CollectSectionAssets));
 }

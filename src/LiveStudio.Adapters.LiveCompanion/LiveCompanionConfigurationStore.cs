@@ -1337,7 +1337,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         if (node is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var sourcePath))
         {
             var asset = assets.FirstOrDefault(candidate =>
-                string.Equals(candidate.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase));
+                LiveCompanionAssetMapper.PathsEqual(candidate.SourcePath, sourcePath));
             if (asset is null)
             {
                 return node.DeepClone();

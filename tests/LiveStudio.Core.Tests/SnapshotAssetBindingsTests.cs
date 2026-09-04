@@ -37,6 +37,58 @@ public sealed class SnapshotAssetBindingsTests
     }
 
     [Fact]
+    public void CollectsAssetsDeclaredByNestedConfigurationFields()
+    {
+        var binding = new AssetBinding(
+            Guid.NewGuid(),
+            new string('a', 64),
+            "custom.cube",
+            @"C:\直播素材\custom.cube",
+            "/sourceStore/filter/payload/file",
+            321);
+        var field = new ConfigurationFieldSnapshot(
+            "live-companion:lut",
+            "素材文件",
+            "滤镜设置/LUT/素材文件",
+            0,
+            "String",
+            "Text",
+            JsonSerializer.SerializeToElement(binding.SourcePath),
+            null,
+            null,
+            null,
+            null,
+            [],
+            null,
+            new NativeLocatorSnapshot(
+                "JsonFile",
+                "source-store",
+                binding.ReferencePath,
+                "sourceStore.json",
+                "String"),
+            FieldEvidenceStatus.Mapped,
+            true,
+            [binding]);
+        var tree = new ConfigurationTreeSnapshot(
+            [new ConfigurationSectionSnapshot(
+                "filter",
+                "滤镜设置",
+                "滤镜设置",
+                0,
+                [new ConfigurationSectionSnapshot("lut", "LUT", "滤镜设置/LUT", 0, [], [field])],
+                [])],
+            0,
+            0,
+            1,
+            0,
+            true,
+            true);
+        var application = CreateApplication([]) with { ConfigurationTree = tree };
+
+        Assert.Equal(binding, Assert.Single(SnapshotAssetBindings.Collect([application])));
+    }
+
+    [Fact]
     public void RejectsConflictingDefinitionsForTheSameBindingId()
     {
         var bindingId = Guid.NewGuid();

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a new LiveStudio Windows release every two minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+RandomizedDelaySec=20s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
