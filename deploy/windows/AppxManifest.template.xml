@@ -30,6 +30,7 @@
     <Application
       Id="LiveStudio"
       Executable="Desktop\LiveStudio.Desktop.exe"
+      EntryPoint="Windows.FullTrustApplication"
       uap10:RuntimeBehavior="packagedClassicApp"
       uap10:TrustLevel="mediumIL">
       <uap:VisualElements
