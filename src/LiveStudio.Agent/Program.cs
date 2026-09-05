@@ -11,6 +11,24 @@ if (!OperatingSystem.IsWindows())
     return 2;
 }
 
+if (args is ["probe-video-device", var encodedProbe])
+{
+    try
+    {
+        var request = System.Text.Json.JsonSerializer.Deserialize<VideoDeviceProbeRequest>(Convert.FromBase64String(encodedProbe))
+            ?? throw new InvalidDataException("无效设备检查请求");
+        var result = WindowsVideoDeviceProbe.Inspect(request);
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+        return result.IsSupported ? 0 : 1;
+    }
+    catch (Exception exception)
+    {
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
+            new VideoDeviceProbeResult(false, $"Windows 视频设备检查失败：{exception.GetType().Name}")));
+        return 1;
+    }
+}
+
 var credentialStore = new WindowsCredentialStore();
 if (args.Length > 0 && string.Equals(args[0], "enroll", StringComparison.OrdinalIgnoreCase))
 {
@@ -53,6 +71,7 @@ builder.Services.AddSingleton<IObsAssetPathResolver>(services =>
     services.GetRequiredService<BuiltInColorCardCatalog>());
 builder.Services.AddSingleton<IApplicationAdapter, ObsAdapter>();
 builder.Services.AddSingleton<LiveCompanionAdapterCatalog>();
+builder.Services.AddSingleton<ILiveCompanionVideoDeviceCatalog, LiveCompanionVideoDeviceCatalog>();
 builder.Services.AddSingleton<IApplicationAdapter, LiveCompanionAdapter>();
 builder.Services.AddSingleton<ApplicationOperationGate>();
 builder.Services.AddSingleton<SnapshotCaptureService>();

@@ -59,6 +59,9 @@ public interface IApplicationAdapter
 
     Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken);
 
+    Task<ApplicationSnapshot> CaptureRestoreBackupAsync(CancellationToken cancellationToken) =>
+        CaptureStableAsync(cancellationToken);
+
     Task<PreviewCapture?> CapturePreviewAsync(CancellationToken cancellationToken);
 
     Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken) =>

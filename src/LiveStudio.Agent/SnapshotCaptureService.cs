@@ -80,17 +80,20 @@ public sealed class SnapshotCaptureService
         var normalizedStations = NormalizeCameraStations(cameraStations)
             .Select(station => station with { ReferenceImage = null })
             .ToArray();
-        return CaptureCoreAsync(name, normalizedStations, cancellationToken);
+        return CaptureCoreAsync(name, normalizedStations, cancellationToken, forRestoreBackup: true);
     }
 
     private async Task<LocalSnapshotRecord> CaptureCoreAsync(
         string name,
         IReadOnlyList<CameraStationSnapshot> cameraStations,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool forRestoreBackup = false)
     {
         var credentials = credentialStore.Load();
         EnsureAdapterSet();
-        var snapshots = await Task.WhenAll(adapters.Select(adapter => adapter.CaptureStableAsync(cancellationToken)));
+        var snapshots = await Task.WhenAll(adapters.Select(adapter => forRestoreBackup
+            ? adapter.CaptureRestoreBackupAsync(cancellationToken)
+            : adapter.CaptureStableAsync(cancellationToken)));
         var inconsistent = snapshots.FirstOrDefault(snapshot => snapshot.CaptureConsistency?.IsConsistent != true);
         if (inconsistent is not null)
         {

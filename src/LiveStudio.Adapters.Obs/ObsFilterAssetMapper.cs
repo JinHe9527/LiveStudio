@@ -27,6 +27,11 @@ internal static class ObsFilterAssetMapper
         foreach (var item in paths)
         {
             await using var stream = File.OpenRead(item.Path);
+            if (stream.Length == 0)
+            {
+                throw new InvalidDataException(
+                    $"OBS 滤镜素材为空，无法生成可恢复存档: {Path.GetFileName(item.Path)}");
+            }
             var hash = await SHA256.HashDataAsync(stream, cancellationToken);
             var info = new FileInfo(item.Path);
             var hashText = Convert.ToHexStringLower(hash);

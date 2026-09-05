@@ -104,6 +104,11 @@ internal static class LiveCompanionAssetMapper
 
         var sourcePath = Path.GetFullPath(configuredPath);
         await using var stream = File.OpenRead(sourcePath);
+        if (stream.Length == 0)
+        {
+            throw new InvalidDataException(
+                $"直播伴侣滤镜素材为空，无法生成可恢复存档: {Path.GetFileName(sourcePath)}");
+        }
         var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
         var info = new FileInfo(sourcePath);
         var binding = new AssetBinding(

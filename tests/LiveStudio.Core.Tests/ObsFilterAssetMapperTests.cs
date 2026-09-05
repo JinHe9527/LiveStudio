@@ -6,6 +6,24 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class ObsFilterAssetMapperTests
 {
+    [Fact]
+    public async Task EmptyAssetIsRejectedBeforeCaptureSucceeds()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(directory, "empty.cube");
+            await File.WriteAllBytesAsync(path, []);
+            var settings = new Dictionary<string, JsonElement> { ["lut"] = JsonSerializer.SerializeToElement(path) };
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                ObsFilterAssetMapper.CaptureAsync(settings, CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(typeof(HttpRequestException), true)]
     [InlineData(typeof(System.Net.WebSockets.WebSocketException), true)]

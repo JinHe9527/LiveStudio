@@ -33,6 +33,30 @@ internal sealed record LiveCompanionPortableProfile(
 
     public Guid SourceLogicalId => SourceStoreDocument.SourceLogicalId;
 
+    public string? FindTargetTypeMismatch(IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var target = TryCreate(documents);
+        if (target is null) { return null; } // A missing camera is recreated by native import.
+        var expectedTypes = NormalizedTypes(this);
+        var actualTypes = NormalizedTypes(target);
+        return expectedTypes.FirstOrDefault(pair => actualTypes.TryGetValue(pair.Key, out var actual)
+            && pair.Value != actual).Key;
+    }
+
+    private static Dictionary<string, JsonValueKind> NormalizedTypes(LiveCompanionPortableProfile profile)
+    {
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [profile.Camera.SceneId] = "{scene}",
+            [profile.Camera.SourceId] = "{source}",
+            [profile.Camera.EffectConfigurationId] = "{effect}"
+        };
+        return profile.SourceStoreDocument.Values.Concat(profile.EffectConfigurationDocument.Values)
+            .ToDictionary(value => TranslatePointer(value.JsonPointer, replacements),
+                value => value.Value.ValueKind is JsonValueKind.False ? JsonValueKind.True : value.Value.ValueKind,
+                StringComparer.Ordinal);
+    }
+
     public static LiveCompanionPortableProfile? TryCreate(
         IReadOnlyList<NativeConfigurationDocument> documents) =>
         TryCreate(documents, out _);
@@ -183,11 +207,12 @@ internal sealed record LiveCompanionPortableProfile(
         var payload = Camera.Payload;
         var deviceId = Camera.DeviceId;
         var friendlyName = ReadString(payload, "name") ?? deviceId;
+        var (fpsNumerator, fpsDenominator) = ReadFrameRate(payload);
         var mode = new VideoMode(
             ReadInt(payload, "width"),
             ReadInt(payload, "height"),
-            ReadInt(payload, "rate"),
-            1,
+            fpsNumerator,
+            fpsDenominator,
             ReadStringOrNumber(payload, "format"),
             ReadStringOrNumber(payload, "colorSpace"),
             ReadStringOrNumber(payload, "videoRange"));
@@ -466,9 +491,11 @@ internal sealed record LiveCompanionPortableProfile(
                 return integer;
             }
 
-            if (value.TryGetValue<double>(out var number))
+            if (value.TryGetValue<double>(out var number)
+                && double.IsFinite(number) && number == Math.Truncate(number)
+                && number is >= int.MinValue and <= int.MaxValue)
             {
-                return checked((int)Math.Round(number));
+                return (int)number;
             }
 
             if (value.TryGetValue<string>(out var text)
@@ -479,6 +506,27 @@ internal sealed record LiveCompanionPortableProfile(
         }
 
         return 0;
+    }
+
+    private static (int Numerator, int Denominator) ReadFrameRate(JsonObject payload)
+    {
+        if (!decimal.TryParse(ReadStringOrNumber(payload, "rate"), NumberStyles.Float,
+                CultureInfo.InvariantCulture, out var rate) || rate <= 0 || rate > 1000)
+        {
+            return (0, 1);
+        }
+        var denominator = 1;
+        while (rate != decimal.Truncate(rate) && denominator < 1_000_000)
+        {
+            rate *= 10;
+            denominator *= 10;
+        }
+        if (rate != decimal.Truncate(rate)) { return (0, 1); }
+        var numerator = (int)rate;
+        var left = numerator;
+        var right = denominator;
+        while (right != 0) { (left, right) = (right, left % right); }
+        return (numerator / left, denominator / left);
     }
 
     private static string? ReadString(JsonObject payload, string propertyName) =>

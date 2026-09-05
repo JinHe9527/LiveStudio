@@ -37,7 +37,9 @@ jobs:
 
       - name: 依赖漏洞检查
         shell: pwsh
-        run: dotnet list LiveStudio.slnx package --vulnerable --include-transitive
+        run: |
+          ./tests/Test-DependencyGate.ps1
+          ./deploy/windows/Test-Dependencies.ps1
 
   cloud-integration:
     runs-on: ubuntu-latest

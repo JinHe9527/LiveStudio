@@ -32,10 +32,15 @@ jobs:
         shell: pwsh
         run: |
           dotnet restore LiveStudio.slnx
+          if ($LASTEXITCODE -ne 0) { throw '依赖还原失败' }
           dotnet build LiveStudio.slnx --configuration Release --no-restore --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Release 编译失败' }
           dotnet test LiveStudio.slnx --configuration Release --no-build --nologo
+          if ($LASTEXITCODE -ne 0) { throw '测试失败' }
           dotnet format LiveStudio.slnx --verify-no-changes --no-restore
-          dotnet list LiveStudio.slnx package --vulnerable --include-transitive
+          if ($LASTEXITCODE -ne 0) { throw '格式检查失败' }
+          ./tests/Test-DependencyGate.ps1
+          ./deploy/windows/Test-Dependencies.ps1
 
       - name: 导入内部代码签名证书
         shell: pwsh

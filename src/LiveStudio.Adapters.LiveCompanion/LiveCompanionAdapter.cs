@@ -5,14 +5,22 @@ using LiveStudio.Core;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
-public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCatalog) : IApplicationAdapter
+public sealed class LiveCompanionAdapter(
+    LiveCompanionAdapterCatalog adapterCatalog,
+    ILiveCompanionVideoDeviceCatalog? videoDeviceCatalog = null) : IApplicationAdapter
 {
     private static readonly TimeSpan ReadbackMinimumObservation = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan ReadbackPollInterval = TimeSpan.FromMilliseconds(500);
     private const int RequiredStableReadbackCaptures = 2;
+    internal const string ReadOnlyRecoveryBackupAdapterId = "webcast-mate-recovery-backup-readonly";
     private readonly LiveCompanionConfigurationStore configurationStore = new();
 
     public ApplicationKind Kind => ApplicationKind.LiveCompanion;
+
+    // MediaSDK enums inspected in the signed 12.9.2 application; absent optional fields use native defaults.
+    internal static bool IsSupportedColorMode(VideoMode mode) =>
+        mode.ColorSpace is "" or "0" or "1" or "2" or "3" or "4" or "5" or "6" or "7" or "8"
+        && mode.ColorRange is "" or "0" or "1" or "2" or "3";
 
     public Task<ApplicationRuntimeStatus> InspectAsync(CancellationToken cancellationToken)
     {
@@ -50,7 +58,12 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             false));
     }
 
-    public async Task<ApplicationSnapshot> CaptureAsync(CancellationToken cancellationToken)
+    public Task<ApplicationSnapshot> CaptureAsync(CancellationToken cancellationToken) =>
+        CaptureAsync(false, cancellationToken);
+
+    private async Task<ApplicationSnapshot> CaptureAsync(
+        bool forRestoreBackup,
+        CancellationToken cancellationToken)
     {
         var process = LiveCompanionProcessController.FindRunning();
         var executablePath = process?.ExecutablePath
@@ -62,18 +75,20 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         return await CaptureConsistentFromDiskAsync(
             NormalizeVersion(version),
             process is not null,
+            forRestoreBackup,
             cancellationToken);
     }
 
     private async Task<ApplicationSnapshot> CaptureConsistentFromDiskAsync(
         string version,
         bool wasRunning,
+        bool forRestoreBackup,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            var first = await CaptureFromDiskAsync(version, wasRunning, cancellationToken);
-            var second = await CaptureFromDiskAsync(version, wasRunning, cancellationToken);
+            var first = await CaptureFromDiskAsync(version, wasRunning, forRestoreBackup, cancellationToken);
+            var second = await CaptureFromDiskAsync(version, wasRunning, forRestoreBackup, cancellationToken);
             var firstHash = ComputeCaptureHash(first);
             var secondHash = ComputeCaptureHash(second);
             if (string.Equals(firstHash, secondHash, StringComparison.Ordinal))
@@ -96,6 +111,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
     private async Task<ApplicationSnapshot> CaptureFromDiskAsync(
         string version,
         bool wasRunning,
+        bool forRestoreBackup,
         CancellationToken cancellationToken)
     {
         var discoveredDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
@@ -120,6 +136,12 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             out var portableFailureReason);
         if (portableProfile is null)
         {
+            if (forRestoreBackup)
+            {
+                return await CreateReadOnlyRecoveryBackupAsync(
+                    version, wasRunning, discoveredDocuments, cancellationToken);
+            }
+
             throw new InvalidOperationException(
                 $"直播伴侣当前配置无法生成可跨电脑恢复的画面存档：{portableFailureReason}");
         }
@@ -161,6 +183,35 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             documents,
             configurationTree,
             filterChains);
+    }
+
+    internal static async Task<ApplicationSnapshot> CreateReadOnlyRecoveryBackupAsync(
+        string version,
+        bool wasRunning,
+        IReadOnlyList<NativeConfigurationDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        // This archive preserves the audited pre-restore state even when the camera has been
+        // deleted. It is never a writable target; native transaction journals still own rollback.
+        var tree = await LiveCompanionAssetMapper.CaptureAsync(
+            LiveCompanionConfigurationTree.Create(documents, null), cancellationToken);
+        var coverage = documents.SelectMany(document => document.Values.SelectMany(value =>
+            EnumerateDiscoveryCoverage(
+                document, value.Value, $"{document.RelativePath}:{value.JsonPointer}",
+                value.Category, value.JsonPointer, "恢复前只读备份"))).ToArray();
+        return new ApplicationSnapshot(
+            ApplicationKind.LiveCompanion,
+            version,
+            ReadOnlyRecoveryBackupAdapterId,
+            string.Empty,
+            LiveCompanionStructureFingerprint.Compute(documents),
+            CompatibilityLevel.Unsupported,
+            wasRunning,
+            coverage,
+            [],
+            documents,
+            tree,
+            []);
     }
 
     private static CapturedParameterField[] CreateDefinedCoverage(
@@ -333,12 +384,20 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
     private static string EscapePointer(string value) => value.Replace("~", "~0", StringComparison.Ordinal)
         .Replace("/", "~1", StringComparison.Ordinal);
 
-    public async Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken)
+    public Task<ApplicationSnapshot> CaptureStableAsync(CancellationToken cancellationToken) =>
+        CaptureStableAsync(false, cancellationToken);
+
+    public Task<ApplicationSnapshot> CaptureRestoreBackupAsync(CancellationToken cancellationToken) =>
+        CaptureStableAsync(true, cancellationToken);
+
+    private async Task<ApplicationSnapshot> CaptureStableAsync(
+        bool forRestoreBackup,
+        CancellationToken cancellationToken)
     {
         var process = LiveCompanionProcessController.FindRunning();
         if (process is null)
         {
-            return await CaptureAsync(cancellationToken);
+            return await CaptureAsync(forRestoreBackup, cancellationToken);
         }
 
         var executablePath = process.ExecutablePath
@@ -353,6 +412,7 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
             return await CaptureConsistentFromDiskAsync(
                 NormalizeVersion(version),
                 true,
+                forRestoreBackup,
                 cancellationToken);
         }
         finally
@@ -399,6 +459,11 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
 
     public ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot)
     {
+        if (snapshot.AdapterId == ReadOnlyRecoveryBackupAdapterId)
+        {
+            return snapshot;
+        }
+
         if (snapshot.Kind != ApplicationKind.LiveCompanion || snapshot.NativeDocuments.Count == 0)
         {
             return snapshot;
@@ -486,6 +551,12 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         RestoreExecutionContext context,
         CancellationToken cancellationToken)
     {
+        if (context.Snapshot.AdapterId == ReadOnlyRecoveryBackupAdapterId)
+        {
+            return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
+                "这是恢复前不完整画面的只读备份，仅供检查；不能作为画面恢复目标");
+        }
+
         var assets = SnapshotAssetBindings.Collect([context.Snapshot]);
         var missingAsset = LiveCompanionAssetMapper.FindUnresolvedAssetPaths(
                 context.Snapshot.NativeDocuments,
@@ -514,6 +585,15 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     $"目标直播伴侣版本或摄像头存储结构不受支持: {targetMatch.Reason}");
             }
 
+            var signedVersion = CompatibilityMatcher.MatchCandidates(
+                portableRuntime.Version, [targetMatch.Adapter], "可移植恢复版本");
+            if (signedVersion.Level != AdapterMatchLevel.Verified
+                && !LiveCompanionAdapterCatalog.MatchesCompatibleShape(targetMatch.Adapter.Definition, portableTargetDocuments))
+            {
+                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
+                    "目标直播伴侣版本不在签名恢复范围，且未通过完整字段结构匹配；允许保存读取，禁止写入");
+            }
+
             var targetDeviceId = portableProfile.ResolveTargetDeviceId(
                 context.Mappings.ToDictionary(mapping => mapping.SourceLogicalId));
             if (string.IsNullOrWhiteSpace(targetDeviceId))
@@ -522,6 +602,23 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
                     JobStatus.MappingRequired,
                     "请选择存档摄像头在这台电脑上对应的视频设备");
             }
+
+            var mode = portableProfile.CreateVideoSource().Mode;
+            if (portableProfile.FindTargetTypeMismatch(portableTargetDocuments) is { } incompatiblePath)
+            {
+                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
+                    $"目标画面参数类型与存档不兼容：{incompatiblePath}");
+            }
+            if (videoDeviceCatalog is null || mode is null)
+            {
+                return RestorePreflightResult.Fail(JobStatus.MappingRequired, "无法验证目标视频设备能力，尚未写入画面配置");
+            }
+            if (!IsSupportedColorMode(mode))
+            {
+                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, "存档的色彩空间或色彩范围不在已确认的直播伴侣枚举范围，尚未写入配置");
+            }
+            var deviceCheck = await videoDeviceCatalog.ValidateAsync(targetDeviceId, mode, cancellationToken);
+            if (!deviceCheck.CanProceed) { return deviceCheck; }
 
             try
             {
@@ -631,6 +728,10 @@ public sealed class LiveCompanionAdapter(LiveCompanionAdapterCatalog adapterCata
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (context.Snapshot.AdapterId == ReadOnlyRecoveryBackupAdapterId)
+        {
+            throw new InvalidOperationException("恢复前只读备份禁止写入");
+        }
         var detectedProcess = LiveCompanionProcessController.FindRunning();
         var executablePath = detectedProcess is null
             ? LiveCompanionProcessController.FindInstalledExecutable()

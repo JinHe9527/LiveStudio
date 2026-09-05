@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using LiveStudio.Agent;
 using LiveStudio.Contracts;
 using LiveStudio.Packaging;
@@ -9,6 +11,36 @@ namespace LiveStudio.Agent.Tests;
 
 public sealed class SnapshotTransferServiceTests : IDisposable
 {
+    [Theory]
+    [InlineData("publicKeyPem", "not-a-pem-key")]
+    [InlineData("signatureBase64", null)]
+    public async Task InvalidSignerMetadataDoesNotPreventAgentStartupReconciliation(string property, string? value)
+    {
+        var fixture = await CreateFixtureAsync();
+        var damaged = await fixture.CreateSignedPackageWithoutIndexAsync("损坏存档");
+        var healthy = await fixture.CreateSignedPackageWithoutIndexAsync("正常存档");
+        using (var archive = ZipFile.Open(damaged.Path, ZipArchiveMode.Update))
+        {
+            var entry = archive.GetEntry("signature.json")!;
+            JsonNode signature;
+            using (var input = entry.Open())
+            {
+                signature = JsonNode.Parse(input)!;
+            }
+            signature[property] = value;
+            entry.Delete();
+            using var output = new StreamWriter(archive.CreateEntry("signature.json").Open());
+            await output.WriteAsync(signature.ToJsonString());
+        }
+
+        var result = await fixture.Service.ReconcileManagedDirectoryAsync(CancellationToken.None);
+
+        Assert.Single(result.Errors);
+        Assert.Equal(1, result.IndexedCount);
+        Assert.NotNull(await fixture.Index.FindAsync(healthy.Id, CancellationToken.None));
+        Assert.True(File.Exists(damaged.Path));
+    }
+
     private readonly string testRoot = Path.Combine(
         Path.GetTempPath(),
         "LiveStudio.Agent.Tests",

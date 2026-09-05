@@ -1063,6 +1063,17 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                     continue;
                 }
 
+                // Preserve a genuinely empty native container as structural evidence. Without
+                // it, deleting the last camera makes the whole source document disappear.
+                // Never copy unrelated sources or scene layout into the camera projection.
+                if (!container.EnumerateObject().Any())
+                {
+                    destination.Add(new NativeConfigurationValue(
+                        $"/sourceStore/sceneSource/{EscapePointer(scene.Name)}/{containerName}",
+                        NativeParameterCategories.Unmapped,
+                        container.Clone()));
+                }
+
                 foreach (var source in container.EnumerateObject())
                 {
                     if (source.Value.ValueKind != JsonValueKind.Object

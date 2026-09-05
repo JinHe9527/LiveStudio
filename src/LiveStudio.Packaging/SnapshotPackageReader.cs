@@ -326,6 +326,7 @@ public static class SnapshotPackageReader
         if (string.IsNullOrWhiteSpace(signature.KeyId)
             || signature.KeyId.Length > 128
             || string.IsNullOrWhiteSpace(signature.PublicKeyPem)
+            || string.IsNullOrWhiteSpace(signature.SignatureBase64)
             || signature.PublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
         {
             throw new SnapshotPackageException("存档签名者信息无效");
@@ -334,9 +335,9 @@ public static class SnapshotPackageReader
 
     private static ECDsa CreateEmbeddedKey(string publicKeyPem)
     {
+        var key = ECDsa.Create();
         try
         {
-            var key = ECDsa.Create();
             key.ImportFromPem(publicKeyPem);
             if (key.KeySize != 256)
             {
@@ -346,8 +347,9 @@ public static class SnapshotPackageReader
 
             return key;
         }
-        catch (CryptographicException exception)
+        catch (Exception exception) when (exception is CryptographicException or ArgumentException)
         {
+            key.Dispose();
             throw new SnapshotPackageException("存档签名公钥无效", exception);
         }
     }

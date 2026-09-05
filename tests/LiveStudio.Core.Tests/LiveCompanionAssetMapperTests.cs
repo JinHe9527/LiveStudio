@@ -34,6 +34,23 @@ public sealed class LiveCompanionAssetMapperTests
     }
 
     [Fact]
+    public async Task EmptyExternalLutFailsCaptureBeforeAnUnrestorablePackageIsCreated()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(directory, "empty.cube");
+            await File.WriteAllBytesAsync(path, []);
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                LiveCompanionAssetMapper.CaptureAsync(CreateTree(path), CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task MissingExternalLutFailsCaptureInsteadOfSavingOnlyTheOldPath()
     {
         var directory = CreateTemporaryDirectory();

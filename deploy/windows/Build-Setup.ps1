@@ -30,6 +30,22 @@ foreach ($requiredPath in @($resolvedPackagePath, $resolvedChecksumPath, $resolv
     }
 }
 
+$packageArchive = [IO.Compression.ZipFile]::OpenRead($resolvedPackagePath)
+try {
+    $manifestEntry = $packageArchive.GetEntry('AppxManifest.xml')
+    if (-not $manifestEntry) { throw 'MSIX 缺少 AppxManifest.xml。' }
+    $manifestReader = [IO.StreamReader]::new($manifestEntry.Open())
+    try {
+        [xml]$packageManifest = $manifestReader.ReadToEnd()
+        $packageVersion = [string]$packageManifest.Package.Identity.Version
+        if ($packageVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw 'MSIX 包版本无效。'
+        }
+    }
+    finally { $manifestReader.Dispose() }
+}
+finally { $packageArchive.Dispose() }
+
 $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
 $signTool = Get-ChildItem -Path $sdkRoot -Filter signtool.exe -Recurse |
     Where-Object FullName -Match '\\x64\\signtool\.exe$' |
@@ -44,6 +60,7 @@ try {
     New-Item -ItemType Directory -Path $publishDirectory, $resolvedOutputDirectory -Force | Out-Null
     & dotnet publish (Join-Path $repositoryRoot 'src\LiveStudio.Setup\LiveStudio.Setup.csproj') `
         -c Release -r win-x64 --self-contained true -o $publishDirectory `
+        "-p:Version=$packageVersion" `
         "-p:LiveStudioPackagePath=$resolvedPackagePath" `
         "-p:LiveStudioChecksumPath=$resolvedChecksumPath" `
         "-p:LiveStudioCertificatePath=$resolvedCertificatePath"

@@ -9,8 +9,10 @@ namespace LiveStudio.Agent.Tests;
 
 public sealed class SnapshotCaptureTransactionTests
 {
-    [Fact]
-    public async Task CaptureUsesStableAdapterBoundary()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CaptureUsesStableAdapterBoundary(bool forRestoreBackup)
     {
         var root = Path.Combine(Path.GetTempPath(), "LiveStudioCaptureTests", Guid.NewGuid().ToString("N"));
         var indexRoot = Path.Combine(root, "index");
@@ -39,12 +41,16 @@ public sealed class SnapshotCaptureTransactionTests
                 operationGate,
                 snapshotRoot);
 
-            var snapshot = await service.CaptureAsync("稳定读取测试", CancellationToken.None);
+            var snapshot = forRestoreBackup
+                ? await service.CaptureForRestoreBackupAsync("恢复前备份", null, CancellationToken.None)
+                : await service.CaptureAsync("稳定读取测试", CancellationToken.None);
 
             Assert.Equal(0, obs.DirectCaptureCount);
-            Assert.Equal(1, obs.StableCaptureCount);
+            Assert.Equal(forRestoreBackup ? 0 : 1, obs.StableCaptureCount);
+            Assert.Equal(forRestoreBackup ? 1 : 0, obs.BackupCaptureCount);
             Assert.Equal(0, companion.DirectCaptureCount);
-            Assert.Equal(1, companion.StableCaptureCount);
+            Assert.Equal(forRestoreBackup ? 0 : 1, companion.StableCaptureCount);
+            Assert.Equal(forRestoreBackup ? 1 : 0, companion.BackupCaptureCount);
             Assert.True(File.Exists(snapshot.PackagePath));
         }
         finally
@@ -234,6 +240,14 @@ public sealed class SnapshotCaptureTransactionTests
         public int DirectCaptureCount { get; private set; }
 
         public int StableCaptureCount { get; private set; }
+
+        public int BackupCaptureCount { get; private set; }
+
+        public Task<ApplicationSnapshot> CaptureRestoreBackupAsync(CancellationToken cancellationToken)
+        {
+            BackupCaptureCount++;
+            return CreateSnapshot();
+        }
 
         public Task<ApplicationRuntimeStatus> InspectAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new ApplicationRuntimeStatus(true, false, false, "1.0.0", true));

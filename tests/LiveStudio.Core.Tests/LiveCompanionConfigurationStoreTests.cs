@@ -62,6 +62,27 @@ public sealed class LiveCompanionConfigurationStoreTests
         Assert.Equal("source-device", videoSource.Device?.InterfaceHint);
         Assert.Equal(1920, videoSource.Mode?.Width);
         Assert.Equal(60, videoSource.Mode?.FramesPerSecondNumerator);
+        var fractionalSource = source with
+        {
+            Values = source.Values.Select(value => value.JsonPointer.EndsWith("/rate", StringComparison.Ordinal)
+                ? value with { Value = JsonSerializer.SerializeToElement(29.97m) } : value).ToArray()
+        };
+        var fractionalMode = LiveCompanionPortableProfile.TryCreate([fractionalSource, effect, global])!.CreateVideoSource().Mode;
+        Assert.Equal(2997, fractionalMode?.FramesPerSecondNumerator);
+        Assert.Equal(100, fractionalMode?.FramesPerSecondDenominator);
+        Assert.Null(profile.FindTargetTypeMismatch([source, effect, global]));
+        var incompatibleEffect = effect with
+        {
+            Values = effect.Values.Select(value => value.JsonPointer.EndsWith("/absVal", StringComparison.Ordinal)
+                ? value with { Value = JsonSerializer.SerializeToElement("wrong-type") } : value).ToArray()
+        };
+        Assert.EndsWith("/absVal", profile.FindTargetTypeMismatch([source, incompatibleEffect, global]), StringComparison.Ordinal);
+        var toggledEffect = effect with
+        {
+            Values = effect.Values.Select(value => value.Value.ValueKind == JsonValueKind.True
+                ? value with { Value = JsonSerializer.SerializeToElement(false) } : value).ToArray()
+        };
+        Assert.Null(profile.FindTargetTypeMismatch([source, toggledEffect, global]));
 
         var mapping = new DeviceMapping(
             Guid.NewGuid(),
