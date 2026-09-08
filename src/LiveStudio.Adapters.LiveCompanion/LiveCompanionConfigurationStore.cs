@@ -254,6 +254,20 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 }
             }
         }
+
+        // 恢复还会写权威摄像头缓存，必须与 WBStore 一样在事务前检查。
+        var cameraPayloadPath = new LiveCompanionCameraPayloadStore(RootPath).Path;
+        if (!File.Exists(cameraPayloadPath))
+        {
+            throw new InvalidOperationException("目标缺少权威摄像头配置 camera-payloads.json");
+        }
+        ValidateWritePermission(cameraPayloadPath);
+        await using var cameraStream = File.OpenRead(cameraPayloadPath);
+        using var cameraJson = await JsonDocument.ParseAsync(cameraStream, cancellationToken: cancellationToken);
+        if (cameraJson.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("权威摄像头配置 camera-payloads.json 的根节点不是对象");
+        }
     }
 
     private static void ValidateWritePermission(string path)
@@ -513,6 +527,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                          StringComparison.OrdinalIgnoreCase)))
         {
             var path = ResolveDocumentPath(document);
+            var appliedPointers = new List<string>();
             JsonNode root;
             await using (var stream = new FileStream(
                              path,
@@ -542,6 +557,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 if (!pointerUsesSourceIdentifiers && !valueUsesSourceIdentifiers)
                 {
                     SetPointer(root, value.JsonPointer, valueNode);
+                    appliedPointers.Add(value.JsonPointer);
                     continue;
                 }
 
@@ -556,10 +572,28 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                         [sourceCamera.SourceId] = target.SourceId,
                         [sourceCamera.EffectConfigurationId] = target.EffectConfigurationId
                     };
+                    var targetPointer = TranslatePointer(value.JsonPointer, replacements);
                     SetPointer(
                         root,
-                        TranslatePointer(value.JsonPointer, replacements),
+                        targetPointer,
                         ReplaceIdentifiers(valueNode, replacements));
+                    appliedPointers.Add(targetPointer);
+                }
+            }
+
+            // 效果配置是完整投影，数组尾项也必须恢复。全局文档仅含签名选择的
+            // 字段，不能据此删除未进入本次投影的全局数组项。
+            if (string.Equals(Path.GetFileName(document.RelativePath), "effectConfigStore.json", StringComparison.OrdinalIgnoreCase))
+            {
+                var actual = JsonSerializer.SerializeToElement(root);
+                foreach (var (pointer, length) in LiveCompanionRestoreVerifier.GetExpectedArrayLengths(actual, appliedPointers)
+                             .OrderByDescending(pair => pair.Key.Count(character => character == '/')))
+                {
+                    TryGetPointer(JsonSerializer.SerializeToElement(root), pointer, out var array);
+                    if (array.GetArrayLength() > length)
+                    {
+                        SetPointer(root, pointer, JsonNode.Parse(JsonSerializer.Serialize(array.EnumerateArray().Take(length))));
+                    }
                 }
             }
 
@@ -1021,7 +1055,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         var sanitized = Sanitize(element);
-        if (sanitized is not null)
+        if (sanitized is not null || element.ValueKind == JsonValueKind.Null)
         {
             destination.Add(new NativeConfigurationValue(
                 string.IsNullOrEmpty(pointer) ? "/" : pointer,

@@ -98,7 +98,9 @@ public sealed class LiveCompanionAdapterCatalog
         IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
     {
         var candidates = adapters.Value.Where(adapter =>
-            LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments))
+            LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments)
+            && (!adapter.Definition.RequirePortableFieldShapeMatch
+                || MatchesPortableFieldShape(adapter, discoveredDocuments, true)))
             .ToArray();
         return CompatibilityMatcher.MatchPortableCapabilityCandidates(
             applicationVersion,
@@ -140,6 +142,32 @@ public sealed class LiveCompanionAdapterCatalog
         }
 
         return true;
+    }
+
+    internal static bool MatchesPortableFieldShape(
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> documents,
+        bool requireAllFields)
+    {
+        var profile = LiveCompanionPortableProfile.TryCreate(documents);
+        if (profile is null) { return false; }
+        var binding = LiveCompanionRuntimeBinding.TryCreate(adapter.Definition,
+            [profile.SourceStoreDocument, profile.EffectConfigurationDocument]);
+        if (binding is null) { return false; }
+        var stores = adapter.Definition.Stores.ToDictionary(store => store.Id, StringComparer.Ordinal);
+        var declared = adapter.Definition.Fields.ToDictionary(
+            field => $"{NormalizeLocation(stores[field.StoreId].Location)}:{binding.ToRuntimePointer(field.NativePath)}",
+            StringComparer.Ordinal);
+        var actual = profile.CreateExpectedDocuments(adapter, new Dictionary<Guid, DeviceMapping>(), [], Path.GetTempPath())
+            .SelectMany(document => document.Values.Select(value => new
+            {
+                Key = $"{NormalizeLocation(document.RelativePath)}:{value.JsonPointer}",
+                value.Value
+            })).ToDictionary(value => value.Key, value => value.Value, StringComparer.Ordinal);
+        return actual.All(pair => declared.TryGetValue(pair.Key, out var field)
+                && MatchesValueType(field.ValueType, pair.Value.ValueKind))
+            && (!requireAllFields || declared.Where(pair => LiveCompanionConfigurationStore.IsRequiredRestorableField(pair.Value))
+                .All(pair => actual.ContainsKey(pair.Key)));
     }
 
     internal static bool MatchesCompatibleShape(

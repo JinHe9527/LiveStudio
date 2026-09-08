@@ -6,6 +6,23 @@ namespace LiveStudio.Adapters.LiveCompanion;
 
 internal static class LiveCompanionRestoreVerifier
 {
+    internal static async Task<IReadOnlyList<string>> VerifyAllAsync(
+        string rootPath,
+        IReadOnlyList<NativeConfigurationDocument> expectedDocuments,
+        LiveCompanionCameraTarget expectedCamera,
+        IReadOnlyList<LiveCompanionActiveCamera> cameras,
+        CancellationToken cancellationToken)
+    {
+        if (cameras.Count == 0) { return ["没有可回读的目标摄像头"]; }
+        var differences = new List<string>();
+        foreach (var camera in cameras)
+        {
+            var result = await VerifyAsync(rootPath, expectedDocuments, expectedCamera, camera, cancellationToken);
+            differences.AddRange(result.Select(difference => $"{camera.SceneId}/{camera.SourceId}: {difference}"));
+        }
+        return differences;
+    }
+
     public static async Task<IReadOnlyList<string>> VerifyAsync(
         string rootPath,
         IReadOnlyList<NativeConfigurationDocument> expectedDocuments,
@@ -38,6 +55,8 @@ internal static class LiveCompanionRestoreVerifier
                 131_072,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var actualRoot = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var arrayLengths = GetExpectedArrayLengths(actualRoot.RootElement,
+                document.Values.Select(value => TranslatePointer(value.JsonPointer, replacements)));
             foreach (var expected in document.Values)
             {
                 var translatedPointer = TranslatePointer(expected.JsonPointer, replacements);
@@ -59,9 +78,37 @@ internal static class LiveCompanionRestoreVerifier
                     differences.Add($"{document.RelativePath}:{translatedPointer} 不一致");
                 }
             }
+            foreach (var (pointer, expectedLength) in arrayLengths)
+            {
+                if (LiveCompanionConfigurationStore.TryGetPointer(actualRoot.RootElement, pointer, out var array)
+                    && array.GetArrayLength() != expectedLength)
+                {
+                    differences.Add($"{document.RelativePath}:{pointer} 数组长度不一致（目标 {expectedLength}，实际 {array.GetArrayLength()}）");
+                }
+            }
         }
 
         return differences;
+    }
+
+    internal static Dictionary<string, int> GetExpectedArrayLengths(JsonElement actualRoot, IEnumerable<string> pointers)
+    {
+        var lengths = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var pointer in pointers)
+        {
+            var segments = pointer.Split('/');
+            for (var index = 1; index < segments.Length; index++)
+            {
+                if (!int.TryParse(segments[index], out var itemIndex) || itemIndex < 0) { continue; }
+                var arrayPointer = string.Join('/', segments.Take(index));
+                if (LiveCompanionConfigurationStore.TryGetPointer(actualRoot, arrayPointer, out var container)
+                    && container.ValueKind == JsonValueKind.Array)
+                {
+                    lengths[arrayPointer] = Math.Max(lengths.GetValueOrDefault(arrayPointer), checked(itemIndex + 1));
+                }
+            }
+        }
+        return lengths;
     }
 
     private static string TranslatePointer(

@@ -114,6 +114,30 @@ public sealed class LiveCompanionConfigurationStoreTests
         Assert.Contains(expectedGlobal.Values, value =>
             value.JsonPointer == "/effectStore/interactSourceId"
             && value.Value.GetString() == "source-machine-camera-a");
+        var coverage = profile.CreateFieldCoverage(CreatePortableAdapter());
+        Assert.Contains(coverage, field => field.NativePath.EndsWith(":/effectStore/useCurveFilter", StringComparison.Ordinal));
+        var matrixDefinition = CreatePortableAdapter().Definition with
+        {
+            RequirePortableFieldShapeMatch = true,
+            Fields = profile.CreateExpectedDocuments(CreatePortableAdapter(), new Dictionary<Guid, DeviceMapping>(), [], Path.GetTempPath())
+                .SelectMany(document => document.Values.Select(value => new FieldMappingDefinition(
+                    document.RelativePath + ":" + value.JsonPointer, UnifiedFieldKind.NativeField,
+                    CreatePortableAdapter().Definition.Stores.Single(store => store.Location == document.RelativePath).Id,
+                    value.JsonPointer, value.Value.ValueKind switch
+                    {
+                        JsonValueKind.True or JsonValueKind.False => "bool",
+                        JsonValueKind.Number => "number",
+                        _ => "string"
+                    }, true, true))).ToArray()
+        };
+        var matrix = new VerifiedAdapterDefinition(matrixDefinition, "test", new string('c', 64));
+        Assert.True(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(matrix, [source, effect, global], true));
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(matrix, [source, incompatibleEffect, global], true));
+        var unknownEffect = effect with { Values = effect.Values.Append(Value("/effectConfigStore/configs/source-effect/new-field", 1)).ToArray() };
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(matrix, [source, unknownEffect, global], true));
+        var missingEffect = effect with { Values = effect.Values.Skip(1).ToArray() };
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(matrix, [source, missingEffect, global], true));
+        Assert.True(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(matrix, [source, missingEffect, global], false));
     }
 
     private static VerifiedAdapterDefinition CreatePortableAdapter()
@@ -1254,6 +1278,8 @@ public sealed class LiveCompanionConfigurationStoreTests
         var configurationPath = Path.Combine(storeDirectory, "sourceStore.json");
         await File.WriteAllTextAsync(lutPath, "LUT_3D_SIZE 2", Encoding.UTF8);
         await File.WriteAllTextAsync(configurationPath, OriginalConfiguration(lutPath), Encoding.UTF8);
+        Directory.CreateDirectory(Path.Combine(root, "storage"));
+        await File.WriteAllTextAsync(Path.Combine(root, "storage", "camera-payloads.json"), "{}");
         return new LiveCompanionFixture(root, configurationPath, lutPath);
     }
 

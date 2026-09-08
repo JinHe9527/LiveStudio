@@ -373,6 +373,12 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
                 }
             }
 
+            // 数组长度、顺序本身就是画面参数；保留尾项会遗留滤镜或曲线控制点。
+            while (result.Count > expectedArray.Count)
+            {
+                result.RemoveAt(result.Count - 1);
+            }
+
             return result;
         }
 
@@ -445,6 +451,11 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
                     throw new InvalidOperationException("存档摄像头配置缺少设备名称");
                 }
 
+                if (result.TryGetValue(deviceId, out var previous)
+                    && !JsonNode.DeepEquals(previous, payload))
+                {
+                    throw new InvalidOperationException($"设备 {deviceId} 存在不同摄像头配置，不能合并覆盖");
+                }
                 result[deviceId] = payload;
             }
         }

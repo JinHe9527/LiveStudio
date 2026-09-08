@@ -97,6 +97,11 @@ try {
 }
 finally {
     if ([IO.Directory]::Exists($stagingRoot)) {
-        [IO.Directory]::Delete($stagingRoot, $true)
+        $resolvedStaging = [IO.Path]::GetFullPath($stagingRoot)
+        if ([IO.Path]::GetDirectoryName($resolvedStaging) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') -or
+            [IO.Path]::GetFileName($resolvedStaging) -ne "LiveStudio-MSIX-$buildIdentifier") {
+            throw '拒绝清理超出本次 MSIX 临时目录边界的路径。'
+        }
+        [IO.Directory]::Delete($resolvedStaging, $true)
     }
 }

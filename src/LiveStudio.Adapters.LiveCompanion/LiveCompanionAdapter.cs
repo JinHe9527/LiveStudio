@@ -161,7 +161,7 @@ public sealed class LiveCompanionAdapter(
 
         var documents = discoveredDocuments;
         IReadOnlyList<VideoSource> sources = [portableProfile.CreateVideoSource()];
-        var coverage = portableProfile.CreateFieldCoverage();
+        var coverage = portableProfile.CreateFieldCoverage(portableMatch.Adapter);
         // Portable documents intentionally retain the complete discovery tree and its original
         // document identities. They are rebound through the signed adapter only during restore;
         // projecting them as signed stores here would collapse the four discovery documents that
@@ -497,7 +497,7 @@ public sealed class LiveCompanionAdapter(
                     AdapterDefinitionSha256 = portableMatch.Adapter.DefinitionSha256,
                     Compatibility = CompatibilityLevel.Experimental,
                     Sources = sources,
-                    FieldCoverage = portableProfile.CreateFieldCoverage()
+                    FieldCoverage = portableProfile.CreateFieldCoverage(portableMatch.Adapter)
                 };
             }
         }
@@ -575,6 +575,8 @@ public sealed class LiveCompanionAdapter(
         {
             var portableRuntime = await InspectAsync(cancellationToken);
             var portableTargetDocuments = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            var targetSelection = LiveCompanionPortableProfile.ValidateTargetSelection(portableTargetDocuments);
+            if (!targetSelection.CanProceed) { return targetSelection; }
             var targetMatch = adapterCatalog.MatchPortableTarget(
                 portableRuntime.Version,
                 portableTargetDocuments);
@@ -587,6 +589,13 @@ public sealed class LiveCompanionAdapter(
 
             var signedVersion = CompatibilityMatcher.MatchCandidates(
                 portableRuntime.Version, [targetMatch.Adapter], "可移植恢复版本");
+            if (targetMatch.Adapter.Definition.RequirePortableFieldShapeMatch
+                && (!LiveCompanionAdapterCatalog.MatchesPortableFieldShape(targetMatch.Adapter, portableTargetDocuments, true)
+                    || !LiveCompanionAdapterCatalog.MatchesPortableFieldShape(targetMatch.Adapter, context.Snapshot.NativeDocuments, false)))
+            {
+                return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
+                    "存档或目标摄像头包含未匹配签名字段矩阵的路径、类型或缺失字段；尚未写入配置");
+            }
             if (signedVersion.Level != AdapterMatchLevel.Verified
                 && !LiveCompanionAdapterCatalog.MatchesCompatibleShape(targetMatch.Adapter.Definition, portableTargetDocuments))
             {
@@ -976,21 +985,17 @@ public sealed class LiveCompanionAdapter(
             }
             else
             {
-                // 直播伴侣可能在其他场景保留同一设备的摄像头实例。不能仅凭设备名
-                // 任选一个；逐个执行完整回读，任一实例与目标完全一致即可证明当前
-                // 存档已经落地，无需再打开原生菜单或重复导入效果包。
-                foreach (var candidate in active)
+                // 必须核对全部绑定实例；一个匹配不能掩盖其他实例的错误。
+                var existingDifferences = await LiveCompanionRestoreVerifier.VerifyAllAsync(
+                    configurationStore.RootPath, expected, target, active, cancellationToken);
+                if (existingDifferences.Count == 0)
                 {
-                    var existingDifferences = await LiveCompanionRestoreVerifier.VerifyAsync(
-                        configurationStore.RootPath,
-                        expected,
-                        target,
-                        candidate,
-                        cancellationToken);
-                    if (existingDifferences.Count == 0)
-                    {
-                        return new RestoreVerificationResult(true, []);
-                    }
+                    return new RestoreVerificationResult(true, []);
+                }
+                if (active.Length > 1)
+                {
+                    // 原生菜单目前只能确定唯一摄像头行，不可在多实例中点击猜测位置。
+                    return new RestoreVerificationResult(false, existingDifferences);
                 }
 
                 var activeEffectGroups = active
@@ -1059,18 +1064,8 @@ public sealed class LiveCompanionAdapter(
                     [$"重启后未找到摄像头 {target.DeviceId}"]);
             }
 
-            var allDifferences = new List<string>();
-            foreach (var restoredCamera in restored)
-            {
-                var differences = await LiveCompanionRestoreVerifier.VerifyAsync(
-                    configurationStore.RootPath,
-                    expected,
-                    target,
-                    restoredCamera,
-                    cancellationToken);
-                allDifferences.AddRange(differences.Select(difference =>
-                    $"{restoredCamera.SceneId}/{restoredCamera.SourceId}: {difference}"));
-            }
+            var allDifferences = await LiveCompanionRestoreVerifier.VerifyAllAsync(
+                configurationStore.RootPath, expected, target, restored, cancellationToken);
 
             return new RestoreVerificationResult(allDifferences.Count == 0, allDifferences);
         }

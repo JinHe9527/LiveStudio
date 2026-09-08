@@ -105,6 +105,11 @@ try {
 }
 finally {
     if ([IO.Directory]::Exists($publishDirectory)) {
-        [IO.Directory]::Delete($publishDirectory, $true)
+        $resolvedPublish = [IO.Path]::GetFullPath($publishDirectory)
+        if ([IO.Path]::GetDirectoryName($resolvedPublish) -ne [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') -or
+            [IO.Path]::GetFileName($resolvedPublish) -notmatch '^LiveStudio-Setup-[0-9a-f]{32}$') {
+            throw '拒绝清理超出本次安装器临时目录边界的路径。'
+        }
+        [IO.Directory]::Delete($resolvedPublish, $true)
     }
 }

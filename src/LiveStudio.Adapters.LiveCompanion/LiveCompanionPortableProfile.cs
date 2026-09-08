@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using LiveStudio.Contracts;
+using LiveStudio.Core;
 
 namespace LiveStudio.Adapters.LiveCompanion;
 
@@ -32,6 +33,25 @@ internal sealed record LiveCompanionPortableProfile(
     ];
 
     public Guid SourceLogicalId => SourceStoreDocument.SourceLogicalId;
+
+    internal static RestorePreflightResult ValidateTargetSelection(
+        IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var source = documents.SingleOrDefault(document => string.Equals(
+            Path.GetFileName(document.RelativePath), "sourceStore.json", StringComparison.OrdinalIgnoreCase));
+        if (source is null)
+        {
+            return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion, "目标缺少摄像头存储");
+        }
+        var hasCamera = source.Values.Any(value => value.JsonPointer.EndsWith("/type", StringComparison.Ordinal)
+            && value.Value.ValueKind == JsonValueKind.String && value.Value.GetString() == "camera");
+        if (hasCamera && TryCreate(documents, out var reason) is null)
+        {
+            return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
+                $"目标摄像头配置无法安全绑定，尚未写入配置：{reason}");
+        }
+        return RestorePreflightResult.Success;
+    }
 
     public string? FindTargetTypeMismatch(IReadOnlyList<NativeConfigurationDocument> documents)
     {
@@ -88,6 +108,17 @@ internal sealed record LiveCompanionPortableProfile(
             }
 
             failureReason = $"没有读取到直播伴侣必需存储：{string.Join("、", missing)}";
+            return null;
+        }
+
+        // 扫描同时保留 data2 的证据；当前事务执行端只能绑定 data。
+        // 必须拒绝整份投影，不能静默丢弃副容器的画面后宣称完整保存。
+        if (sourceStore.Values.Any(value =>
+                PointerSegments(value.JsonPointer) is { Length: >= 6 } segments
+                && segments[0] == "sourceStore" && segments[1] == "sceneSource"
+                && segments[3] == "data2"))
+        {
+            failureReason = "检测到 data2 副来源容器中的摄像头配置，当前执行端尚未支持完整恢复，已取消整份存档";
             return null;
         }
 
@@ -256,8 +287,9 @@ internal sealed record LiveCompanionPortableProfile(
             assetDirectory);
     }
 
-    public IReadOnlyList<CapturedParameterField> CreateFieldCoverage() =>
+    public IReadOnlyList<CapturedParameterField> CreateFieldCoverage(VerifiedAdapterDefinition? adapter = null) =>
         new[] { SourceStoreDocument, EffectConfigurationDocument }
+            .Concat(adapter is null ? [] : CreateSignedGlobalDocuments(adapter))
             .SelectMany(document => document.Values.Select(value => new CapturedParameterField(
                 $"{document.RelativePath}:{value.JsonPointer}",
                 value.Category,

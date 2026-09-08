@@ -87,8 +87,12 @@ builder.Services.AddSingleton<AgentWorker>();
 builder.Services.AddSingleton<SnapshotUploadWorker>();
 builder.Services.AddSingleton<CloudAgentRuntime>();
 builder.Services.AddHostedService<LocalControlServer>();
-builder.Services.AddHostedService(services => services.GetRequiredService<LanSnapshotWorker>());
-builder.Services.AddHostedService(services => services.GetRequiredService<CloudAgentRuntime>());
+// 本机隔离验收只关闭本次进程的对外发布，不修改用户保存的注册凭据或同步设置。
+if (!string.Equals(Environment.GetEnvironmentVariable("LIVESTUDIO_LOCAL_ONLY"), "1", StringComparison.Ordinal))
+{
+    builder.Services.AddHostedService(services => services.GetRequiredService<LanSnapshotWorker>());
+    builder.Services.AddHostedService(services => services.GetRequiredService<CloudAgentRuntime>());
+}
 using var host = builder.Build();
 await host.Services.GetRequiredService<BuiltInColorCardCatalog>()
     .EnsureIntegrityAsync(CancellationToken.None);

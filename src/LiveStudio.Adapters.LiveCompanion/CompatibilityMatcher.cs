@@ -93,7 +93,11 @@ public static class CompatibilityMatcher
                 "没有同时包含四份原生存储和可移植摄像头结构的签名适配定义");
         }
 
-        var selected = candidates
+        var versionCandidates = Version.TryParse(applicationVersion, out var requestedVersion)
+            ? candidates.Where(candidate => requestedVersion >= Version.Parse(candidate.Definition.MinimumVersion)
+                && requestedVersion <= Version.Parse(candidate.Definition.MaximumVersion)).ToArray()
+            : [];
+        var selected = (versionCandidates.Length > 0 ? versionCandidates : candidates)
             .OrderByDescending(candidate => GetDefinitionRevision(candidate.Definition.Id))
             .ThenByDescending(candidate => candidate.Definition.Id, StringComparer.Ordinal)
             .ThenByDescending(candidate => Version.Parse(candidate.Definition.MaximumVersion))

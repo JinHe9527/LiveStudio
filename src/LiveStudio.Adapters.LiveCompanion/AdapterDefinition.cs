@@ -82,7 +82,8 @@ public sealed record LiveCompanionAdapterDefinition(
     LiveStateRuleDefinition LiveStateRule,
     ScreenshotRuleDefinition ScreenshotRule,
     IReadOnlyList<UiSectionDefinition>? UiSections = null,
-    string OnlineCaptureStrategy = "DoubleReadHash");
+    string OnlineCaptureStrategy = "DoubleReadHash",
+    bool RequirePortableFieldShapeMatch = false);
 
 public sealed record AdapterDefinitionSignature(
     string Algorithm,
