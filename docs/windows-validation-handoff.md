@@ -1049,3 +1049,13 @@ Release 构建不再写入腾讯云更新清单地址，也不再等待或从腾
 Windows 10.0.26200 上使用独立隔离预览进程加载本次真实 Avalonia Views 与演示 ViewModel，没有替换已安装 Desktop/Agent、修改实际 OBS/直播伴侣或执行恢复。900px 宽窗口截图位于 `artifacts/obs-connection-ui-check/settings-900.png`、`snapshots-900.png`；自动连接按钮的演示响应、存档页至手动设置的真实点击跳转均通过。该证据仅证明界面布局和命令连线，不能代替真实 OBS 开关/密码/端口变化和另一台电脑验收。
 
 下一步是在失败电脑核对实际版本，分别验证服务器关闭时自动开启、手动错误密码失败且可重试、正确端口密码连接成功，以及保存正常。尚未创建标签、发布 Release 或生成对外安装包；`Verified=0`，本轮没有增加任何画面字段覆盖或跨采集卡恢复证据。
+
+### 49.1 v0.1.27 已发布，可由其他电脑检查更新
+
+使用者随后明确要求发布并在其他电脑自行测试。版本提升为 `0.1.27`，功能提交 `8f5252b6ccbc0f41b025cd0f2a494b2e8f3abf77` 与不可变标签 `v0.1.27` 已推送。Release 工作流 `34490823118` 全部成功，包含 370 项测试、格式与依赖门、MSIX/安装器固定身份签名和安装器 `--verify-only`；同一提交的 main CI `34490822968` 与标签 CI `34490823122` 均成功，包括 PostgreSQL/MinIO 集成测试。
+
+正式 Release 已设为最新稳定版，包含完整 7 个发布资产。`LiveStudio-Setup.exe` 为 217939352 字节，GitHub Asset Digest 与回下载的侧车摘要一致：`a7e3dc970253034b4bf394602c42158996d52a0a2ca7476e96fffd21a7d4d4b5`。MSIX 为 159214174 字节，GitHub Asset Digest 为 `2bcf958786be6e60208bf112705f819cd51a404e1b9c4e671517894c9a60c744`。固定签名指纹仍为 `4D42933F643E1E0B649513BCD10A15B485746E1D`；Runner 只接受既有内部自签根例外，未放宽摘要或签名身份检查。
+
+使用正式 Release 编译的 `ApplicationUpdateService` 进行真实匿名 HTTPS 检查：当前版本设为 0.1.26 时返回 `v0.1.27` 及版本化 EXE/校验地址，设为 0.1.27 时返回没有更新。使用者可通过“设置 → 检查更新 → 下载并安装”升级，或下载 `https://github.com/JinHe9527/LiveStudio/releases/download/v0.1.27/LiveStudio-Setup.exe`。
+
+本轮仅回下载侧车与签名报告，没有在当前电脑安装新版本，也没有完整回下载公开 EXE；安装器验证依据 Release Runner 的真实签名与内嵌载荷自检。另一台电脑的 OBS 自动开启和实际保存由使用者继续现场验证，不能把发布完成算作异机恢复验收，`Verified=0`。
