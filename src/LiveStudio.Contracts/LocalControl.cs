@@ -100,7 +100,8 @@ public sealed record LocalAgentState(
     string LanSyncStatus,
     IReadOnlyList<LocalApplicationState> Applications,
     IReadOnlyList<LocalSnapshotSummary> Snapshots,
-    IReadOnlyList<LocalOperationSummary> Operations);
+    IReadOnlyList<LocalOperationSummary> Operations,
+    string? ObsEndpoint = null);
 
 public sealed record CaptureLocalSnapshotRequest(
     string Name,

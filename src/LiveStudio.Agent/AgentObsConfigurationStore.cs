@@ -119,7 +119,7 @@ public sealed class AgentObsConfigurationStore : IObsConnectionOptionsProvider, 
         }
     }
 
-    private static void ValidateEndpoint(Uri endpoint)
+    internal static void ValidateEndpoint(Uri endpoint)
     {
         if (endpoint.Scheme is not "ws" and not "wss" || !endpoint.IsLoopback)
         {

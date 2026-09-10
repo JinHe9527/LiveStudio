@@ -10,8 +10,19 @@ public sealed class ObsWebSocketClient(Uri endpoint, string password) : IAsyncDi
     private readonly ClientWebSocket _socket = new();
     private readonly SemaphoreSlim _requestLock = new(1, 1);
     private bool _isConnected;
+    internal TimeSpan ResponseTimeout { get; init; } = TimeSpan.FromSeconds(10);
+    internal TimeSpan CloseTimeout { get; init; } = TimeSpan.FromSeconds(1);
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
+    {
+        await WithTimeoutAsync(async token =>
+        {
+            await ConnectCoreAsync(token);
+            return true;
+        }, cancellationToken);
+    }
+
+    private async Task ConnectCoreAsync(CancellationToken cancellationToken)
     {
         await _socket.ConnectAsync(endpoint, cancellationToken);
         using var hello = await ReceiveAsync(cancellationToken);
@@ -45,6 +56,12 @@ public sealed class ObsWebSocketClient(Uri endpoint, string password) : IAsyncDi
     }
 
     public async Task<JsonElement> CallAsync(
+        string requestType,
+        object? requestData,
+        CancellationToken cancellationToken) =>
+        await WithTimeoutAsync(token => CallCoreAsync(requestType, requestData, token), cancellationToken);
+
+    private async Task<JsonElement> CallCoreAsync(
         string requestType,
         object? requestData,
         CancellationToken cancellationToken)
@@ -112,15 +129,31 @@ public sealed class ObsWebSocketClient(Uri endpoint, string password) : IAsyncDi
         {
             try
             {
-                await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "client closing", CancellationToken.None);
+                using var timeout = new CancellationTokenSource(CloseTimeout);
+                await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "client closing", timeout.Token);
             }
-            catch (WebSocketException)
+            catch (Exception exception) when (exception is WebSocketException or OperationCanceledException)
             {
+                _socket.Abort();
             }
         }
 
         _socket.Dispose();
         _requestLock.Dispose();
+    }
+
+    private async Task<T> WithTimeoutAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ResponseTimeout);
+        try
+        {
+            return await action(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ObsRequestException("OBS WebSocket 响应超时，请检查 OBS 中的服务器开关、端口和密码后重试");
+        }
     }
 
     private async Task SendAsync<T>(T message, CancellationToken cancellationToken)

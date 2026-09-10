@@ -1,4 +1,3 @@
-using System.Net.WebSockets;
 using LiveStudio.Adapters.LiveCompanion;
 using LiveStudio.Adapters.Obs;
 using LiveStudio.Contracts;
@@ -48,40 +47,55 @@ public sealed class ObsAutomaticConnectionService(AgentObsConfigurationStore con
             "obs-websocket",
             "config.json");
         var configurationFile = new ObsWebSocketConfigurationFile(configurationPath);
-        var configuration = configurationFile.Read();
         var running = ObsProcessController.FindRunning();
         ObsWebSocketConfigurationTransaction? transaction = null;
         ObsProcessInfo? started = null;
 
-        if (!configuration.ServerEnabled)
-        {
-            if (running is not null)
-            {
-                if (!await ObsUiAutomationConnector.TryEnableServerAsync(
-                        running.ProcessId,
-                        cancellationToken))
-                {
-                    throw new InvalidOperationException(
-                        "无法自动打开 OBS WebSocket 设置，请确认 OBS 主窗口未被其他对话框遮挡后重试");
-                }
-
-                configuration = configurationFile.Read();
-                if (!configuration.ServerEnabled)
-                {
-                    throw new InvalidOperationException("OBS 未确认 WebSocket 设置，未修改 LiveStudio 凭据");
-                }
-            }
-            else
-            {
-                transaction = configurationFile.EnableAuthenticated();
-                configuration = transaction.Configuration;
-            }
-        }
-
-        var endpoint = new Uri($"ws://127.0.0.1:{configuration.Port}");
-        var password = configuration.AuthenticationRequired ? configuration.Password : string.Empty;
         try
         {
+            if (!File.Exists(configurationPath))
+            {
+                if (running is null)
+                {
+                    started = await ObsProcessController.StartAsync(cancellationToken);
+                    running = started;
+                }
+
+                for (var attempt = 0; attempt < 40 && !File.Exists(configurationPath); attempt++)
+                {
+                    await Task.Delay(250, cancellationToken);
+                }
+            }
+
+            var configuration = configurationFile.Read();
+            if (!configuration.ServerEnabled)
+            {
+                if (running is not null)
+                {
+                    if (!await ObsUiAutomationConnector.TryEnableServerAsync(
+                            running.ProcessId,
+                            cancellationToken))
+                    {
+                        throw new InvalidOperationException(
+                            "无法自动开启 OBS WebSocket。请处理 OBS 提示框，并确认两款软件运行权限一致；"
+                            + "也可在 OBS 的“工具 → WebSocket 服务器设置”中开启后，使用下方手动连接。");
+                    }
+
+                    configuration = configurationFile.Read();
+                    if (!configuration.ServerEnabled)
+                    {
+                        throw new InvalidOperationException("OBS 未确认 WebSocket 设置，请在 OBS 中应用设置后重试；未修改 LiveStudio 凭据");
+                    }
+                }
+                else
+                {
+                    transaction = configurationFile.EnableAuthenticated();
+                    configuration = transaction.Configuration;
+                }
+            }
+
+            var endpoint = new Uri($"ws://127.0.0.1:{configuration.Port}");
+            var password = configuration.AuthenticationRequired ? configuration.Password : string.Empty;
             if (running is null)
             {
                 started = await ObsProcessController.StartAsync(cancellationToken);
@@ -113,26 +127,16 @@ public sealed class ObsAutomaticConnectionService(AgentObsConfigurationStore con
         string password,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
-        Exception? lastException = null;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+        await ObsAdapter.WaitUntilConnectedAsync(
+            async token =>
             {
                 await using var client = new ObsWebSocketClient(endpoint, password);
-                await client.ConnectAsync(cancellationToken);
-                _ = await client.CallAsync("GetStreamStatus", null, cancellationToken);
-                _ = await client.CallAsync("GetRecordStatus", null, cancellationToken);
-                return;
-            }
-            catch (Exception exception) when (exception is WebSocketException or ObsRequestException)
-            {
-                lastException = exception;
-                await Task.Delay(500, cancellationToken);
-            }
-        }
-
-        throw new InvalidOperationException("OBS 已启动，但 WebSocket 连接验证未通过", lastException);
+                await client.ConnectAsync(token);
+                _ = await client.CallAsync("GetVersion", null, token);
+            },
+            TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromMilliseconds(500),
+            cancellationToken);
     }
 }

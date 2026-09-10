@@ -243,7 +243,8 @@ public sealed class LocalControlServer(
                 operation.Message,
                 operation.SnapshotId,
                 operation.StartedAt,
-                operation.CompletedAt)).ToArray());
+                operation.CompletedAt)).ToArray(),
+            obsConfiguration.Current.Endpoint.ToString());
     }
 
     private async Task<LocalControlResponse> CaptureAsync(
@@ -430,8 +431,42 @@ public sealed class LocalControlServer(
         CancellationToken cancellationToken)
     {
         var configuration = LocalControlProtocol.DeserializePayload<ConfigureObsRequest>(request.Payload);
-        await obsConfiguration.SaveAsync(configuration, cancellationToken);
-        SetOperationMessage("OBS WebSocket 连接设置已保存");
+        AgentObsConfigurationStore.ValidateEndpoint(configuration.Endpoint);
+        if (!await operationLock.WaitAsync(0, cancellationToken))
+        {
+            throw new InvalidOperationException("本机执行端正在执行其他任务，请稍后重试");
+        }
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            using var operationLease = await applicationOperationGate.EnterAsync(timeout.Token);
+            try
+            {
+                await using var client = new ObsWebSocketClient(configuration.Endpoint, configuration.Password);
+                await client.ConnectAsync(timeout.Token);
+                _ = await client.CallAsync("GetVersion", null, timeout.Token);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException(
+                    "OBS 连接验证失败，未保存新的连接设置。请在 OBS 的“工具 → WebSocket 服务器设置”中启用服务器，核对端口和密码后重试。",
+                    exception);
+            }
+
+            await obsConfiguration.SaveAsync(configuration, timeout.Token);
+            SetOperationMessage("OBS 连接验证通过，设置已保存到当前电脑");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("连接设置操作超时，请重新检测后重试。");
+        }
+        finally
+        {
+            operationLock.Release();
+        }
+
         return LocalControlProtocol.CreateSuccess(
             request.RequestId,
             await GetStateAsync(cancellationToken));
@@ -448,8 +483,14 @@ public sealed class LocalControlServer(
 
         try
         {
-            using var operationLease = await applicationOperationGate.EnterAsync(cancellationToken);
-            await obsAutomaticConnection.ConnectAsync(cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(90));
+            using var operationLease = await applicationOperationGate.EnterAsync(timeout.Token);
+            await obsAutomaticConnection.ConnectAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("自动连接超时。请检查 OBS 启动提示及 WebSocket 服务器设置，或使用手动连接后重试。");
         }
         finally
         {

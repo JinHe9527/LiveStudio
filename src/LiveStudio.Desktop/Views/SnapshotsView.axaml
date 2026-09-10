@@ -115,6 +115,17 @@
             </Border>
 
             <StackPanel Grid.Row="1">
+                <Border Margin="12,8,12,0" Padding="10,7" CornerRadius="8"
+                        Background="{DynamicResource ArchiveRaisedBrush}" IsVisible="{Binding ShowObsConnectionHelp}">
+                    <WrapPanel Orientation="Horizontal">
+                        <TextBlock Margin="0,0,12,0" VerticalAlignment="Center" Classes="archive-value"
+                                   Text="OBS 尚未连接，可自动连接或填写本机端口和密码。" />
+                        <Button Margin="0,0,8,0" Classes="archive-primary"
+                                Command="{Binding AutoConfigureObsCommand}">自动连接</Button>
+                        <Button Classes="archive-secondary"
+                                Command="{Binding SelectSectionCommand}" CommandParameter="3">手动连接设置</Button>
+                    </WrapPanel>
+                </Border>
                 <Border Margin="12,8,12,0" Classes="archive-warning" IsVisible="{Binding SnapshotInspector.HasRecoveryWarning}">
                     <TextBlock FontSize="12" Foreground="{DynamicResource WarningTextBrush}"
                                Text="{Binding SnapshotInspector.RecoveryWarning}" TextWrapping="Wrap" />

@@ -213,14 +213,34 @@ public sealed class LocalAgentClient
             throw new LocalControlException("AgentUnavailable", "没有找到当前用户会话中的 LiveStudio Agent");
         }
 
-        var request = LocalControlProtocol.CreateRequest(method, payload);
-        await LocalControlProtocol.WriteAsync(pipe, request, cancellationToken);
-        var response = await LocalControlProtocol.ReadAsync<LocalControlResponse>(pipe, cancellationToken);
-        if (response.RequestId != request.RequestId)
+        using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        responseTimeout.CancelAfter(GetResponseTimeout(method));
+        try
         {
-            throw new InvalidDataException("本机执行端响应与请求不匹配");
-        }
+            var request = LocalControlProtocol.CreateRequest(method, payload);
+            await LocalControlProtocol.WriteAsync(pipe, request, responseTimeout.Token);
+            var response = await LocalControlProtocol.ReadAsync<LocalControlResponse>(pipe, responseTimeout.Token);
+            if (response.RequestId != request.RequestId)
+            {
+                throw new InvalidDataException("本机执行端响应与请求不匹配");
+            }
 
-        return LocalControlProtocol.DeserializeResult<TResult>(response);
+            return LocalControlProtocol.DeserializeResult<TResult>(response);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new LocalControlException("AgentResponseTimeout",
+                "本机执行端响应超时，已停止等待。请重新检测；若后台仍在执行任务，请等待任务结束后重试。");
+        }
     }
+
+    internal static TimeSpan GetResponseTimeout(LocalControlMethod method) => method switch
+    {
+        LocalControlMethod.GetOperationProgress => TimeSpan.FromSeconds(5),
+        LocalControlMethod.GetState => TimeSpan.FromSeconds(30),
+        LocalControlMethod.ConfigureObs => TimeSpan.FromSeconds(60),
+        LocalControlMethod.AutoConfigureObs => TimeSpan.FromSeconds(150),
+        LocalControlMethod.RefreshCurrentState => TimeSpan.FromSeconds(60),
+        _ => Timeout.InfiniteTimeSpan
+    };
 }

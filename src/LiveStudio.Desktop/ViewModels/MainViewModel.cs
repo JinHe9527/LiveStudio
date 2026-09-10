@@ -36,6 +36,9 @@ public partial class MainViewModel : ViewModelBase
     private Guid[] failedBatchCaptureRoomIds = [];
     private bool batchSelectionInitialized;
     private bool skipNextMappingPreparation;
+    private bool obsEndpointEdited;
+
+    partial void OnObsEndpointChanged(string value) => obsEndpointEdited = true;
 
     public MainViewModel()
         : this(
@@ -194,7 +197,10 @@ public partial class MainViewModel : ViewModelBase
     public partial string ObsVersionText { get; set; } = "版本未知";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowObsConnectionHelp))]
     public partial string ObsConnectionState { get; set; } = "未连接";
+
+    public bool ShowObsConnectionHelp => ObsConnectionState != "已连接";
 
     [ObservableProperty]
     public partial string ObsStreamingState { get; set; } = "推流状态未知";
@@ -2406,9 +2412,10 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        if (!Uri.TryCreate(ObsEndpoint.Trim(), UriKind.Absolute, out var endpoint))
+        if (!Uri.TryCreate(ObsEndpoint.Trim(), UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme is not "ws" and not "wss" || !endpoint.IsLoopback)
         {
-            SettingsMessage = "请输入有效的 OBS WebSocket 地址";
+            SettingsMessage = "请输入这台电脑的 OBS WebSocket 地址，例如 ws://127.0.0.1:4455，端口以 OBS 显示为准";
             return;
         }
 
@@ -2416,12 +2423,19 @@ public partial class MainViewModel : ViewModelBase
         SettingsMessage = "正在验证并保存 OBS 连接设置…";
         try
         {
+            WindowsAgentBootstrapper.EnsureRunning();
             var state = await localAgentClient.ConfigureObsAsync(endpoint, ObsPassword, cancellationToken);
             ObsPassword = string.Empty;
-            SettingsMessage = "OBS 连接设置已保存到当前 Windows 用户";
+            obsEndpointEdited = false;
+            SettingsMessage = "OBS 连接验证通过，设置已保存到这台电脑的当前 Windows 用户";
             ApplyAgentState(state);
         }
-        catch (Exception exception) when (exception is LocalControlException or IOException or ArgumentException)
+        catch (OperationCanceledException)
+        {
+            SettingsMessage = "已停止等待连接结果，可重新检测后台状态后重试。";
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException or ArgumentException
+            or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
             SettingsMessage = exception.Message;
         }
@@ -2443,23 +2457,33 @@ public partial class MainViewModel : ViewModelBase
 
         IsBusy = true;
         SettingsMessage = "正在自动检测并连接 OBS 与直播伴侣…";
+        PendingImportMessage = SettingsMessage;
         ControlStatusDescription = "正在启动并核对两款应用；无需填写地址或凭据。";
         try
         {
+            WindowsAgentBootstrapper.EnsureRunning();
             var state = await localAgentClient.AutoConfigureObsAsync(cancellationToken);
+            obsEndpointEdited = false;
             ApplyAgentState(state);
             SettingsMessage = $"检测完成：OBS {ObsConnectionState}；直播伴侣 {LiveCompanionConnectionState}";
             ControlStatusDescription = state.CanCapture
                 ? "OBS 与直播伴侣配置均可读取，可以保存当前画面。"
                 : "至少一款应用尚未就绪，请按上方实际状态处理后重新检测。";
         }
-        catch (Exception exception) when (exception is LocalControlException or IOException)
+        catch (OperationCanceledException)
         {
-            SettingsMessage = exception.Message;
-            ControlStatusDescription = exception.Message;
+            SettingsMessage = "已停止等待连接结果，可重新检测后台状态后重试。";
+            ControlStatusDescription = SettingsMessage;
+        }
+        catch (Exception exception) when (exception is LocalControlException or IOException
+            or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            SettingsMessage = $"连接失败：{exception.Message}";
+            ControlStatusDescription = SettingsMessage;
         }
         finally
         {
+            PendingImportMessage = SettingsMessage;
             IsBusy = false;
         }
     }
@@ -3777,8 +3801,14 @@ public partial class MainViewModel : ViewModelBase
         RestoreSnapshotCommand.NotifyCanExecuteChanged();
     }
 
-    private void ApplyAgentState(LocalAgentState state)
+    internal void ApplyAgentState(LocalAgentState state)
     {
+        if (!obsEndpointEdited && !string.IsNullOrWhiteSpace(state.ObsEndpoint))
+        {
+            ObsEndpoint = state.ObsEndpoint;
+            obsEndpointEdited = false;
+        }
+
         IsAgentConnected = true;
         ConnectionSubtitle = state.StatusMessage;
         ControlStatusTitle = state.CanCapture ? "可以开始备份" : state.StatusMessage;
@@ -3793,7 +3823,8 @@ public partial class MainViewModel : ViewModelBase
         LanSyncStatus = state.LanSyncStatus;
         CanControlLocalApplications = state.CanCapture;
         CanRestoreLocalApplications = state.CanRestore;
-        IsBusy = state.IsBusy;
+        // 后台状态只是一次快照，不能锁住桌面命令，也不能解除正在执行的桌面操作。
+        // 保存和恢复资格仍由执行端状态及执行端操作锁检查。
         IsAgentAutoStartEnabled = state.AutoStartEnabled;
         localSnapshotItems = state.Snapshots
             .Select(snapshot => new LocalSnapshotItemViewModel(
@@ -4029,6 +4060,7 @@ public partial class MainViewModel : ViewModelBase
         {
             null => "读取失败",
             { AdapterAvailable: false } => "读取失败",
+            { IsRunning: true, CanDetermineLiveState: false } => "WebSocket 未连接",
             { IsRunning: true } => "已连接",
             _ => "未运行"
         };

@@ -599,7 +599,7 @@ public sealed class ObsAdapter(
             cancellationToken);
     }
 
-    internal static async Task WaitUntilConnectedAsync(
+    public static async Task WaitUntilConnectedAsync(
         Func<CancellationToken, Task> connect,
         TimeSpan readyTimeout,
         TimeSpan attemptTimeout,
@@ -618,6 +618,11 @@ public sealed class ObsAdapter(
             cancellationToken.ThrowIfCancellationRequested();
             using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
             attemptCancellation.CancelAfter(remaining < attemptTimeout ? remaining : attemptTimeout);
             try
             {
@@ -643,7 +648,8 @@ public sealed class ObsAdapter(
         }
 
         throw new InvalidOperationException(
-            $"OBS 已启动，但 obs-websocket 在 {readyTimeout.TotalSeconds:0.#} 秒内没有就绪",
+            $"OBS WebSocket 在 {readyTimeout.TotalSeconds:0.#} 秒内没有就绪。请在 OBS 的“工具 → WebSocket 服务器设置”中启用服务器，"
+            + "再到 LiveStudio 设置中填写该电脑的端口和密码并连接。若 OBS 有启动提示框，请先处理提示框。",
             lastError);
     }
 
