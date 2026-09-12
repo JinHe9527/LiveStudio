@@ -1059,3 +1059,19 @@ Windows 10.0.26200 上使用独立隔离预览进程加载本次真实 Avalonia 
 使用正式 Release 编译的 `ApplicationUpdateService` 进行真实匿名 HTTPS 检查：当前版本设为 0.1.26 时返回 `v0.1.27` 及版本化 EXE/校验地址，设为 0.1.27 时返回没有更新。使用者可通过“设置 → 检查更新 → 下载并安装”升级，或下载 `https://github.com/JinHe9527/LiveStudio/releases/download/v0.1.27/LiveStudio-Setup.exe`。
 
 本轮仅回下载侧车与签名报告，没有在当前电脑安装新版本，也没有完整回下载公开 EXE；安装器验证依据 Release Runner 的真实签名与内嵌载荷自检。另一台电脑的 OBS 自动开启和实际保存由使用者继续现场验证，不能把发布完成算作异机恢复验收，`Verified=0`。
+
+## 50. 2026-09-12 v0.1.28 首页、存档切换与体积优化发布
+
+使用者明确要求提交并发布，功能提交 `447def6`，版本提交 `735bc267e7c5aee508ab9c44c859cee09efa6d28`，不可变标签 `v0.1.28` 已推送。首页新增紧凑连接状态与一键连接；设置保留左侧菜单，默认黑色并保留已有偏好；合并首页操作、移除重复菜单和技术详情。存档展示增加最近三份纯参数缓存、后台投影及连续点击取消；发布载荷排除 PDB。性能测量和具体边界见 `performance-audit-2026-09-12.md`。
+
+Release 工作流 `34681217408` 全部成功，包括 375 项测试、格式与依赖门、固定身份签名、MSIX 与一键安装器自检。正式 Release 已标为最新稳定版，7 个资产齐全。main CI `34681209707` 和标签 CI `34681217360` 的 Windows 检查均通过；云端集成阶段在拉取 `minio/minio:RELEASE.2025-09-07T16-13-09Z` 时收到 `pull access denied`，main 的失败任务重跑仍失败，尚未执行到云端产品集成测试。不能宣称本轮所有 CI 均通过。
+
+- 公开 Setup：189593496 字节（约 180.81 MiB），SHA-256 `9da2c954931ef215def6bddb512aaef86903fb9b3ac05748c2040cf1c7cf84e5`。
+- 公开 MSIX：130868121 字节，SHA-256 `9300c322ebd439a21db863fc409e10c47f71e2326ef4f85aeace18bc217a9410`。
+- 对比 v0.1.27，Setup 减少 28345856 字节（约 27.03 MiB）；安装载荷减少约 100 MiB，不能混用压缩包与安装后目录体积。
+
+使用正式 Release 编译的 `ApplicationUpdateService` 进行真实匿名 HTTPS 检查，模拟当前版本 0.1.23、0.1.26、0.1.27 均发现 `v0.1.28` 和版本化 EXE/校验地址，0.1.28 返回无更新。v0.1.27 至 v0.1.28 的更新服务、签名验证器、安装器与 MSIX 身份模板均无修改。
+
+本机通过更新服务 `PrepareAsync` 完整回下载公开 Setup，SHA-256 与 GitHub Asset Digest、公开侧车一致，Windows Authenticode 状态为 `Valid`，Publisher 为 `CN=LiveStudio Internal`，证书指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`。随后对同一公开 EXE 执行 `--verify-only`，退出码 0，完成内嵌载荷、签名及安装前提自检。本机文件位于 `%LOCALAPPDATA%\LiveStudio\Updates\0.1.28\`；没有执行安装升级、存档迁移或实际恢复。
+
+0.1.23 及之后版本可从“设置 → 检查更新 → 下载并安装”获取此次更新；更早版本的历史国内源限制仍按第 47 节处理，可通过 GitHub 固定 Setup 地址手动升级。恢复覆盖与真机证据等级没有变化，`Verified=0`。
