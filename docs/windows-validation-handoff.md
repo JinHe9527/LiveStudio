@@ -1075,3 +1075,15 @@ Release 工作流 `34681217408` 全部成功，包括 375 项测试、格式与�
 本机通过更新服务 `PrepareAsync` 完整回下载公开 Setup，SHA-256 与 GitHub Asset Digest、公开侧车一致，Windows Authenticode 状态为 `Valid`，Publisher 为 `CN=LiveStudio Internal`，证书指纹为 `4D42933F643E1E0B649513BCD10A15B485746E1D`。随后对同一公开 EXE 执行 `--verify-only`，退出码 0，完成内嵌载荷、签名及安装前提自检。本机文件位于 `%LOCALAPPDATA%\LiveStudio\Updates\0.1.28\`；没有执行安装升级、存档迁移或实际恢复。
 
 0.1.23 及之后版本可从“设置 → 检查更新 → 下载并安装”获取此次更新；更早版本的历史国内源限制仍按第 47 节处理，可通过 GitHub 固定 Setup 地址手动升级。恢复覆盖与真机证据等级没有变化，`Verified=0`。
+
+## 51. 2026-09-13 v0.1.29 发布及本机升级
+
+使用者明确要求全部提交并更新。功能与版本提交 `edf84a6a946e07f754133c84c6c382c0c13e21f8`，标签 `v0.1.29` 已推送。包含 Excel 完整参数工作簿、保存入口素材闭合校验、本机签名结构兼容检测和恢复结果/资源清理修复，详见 `compatibility-audit-2026-09-12.md`；第三方滤镜插件程序封装、通用文件权限修复与全环境恢复尚未完成。
+
+Release `34708390386` 成功，397 项测试、格式、依赖门、固定身份签名、MSIX 和 Setup 自检全部通过。main CI `34708381815` 的 Windows 检查通过，云集成在 `minio/minio` 拉取阶段报 `pull access denied`，未执行到产品集成测试，不能宣称全部 CI 成功。公开发布具备 7 个资产：Setup 长度 189634456，SHA-256 `4502433f3aefe629d5ff818cdee24bd16eb6839c2ae321e2669c111c8a670aa8`；MSIX 长度 130909070，SHA-256 `860dd76f4090b28842e0c3001a49ddfa0149b1a4f96168b24b5153db28f9b869`。这些公开摘要来源于 GitHub Release API，签名与载荷自检依据 Release Runner。
+
+用正式更新服务对 0.1.23、0.1.26、0.1.27、0.1.28 进行真实 HTTPS 检查，均发现 v0.1.29；0.1.29 返回无更新。公开 Setup 与 MSIX 本机下载速度较慢，本轮没有以未完成下载的文件冒充完整回下载校验。
+
+从相同发布提交本地构建 0.1.29.0 x64 MSIX，沿用 Publisher `CN=LiveStudio Internal` 与证书指纹 `4D42933F643E1E0B649513BCD10A15B485746E1D`。本地包长度 130980216，Windows Authenticode 为 Valid，签名身份匹配后通过 Add-AppxPackage 升级；明确不是公开 MSIX 的逐字节复本。本机从 0.1.26.0 升级到 0.1.29.0 并启动安装版 Desktop 和 Agent，升级前 80 份存档 SHA-256 全部保持不变。
+
+安装版真实本机协议返回 IsBusy=false、CanCapture=true、CanRestore=true、Snapshots=80、Compatibility=Matched；进程路径均来自 WindowsApps 的 0.1.29.0 包。这里只证明升级、连接与只读兼容报告，未执行生产参数恢复，Verified 仍为 0。本机验收文件在 `artifacts/release-probe/v0.1.29/`，不上传参数原文件。
