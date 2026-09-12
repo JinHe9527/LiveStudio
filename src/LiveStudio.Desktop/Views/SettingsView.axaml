@@ -102,6 +102,21 @@
                     </StackPanel>
                 </Border>
 
+                <TextBlock Classes="settings-section" Text="本机版本兼容" />
+                <Border Classes="settings-card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="settings-title" Text="自动匹配签名适配器" />
+                        <TextBlock Classes="settings-copy" TextWrapping="Wrap" Text="{Binding TargetCompatibilitySummary}" />
+                        <TextBlock Classes="settings-copy" TextWrapping="Wrap"
+                                   Text="连接和刷新时自动检测。报告仅含版本、结构指纹、字段路径与类型，不含参数原值，不会自动上传。" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Classes="standard" Command="{Binding RefreshStateCommand}">重新检测</Button>
+                            <Button Classes="standard" IsEnabled="{Binding HasTargetCompatibilityReport}"
+                                    Click="ExportCompatibilityReportClicked">导出兼容报告</Button>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Classes="settings-section" Text="存档管理" />
                 <Border Classes="settings-card">
                     <StackPanel Spacing="10">

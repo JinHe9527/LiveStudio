@@ -11,6 +11,26 @@ namespace LiveStudio.Agent.Tests;
 
 public sealed class SnapshotTransferServiceTests : IDisposable
 {
+    [Fact]
+    public async Task ExportIncludesExcelAndPreservesExistingSidecar()
+    {
+        var fixture = await CreateFixtureAsync();
+        var package = await fixture.CreateSignedPackageWithoutIndexAsync("完整参数导出");
+        await fixture.Service.ReconcileManagedDirectoryAsync(CancellationToken.None);
+        var target = Path.Combine(fixture.SnapshotDirectory, "export.lscfg");
+        await fixture.Service.ExportAsync(package.Id, target, CancellationToken.None);
+        Assert.True(File.Exists(target));
+        var excel = Path.ChangeExtension(target, ".xlsx");
+        using (var workbook = ZipFile.OpenRead(excel))
+            Assert.NotNull(workbook.GetEntry("xl/workbook.xml"));
+
+        File.Delete(target);
+        var original = await File.ReadAllBytesAsync(excel);
+        await Assert.ThrowsAsync<IOException>(() => fixture.Service.ExportAsync(package.Id, target, CancellationToken.None));
+        Assert.False(File.Exists(target));
+        Assert.Equal(original, await File.ReadAllBytesAsync(excel));
+    }
+
     [Theory]
     [InlineData("publicKeyPem", "not-a-pem-key")]
     [InlineData("signatureBase64", null)]

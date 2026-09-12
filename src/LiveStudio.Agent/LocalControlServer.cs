@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using LiveStudio.Contracts;
 using LiveStudio.Core;
 using LiveStudio.Adapters.Obs;
+using LiveStudio.Adapters.LiveCompanion;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -217,6 +218,10 @@ public sealed class LocalControlServer(
             statusMessage = "OBS 或直播伴侣适配器尚未就绪";
         }
 
+        var compatibility = !isBusy
+            && adapters.GetValueOrDefault(ApplicationKind.LiveCompanion) is LiveCompanionAdapter companion
+                ? await companion.DetectCompatibilityAsync(cancellationToken)
+                : null;
         return new LocalAgentState(
             Environment.MachineName,
             isEnrolled,
@@ -244,7 +249,8 @@ public sealed class LocalControlServer(
                 operation.SnapshotId,
                 operation.StartedAt,
                 operation.CompletedAt)).ToArray(),
-            obsConfiguration.Current.Endpoint.ToString());
+            obsConfiguration.Current.Endpoint.ToString(),
+            compatibility);
     }
 
     private async Task<LocalControlResponse> CaptureAsync(
@@ -356,6 +362,8 @@ public sealed class LocalControlServer(
             await snapshotIndex.SaveOperationAsync(operation, cancellationToken);
             try
             {
+                var snapshot = await snapshotIndex.FindAsync(restore.SnapshotId, cancellationToken)
+                    ?? throw new FileNotFoundException($"找不到本地存档 {restore.SnapshotId}");
                 var result = await restoreService.RestoreAsync(
                     restore.SnapshotId,
                     restore.CurrentCameraStations,
@@ -372,14 +380,17 @@ public sealed class LocalControlServer(
                     JobStatus.RollbackFailed => LocalOperationStatus.RollbackFailed,
                     _ => LocalOperationStatus.Blocked
                 };
-                await snapshotIndex.SaveOperationAsync(
+                result = await RestoreFinalization.RunAsync(result, token => snapshotIndex.SaveOperationAsync(
                     operation with
                     {
                         Status = operationStatus,
                         Message = result.Message,
                         CompletedAt = DateTimeOffset.UtcNow
                     },
-                    cancellationToken);
+                    token), async token =>
+                    {
+                        _ = await cloudRuntime.PublishCurrentStateAsync(CurrentStateReason.Restore, token);
+                    }, cancellationToken);
                 if (!result.IsSuccess)
                 {
                     return LocalControlProtocol.CreateFailure(
@@ -388,24 +399,12 @@ public sealed class LocalControlServer(
                         result.Message);
                 }
 
-                var snapshot = await snapshotIndex.FindAsync(restore.SnapshotId, cancellationToken)
-                    ?? throw new FileNotFoundException($"找不到本地存档 {restore.SnapshotId}");
-                try
-                {
-                    if (!await cloudRuntime.PublishCurrentStateAsync(CurrentStateReason.Restore, cancellationToken))
-                    {
-                        SetOperationMessage("恢复已完成，Agent 尚未连接云端");
-                    }
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    LogRequestFailure(logger, LocalControlMethod.RestoreSnapshot, exception);
-                    SetOperationMessage("恢复已完成，但当前画面预览上传失败");
-                }
+                SetOperationMessage(result.Message);
 
                 return LocalControlProtocol.CreateSuccess(
                     request.RequestId,
-                    new LocalSnapshotOperationResult(snapshot.Id, snapshot.Name, DateTimeOffset.UtcNow));
+                    new LocalSnapshotOperationResult(snapshot.Id, snapshot.Name, DateTimeOffset.UtcNow,
+                        result.Differences.Count > 0 ? result.Message : null));
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {

@@ -30,8 +30,10 @@ public static class WindowsProcessTerminator
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(cancellationToken);
+            // 关闭命令已经发出，不能因取消等待而让回滚与仍在执行的关闭操作竞争。
+            await process.WaitForExitAsync(CancellationToken.None);
             return;
         }
         catch (InvalidOperationException)
@@ -66,7 +68,7 @@ public static class WindowsProcessTerminator
         catch (Win32Exception exception) when (exception.NativeErrorCode == OperationCancelledError)
         {
             throw new InvalidOperationException(
-                $"恢复需要管理员权限关闭 {displayName}；管理员授权已取消，配置没有写入。",
+                $"需要管理员权限关闭 {displayName}；管理员授权已取消，未完成关闭。请根据恢复结果检查应用状态。",
                 exception);
         }
         catch (Exception exception) when (RequiresElevation(exception))
@@ -83,13 +85,12 @@ public static class WindowsProcessTerminator
 
         using (elevatedProcess)
         {
-            await elevatedProcess.WaitForExitAsync(cancellationToken);
-            if (elevatedProcess.ExitCode != 0
-                && TryGetExpectedProcess(processId, expectedProcessName, displayName) is { } remaining)
+            await elevatedProcess.WaitForExitAsync(CancellationToken.None);
+            if (TryGetExpectedProcess(processId, expectedProcessName, displayName) is { } remaining)
             {
                 remaining.Dispose();
                 throw new InvalidOperationException(
-                    $"Windows 未能关闭 {displayName}（系统返回 {elevatedProcess.ExitCode}），配置没有写入。");
+                    $"Windows 未能关闭 {displayName}（系统返回 {elevatedProcess.ExitCode}），请检查应用权限与运行状态。");
             }
         }
     }

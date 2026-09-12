@@ -5,6 +5,45 @@ namespace LiveStudio.Core.Tests;
 public sealed class LocalControlProtocolTests
 {
     [Fact]
+    public void LegacyAgentStateWithoutCompatibilityRemainsReadable()
+    {
+        var payload = System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            MachineName = "test",
+            IsCloudEnrolled = false,
+            CanCapture = true,
+            CanRestore = true,
+            IsBusy = false,
+            AutoStartEnabled = false,
+            StatusMessage = "ready",
+            LanSharedDirectory = (string?)null,
+            LanSyncStatus = "",
+            Applications = Array.Empty<LocalApplicationState>(),
+            Snapshots = Array.Empty<LocalSnapshotSummary>(),
+            Operations = Array.Empty<LocalOperationSummary>()
+        });
+        var state = LocalControlProtocol.DeserializePayload<LocalAgentState>(payload);
+        Assert.Null(state.TargetCompatibility);
+        Assert.True(state.CanRestore);
+    }
+
+    [Fact]
+    public async Task CompatibilityReportRoundTripsInAgentState()
+    {
+        var report = new TargetCompatibilityReport(DateTimeOffset.UtcNow, "13.0.1", new string('a', 64),
+            "NeedsAdapter", "signed", "需要适配", 1,
+            [new("sourceStore", "/video/width", "TypeChanged", "number", "string")]);
+        var expected = new LocalAgentState("test", false, true, true, false, false, "ready", null, "",
+            [], [], [], TargetCompatibility: report);
+        await using var stream = new MemoryStream();
+        await LocalControlProtocol.WriteAsync(stream, expected, CancellationToken.None);
+        stream.Position = 0;
+        var actual = await LocalControlProtocol.ReadAsync<LocalAgentState>(stream, CancellationToken.None);
+        Assert.Equal(report.StructureFingerprint, actual.TargetCompatibility?.StructureFingerprint);
+        Assert.Equal(report.Differences[0], Assert.Single(actual.TargetCompatibility!.Differences));
+    }
+
+    [Fact]
     public async Task RequestRoundTripsThroughLengthPrefixedProtocol()
     {
         var expected = LocalControlProtocol.CreateRequest(

@@ -207,6 +207,16 @@ public partial class MainViewModel : ViewModelBase
     public bool IsLiveCompanionReadable => LiveCompanionConnectionState == "已读取";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TargetCompatibilitySummary))]
+    [NotifyPropertyChangedFor(nameof(HasTargetCompatibilityReport))]
+    public partial TargetCompatibilityReport? TargetCompatibility { get; set; }
+
+    public bool HasTargetCompatibilityReport => TargetCompatibility is not null;
+    public string TargetCompatibilitySummary => TargetCompatibility is { } report
+        ? $"直播伴侣 {report.ApplicationVersion} · {report.Summary}"
+        : "尚无本机兼容检测结果；请重新检测，旧执行端需更新后支持。";
+
+    [ObservableProperty]
     public partial string ObsStreamingState { get; set; } = "推流状态未知";
 
     [ObservableProperty]
@@ -1772,6 +1782,12 @@ public partial class MainViewModel : ViewModelBase
             ControlStatusTitle = "恢复完成";
             ControlStatusDescription = $"“{result.Name}”已应用并通过逐字段回读；恢复前状态已另存为自动备份。";
             PendingImportMessage = $"恢复完成：“{result.Name}”已应用；恢复前状态已自动备份";
+            if (!string.IsNullOrWhiteSpace(result.Warning))
+            {
+                ControlStatusTitle = "参数已恢复，请检查应用状态";
+                ControlStatusDescription = result.Warning;
+                PendingImportMessage = result.Warning;
+            }
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
@@ -2699,7 +2715,15 @@ public partial class MainViewModel : ViewModelBase
                     summary,
                     path,
                     cancellationToken);
-                PendingImportMessage = $"云存档已校验并导出到 {path}";
+                try
+                {
+                    await SnapshotParameterWorkbook.WriteBesidePackageAsync(path, cancellationToken);
+                    PendingImportMessage = $"云存档与同名完整参数 Excel 已导出到 {path}";
+                }
+                catch (Exception exception) when (exception is IOException or OperationCanceledException or SnapshotPackageException)
+                {
+                    PendingImportMessage = $"存档已导出到 {path}，但同名参数说明未生成：{exception.Message}";
+                }
             }
             else
             {
@@ -2707,7 +2731,7 @@ public partial class MainViewModel : ViewModelBase
                     SelectedSnapshot.Id,
                     path,
                     cancellationToken);
-                PendingImportMessage = $"已导出到 {result.Path}";
+                PendingImportMessage = $"存档与同名完整参数 Excel 已导出到 {result.Path}";
             }
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
@@ -3828,6 +3852,7 @@ public partial class MainViewModel : ViewModelBase
 
     internal void ApplyAgentState(LocalAgentState state)
     {
+        TargetCompatibility = state.TargetCompatibility;
         snapshotInspectorCache.Clear();
         if (!obsEndpointEdited && !string.IsNullOrWhiteSpace(state.ObsEndpoint))
         {
@@ -3875,6 +3900,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void ApplyDisconnectedState(string? error = null)
     {
+        TargetCompatibility = null;
         snapshotInspectorCache.Clear();
         IsAgentConnected = false;
         var isWindows = OperatingSystem.IsWindows();

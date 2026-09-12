@@ -81,6 +81,14 @@ public sealed class RestoreCoordinator(
                 []);
         }
 
+        if (snapshot.SchemaVersion != 3 || snapshot.Applications.Count == 0
+            || snapshot.Applications.Select(application => application.Kind).Distinct().Count() != snapshot.Applications.Count
+            || snapshot.Applications.Any(application => !_adapters.ContainsKey(application.Kind)))
+        {
+            return new RestoreExecutionResult(JobStatus.IncompatibleVersion,
+                "存档格式或应用清单无效：缺少应用、应用重复或没有对应适配器，尚未启动应用或写入配置", []);
+        }
+
         await reportProgress(JobStatus.Preflight, "正在检查设备映射和版本兼容性", cancellationToken);
 
         var contexts = new List<(IApplicationAdapter Adapter, RestoreExecutionContext Context)>();
@@ -108,6 +116,11 @@ public sealed class RestoreCoordinator(
                     JobStatus.IncompatibleVersion,
                     exception.Message,
                     []);
+            }
+            catch
+            {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
+                throw;
             }
 
             IApplicationRuntimeLease runtimeLease;
@@ -153,181 +166,234 @@ public sealed class RestoreCoordinator(
         var verificationDifferences = new List<string>();
         var durablyCommitted = false;
         var failureContext = "恢复准备";
-        try
+        async Task<RestoreExecutionResult> ExecuteTransactionAsync()
         {
-            if (backupCurrent is not null)
+            try
             {
-                failureContext = "恢复前自动备份";
-                await reportProgress(JobStatus.BackingUp, "正在保存恢复前自动备份", cancellationToken);
-                await backupCurrent(cancellationToken);
-            }
-
-            failureContext = "创建目标电脑事务快照";
-            await reportProgress(JobStatus.BackingUp, "正在创建目标电脑事务快照", cancellationToken);
-            foreach (var item in contexts)
-            {
-                failureContext = $"创建{DisplayName(item.Adapter.Kind)}事务快照";
-                sessions.Add(await item.Adapter.BeginRestoreAsync(item.Context, cancellationToken));
-            }
-            failureContext = "创建跨应用事务快照";
-            await RestoreTransactionJournal.PrepareAsync(jobId, cancellationToken);
-            await _faultInjector.InjectAsync(RestoreFaultPoint.SessionsCreated, cancellationToken);
-
-            await reportProgress(JobStatus.StoppingApplications, "正在停止应用并等待配置落盘", cancellationToken);
-            foreach (var session in sessions)
-            {
-                failureContext = $"停止{DisplayName(session.Kind)}";
-                await session.StopAsync(cancellationToken);
-            }
-            failureContext = "停止应用";
-            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStopped, cancellationToken);
-
-            failureContext = "准备滤镜和美颜素材";
-            await reportProgress(JobStatus.Applying, "正在校验并物化滤镜和美颜素材", cancellationToken);
-            await prepareAssets(cancellationToken);
-            await _faultInjector.InjectAsync(RestoreFaultPoint.AssetsPrepared, cancellationToken);
-
-            await reportProgress(JobStatus.Applying, "正在应用设备、画面格式和视频滤镜", cancellationToken);
-            foreach (var session in sessions)
-            {
-                failureContext = $"写入{DisplayName(session.Kind)}配置";
-                await session.ApplyAsync(cancellationToken);
-            }
-            failureContext = "写入画面配置";
-            await _faultInjector.InjectAsync(RestoreFaultPoint.SettingsApplied, cancellationToken);
-
-            await reportProgress(JobStatus.StartingApplications, "正在恢复应用运行状态", cancellationToken);
-            foreach (var session in sessions)
-            {
-                failureContext = $"启动{DisplayName(session.Kind)}";
-                await session.StartAsync(cancellationToken);
-            }
-            failureContext = "恢复应用运行状态";
-            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStarted, cancellationToken);
-
-            await reportProgress(JobStatus.Verifying, "正在逐项回读恢复结果", cancellationToken);
-            var differences = new List<string>();
-            foreach (var session in sessions)
-            {
-                failureContext = $"回读{DisplayName(session.Kind)}配置";
-                var verification = await session.VerifyAsync(cancellationToken);
-                if (!verification.IsMatch)
+                if (backupCurrent is not null)
                 {
-                    differences.AddRange(verification.Differences.Select(value => $"{session.Kind}: {value}"));
+                    failureContext = "恢复前自动备份";
+                    await reportProgress(JobStatus.BackingUp, "正在保存恢复前自动备份", cancellationToken);
+                    await backupCurrent(cancellationToken);
                 }
-            }
 
-            if (differences.Count > 0)
-            {
+                failureContext = "创建目标电脑事务快照";
+                await reportProgress(JobStatus.BackingUp, "正在创建目标电脑事务快照", cancellationToken);
+                foreach (var item in contexts)
+                {
+                    failureContext = $"创建{DisplayName(item.Adapter.Kind)}事务快照";
+                    sessions.Add(await item.Adapter.BeginRestoreAsync(item.Context, cancellationToken));
+                }
+                failureContext = "创建跨应用事务快照";
+                await RestoreTransactionJournal.PrepareAsync(jobId, cancellationToken);
+                await _faultInjector.InjectAsync(RestoreFaultPoint.SessionsCreated, cancellationToken);
+
+                await reportProgress(JobStatus.StoppingApplications, "正在停止应用并等待配置落盘；权限不足时 Windows 会请求管理员授权", cancellationToken);
+                foreach (var session in sessions)
+                {
+                    failureContext = $"停止{DisplayName(session.Kind)}";
+                    await session.StopAsync(cancellationToken);
+                }
+                failureContext = "停止应用";
+                await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStopped, cancellationToken);
+
+                failureContext = "准备滤镜和美颜素材";
+                await reportProgress(JobStatus.Applying, "正在校验并物化滤镜和美颜素材", cancellationToken);
+                await prepareAssets(cancellationToken);
+                await _faultInjector.InjectAsync(RestoreFaultPoint.AssetsPrepared, cancellationToken);
+
+                await reportProgress(JobStatus.Applying, "正在应用设备、画面格式和视频滤镜", cancellationToken);
+                foreach (var session in sessions)
+                {
+                    failureContext = $"写入{DisplayName(session.Kind)}配置";
+                    await session.ApplyAsync(cancellationToken);
+                }
+                failureContext = "写入画面配置";
+                await _faultInjector.InjectAsync(RestoreFaultPoint.SettingsApplied, cancellationToken);
+
+                await reportProgress(JobStatus.StartingApplications, "正在恢复应用运行状态", cancellationToken);
+                foreach (var session in sessions)
+                {
+                    failureContext = $"启动{DisplayName(session.Kind)}";
+                    await session.StartAsync(cancellationToken);
+                }
+                failureContext = "恢复应用运行状态";
+                await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsStarted, cancellationToken);
+
+                await reportProgress(JobStatus.Verifying, "正在逐项回读恢复结果", cancellationToken);
+                var differences = new List<string>();
+                foreach (var session in sessions)
+                {
+                    failureContext = $"回读{DisplayName(session.Kind)}配置";
+                    var verification = await session.VerifyAsync(cancellationToken);
+                    if (!verification.IsMatch)
+                    {
+                        differences.AddRange(verification.Differences.Select(value => $"{session.Kind}: {value}"));
+                    }
+                }
+
+                if (differences.Count > 0)
+                {
+                    failureContext = "逐项回读恢复结果";
+                    verificationDifferences = differences;
+                    throw new InvalidOperationException("恢复后的参数与存档不一致");
+                }
                 failureContext = "逐项回读恢复结果";
-                verificationDifferences = differences;
-                throw new InvalidOperationException("恢复后的参数与存档不一致");
-            }
-            failureContext = "逐项回读恢复结果";
-            await _faultInjector.InjectAsync(RestoreFaultPoint.VerificationPassed, cancellationToken);
+                await _faultInjector.InjectAsync(RestoreFaultPoint.VerificationPassed, cancellationToken);
 
-            foreach (var session in sessions)
-            {
-                failureContext = $"提交{DisplayName(session.Kind)}恢复事务";
-                await session.CommitAsync(cancellationToken);
-            }
-            failureContext = "提交跨应用恢复事务";
-            await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsCommitted, cancellationToken);
-
-            // This is the transaction's point of no return. Until this durable marker exists,
-            // every application journal must remain available for startup rollback.
-            failureContext = "持久化恢复提交结果";
-            await RestoreTransactionJournal.MarkCommittedAsync(jobId, cancellationToken);
-            durablyCommitted = true;
-            await _faultInjector.InjectAsync(RestoreFaultPoint.DurableCommitRecorded, cancellationToken);
-            var cleanupFailed = false;
-            foreach (var session in sessions)
-            {
-                try
+                foreach (var session in sessions)
                 {
-                    await session.CompleteAsync(CancellationToken.None);
+                    failureContext = $"提交{DisplayName(session.Kind)}恢复事务";
+                    await session.CommitAsync(cancellationToken);
                 }
-                catch
+                failureContext = "提交跨应用恢复事务";
+                await _faultInjector.InjectAsync(RestoreFaultPoint.ApplicationsCommitted, cancellationToken);
+
+                // This is the transaction's point of no return. Until this durable marker exists,
+                // every application journal must remain available for startup rollback.
+                failureContext = "持久化恢复提交结果";
+                await RestoreTransactionJournal.MarkCommittedAsync(jobId, cancellationToken);
+                durablyCommitted = true;
+                await _faultInjector.InjectAsync(RestoreFaultPoint.DurableCommitRecorded, cancellationToken);
+                var cleanupFailed = false;
+                foreach (var session in sessions)
                 {
-                    // The committed marker deliberately remains on disk. Startup recovery will
-                    // keep the verified target state and retry journal cleanup.
-                    cleanupFailed = true;
+                    try
+                    {
+                        await session.CompleteAsync(CancellationToken.None);
+                    }
+                    catch
+                    {
+                        // The committed marker deliberately remains on disk. Startup recovery will
+                        // keep the verified target state and retry journal cleanup.
+                        cleanupFailed = true;
+                    }
                 }
-            }
 
-            if (!cleanupFailed)
-            {
-                await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
-            }
+                if (!cleanupFailed)
+                {
+                    await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
+                }
 
-            await reportProgress(JobStatus.Succeeded, "恢复完成并通过逐项验证", CancellationToken.None);
-            return new RestoreExecutionResult(JobStatus.Succeeded, "恢复完成", []);
-        }
-        // 事务会话创建后，取消同样可能发生在停止、写入、启动或回读中途。
-        // 此时绝不能直接释放会话；必须使用不可取消令牌完成全量回滚。
-        catch (Exception exception)
-        {
-            if (durablyCommitted)
-            {
-                // Application state was fully verified and durably committed. A later status
-                // reporting or cleanup error must never turn a successful restore into a partial
-                // rollback. Remaining journals are finalized on the next Agent start.
+                await reportProgress(JobStatus.Succeeded, "恢复完成并通过逐项验证", CancellationToken.None);
                 return new RestoreExecutionResult(JobStatus.Succeeded, "恢复完成", []);
             }
-
-            var rollbackFailures = new List<string>();
-            for (var index = sessions.Count - 1; index >= 0; index--)
+            // 事务会话创建后，取消同样可能发生在停止、写入、启动或回读中途。
+            // 此时绝不能直接释放会话；必须使用不可取消令牌完成全量回滚。
+            catch (Exception exception)
             {
-                try
+                if (durablyCommitted)
                 {
-                    await sessions[index].RollbackAsync(CancellationToken.None);
+                    // Application state was fully verified and durably committed. A later status
+                    // reporting or cleanup error must never turn a successful restore into a partial
+                    // rollback. Remaining journals are finalized on the next Agent start.
+                    return new RestoreExecutionResult(JobStatus.Succeeded, "恢复完成", []);
                 }
-                catch (Exception rollbackException)
+
+                var rollbackFailures = new List<string>();
+                for (var index = sessions.Count - 1; index >= 0; index--)
                 {
-                    rollbackFailures.Add($"{sessions[index].Kind}: {rollbackException.Message}");
+                    try
+                    {
+                        await sessions[index].RollbackAsync(CancellationToken.None);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        rollbackFailures.Add($"{sessions[index].Kind}: {rollbackException.Message}");
+                    }
                 }
+
+                if (rollbackFailures.Count > 0)
+                {
+                    await ReportFailureAsync(JobStatus.RollbackFailed, "恢复失败且事务回滚未完成", reportProgress);
+                    return new RestoreExecutionResult(
+                        JobStatus.RollbackFailed,
+                        CreateFailureMessage(failureContext, exception),
+                        rollbackFailures);
+                }
+
+                await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
+
+                await ReportFailureAsync(JobStatus.FailedRolledBack, "恢复失败，已还原目标电脑原状态", reportProgress);
+                var contextualMessage = CreateFailureMessage(failureContext, exception);
+                var failureMessage = verificationDifferences.Count == 0
+                    ? contextualMessage
+                    : $"{contextualMessage}：{string.Join("；", verificationDifferences.Take(3))}"
+                      + (verificationDifferences.Count > 3
+                          ? $"；另有 {verificationDifferences.Count - 3} 项差异"
+                          : string.Empty);
+                return new RestoreExecutionResult(JobStatus.FailedRolledBack, failureMessage, verificationDifferences);
             }
+        }
 
-            if (rollbackFailures.Count > 0)
-            {
-                await reportProgress(JobStatus.RollbackFailed, "恢复失败且事务回滚未完成", CancellationToken.None);
-                return new RestoreExecutionResult(
-                    JobStatus.RollbackFailed,
-                    CreateFailureMessage(failureContext, exception),
-                    rollbackFailures);
-            }
-
-            await RestoreTransactionJournal.CompleteAsync(jobId, CancellationToken.None);
-
-            await reportProgress(JobStatus.FailedRolledBack, "恢复失败，已还原目标电脑原状态", CancellationToken.None);
-            var contextualMessage = CreateFailureMessage(failureContext, exception);
-            var failureMessage = verificationDifferences.Count == 0
-                ? contextualMessage
-                : $"{contextualMessage}：{string.Join("；", verificationDifferences.Take(3))}"
-                  + (verificationDifferences.Count > 3
-                      ? $"；另有 {verificationDifferences.Count - 3} 项差异"
-                      : string.Empty);
-            return new RestoreExecutionResult(JobStatus.FailedRolledBack, failureMessage, verificationDifferences);
+        RestoreExecutionResult result;
+        var cleanupFailures = new List<string>();
+        try
+        {
+            result = await ExecuteTransactionAsync();
         }
         finally
         {
             for (var index = sessions.Count - 1; index >= 0; index--)
             {
-                await sessions[index].DisposeAsync();
+                try
+                {
+                    await sessions[index].DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add($"{DisplayName(sessions[index].Kind)}会话清理失败：{exception.Message}");
+                }
             }
 
-            await DisposeRuntimeLeasesAsync(runtimeLeases);
+            try
+            {
+                await DisposeRuntimeLeasesAsync(runtimeLeases);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add($"恢复应用原运行状态失败：{exception.Message}");
+            }
+        }
+        if (cleanupFailures.Count == 0) { return result; }
+        return new RestoreExecutionResult(
+            durablyCommitted ? JobStatus.Succeeded : JobStatus.RollbackFailed,
+            durablyCommitted
+                ? "参数已恢复并通过验证，但运行状态清理未完成，请检查应用状态。"
+                : "恢复未完成，且应用运行状态清理失败，请检查恢复前备份和应用状态。",
+            result.Differences.Concat(cleanupFailures).ToArray());
+    }
+
+    private static async Task ReportFailureAsync(JobStatus status, string message,
+        Func<JobStatus, string, CancellationToken, Task> reportProgress)
+    {
+        try
+        {
+            await reportProgress(status, message, CancellationToken.None);
+        }
+        catch
+        {
+            // 状态连接中断不能遮蔽已经完成的回滚结果；调用方仍收到最终结果。
         }
     }
 
     private static async Task DisposeRuntimeLeasesAsync(List<IApplicationRuntimeLease> runtimeLeases)
     {
+        var failures = new List<Exception>();
         for (var index = runtimeLeases.Count - 1; index >= 0; index--)
         {
-            await runtimeLeases[index].DisposeAsync();
+            try
+            {
+                await runtimeLeases[index].DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
         }
 
         runtimeLeases.Clear();
+        if (failures.Count > 0) { throw new AggregateException("部分应用原运行状态未能恢复", failures); }
     }
 
     public void Dispose()

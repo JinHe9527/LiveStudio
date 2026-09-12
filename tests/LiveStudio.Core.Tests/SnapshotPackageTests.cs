@@ -8,6 +8,27 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class SnapshotPackageTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SaveRejectsMissingOrChangedDeclaredAsset(bool includeChangedFile)
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var target = Path.Combine(directory, "broken.lscfg");
+            var snapshot = CreateSnapshot() with
+            {
+                Assets = [new AssetBlob(new string('a', 64), "application/octet-stream", 3, "assets/content")]
+            };
+            await Assert.ThrowsAsync<SnapshotPackageException>(() => SnapshotPackageWriter.WriteAsync(target, snapshot,
+                includeChangedFile ? [new PackageFile("assets/content", "application/octet-stream", "bad"u8.ToArray())] : [], key, "test", CancellationToken.None));
+            Assert.False(File.Exists(target));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Fact]
     public async Task PackageRoundTripsAndVerifiesSignature()
     {
@@ -38,6 +59,9 @@ public sealed class SnapshotPackageTests
             Assert.True(applicationManifest.WasRunning);
             Assert.Contains("assets/lut.cube", package.Files.Keys);
             Assert.Contains("parameters.json", package.Files.Keys);
+            Assert.Contains(SnapshotParameterWorkbook.PackagePath, package.Files.Keys);
+            using var workbook = new ZipArchive(new MemoryStream(package.Files[SnapshotParameterWorkbook.PackagePath].Content.ToArray()));
+            Assert.NotNull(workbook.GetEntry("xl/workbook.xml"));
         }
         finally
         {
@@ -480,6 +504,49 @@ public sealed class SnapshotPackageTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ExcelExportPreservesExactLongValuesAndDoesNotExecuteFormulas()
+    {
+        var snapshot = CreateSnapshot();
+        var longValue = string.Concat(Enumerable.Repeat("中文😀", 7000));
+        var app = snapshot.Applications[0] with
+        {
+            NativeDocuments = [new NativeConfigurationDocument("test", "JsonFile", "1", "file", "config.json", "hash", Guid.Empty,
+                [new NativeConfigurationValue("/curve", "curve", System.Text.Json.JsonSerializer.SerializeToElement(new { points = new object?[] { null, 0, 0.1234567890123456789m, false, longValue, "=HYPERLINK(\"bad\")", "_x0041_" } }))])]
+        };
+        var bytes = SnapshotParameterWorkbook.Create(snapshot with { Applications = [app] });
+        using var workbook = new ZipArchive(new MemoryStream(bytes));
+        var ns = System.Xml.Linq.XNamespace.Get("http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+        var documents = new List<System.Xml.Linq.XDocument>();
+        foreach (var entry in workbook.Entries.Where(entry => entry.FullName.StartsWith("xl/worksheets/", StringComparison.Ordinal)))
+        {
+            using var input = entry.Open();
+            documents.Add(await System.Xml.Linq.XDocument.LoadAsync(input, System.Xml.Linq.LoadOptions.None, CancellationToken.None));
+        }
+        Assert.All(documents, document => Assert.Empty(document.Descendants(ns + "f")));
+        var complete = documents[^1];
+        var rows = complete.Descendants(ns + "row").Select(row => row.Elements(ns + "c").Select(cell => cell.Descendants(ns + "t").FirstOrDefault()?.Value ?? "").ToArray()).ToArray();
+        var chunks = rows.Where(row => row.Length == 4 && row[0].EndsWith("/points/4", StringComparison.Ordinal)).Select(row => row[3]);
+        Assert.Equal(longValue, string.Concat(chunks));
+        Assert.Contains(rows, row => row.Length == 4 && row[3] == "0.1234567890123456789");
+        Assert.Contains(rows, row => row.Length == 4 && row[3] == "null");
+        Assert.Contains(rows, row => row.Length == 4 && row[3] == "false");
+        Assert.Contains(rows, row => row.Length == 4 && row[3] == "_x005F_x0041_");
+        Assert.All(documents, document => Assert.NotEmpty(document.Descendants(ns + "pane")));
+    }
+
+    [Fact]
+    public void ExcelExportRejectsSensitiveParameters()
+    {
+        var snapshot = CreateSnapshot();
+        var app = snapshot.Applications[0] with
+        {
+            NativeDocuments = [new NativeConfigurationDocument("test", "JsonFile", "1", "file", "config.json", "hash", Guid.Empty,
+                [new NativeConfigurationValue("/value", "unknown", System.Text.Json.JsonSerializer.SerializeToElement(new { token = "secret-value" }))])]
+        };
+        Assert.Throws<SnapshotSensitiveDataException>(() => SnapshotParameterWorkbook.Create(snapshot with { Applications = [app] }));
     }
 
     private static CombinedSnapshot CreateSnapshot() => new(

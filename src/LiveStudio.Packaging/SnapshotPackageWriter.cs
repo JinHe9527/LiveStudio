@@ -37,6 +37,10 @@ public sealed class SnapshotPackageWriter
 
         var packageFiles = files.ToDictionary(file => NormalizePackagePath(file.Path), StringComparer.Ordinal);
         RejectReservedPaths(packageFiles.Keys);
+        SnapshotAssetIntegrity.Validate(snapshot, packageFiles);
+        // 重签名旧包时重新生成说明，避免相机备注等参数更新后Excel 仍是旧值。
+        packageFiles[SnapshotParameterWorkbook.PackagePath] = new PackageFile(
+            SnapshotParameterWorkbook.PackagePath, SnapshotParameterWorkbook.MediaType, SnapshotParameterWorkbook.Create(snapshot));
 
         var parameters = JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions);
         var sensitiveFindings = SensitiveDataScanner.ScanJson(parameters, ParametersPath).ToList();

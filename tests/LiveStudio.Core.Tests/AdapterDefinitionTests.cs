@@ -255,8 +255,10 @@ public sealed class AdapterDefinitionTests
         }
     }
 
-    [Fact]
-    public void CatalogAllowsNewVersionOnlyWhenEveryRequiredPathAndTypeMatches()
+    [Theory]
+    [InlineData('a')]
+    [InlineData('b')]
+    public void CatalogAllowsNewVersionOnlyWhenEveryRequiredPathAndTypeMatches(char fingerprintCharacter)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"livestudio-adapter-catalog-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(directory, "trusted-keys"));
@@ -281,7 +283,7 @@ public sealed class AdapterDefinitionTests
             var catalog = new LiveCompanionAdapterCatalog(directory);
             var discovered = new[] { CreateDiscoveredDocument(definition.Fields) };
 
-            var captureMatch = catalog.Match("2.0.0", new string('b', 64), discovered);
+            var captureMatch = catalog.Match("2.0.0", new string(fingerprintCharacter, 64), discovered);
             var restoreMatch = catalog.MatchSnapshot(
                 "2.0.0",
                 definition.Id,
@@ -292,6 +294,13 @@ public sealed class AdapterDefinitionTests
             Assert.Equal(AdapterMatchLevel.Verified, captureMatch.Level);
             Assert.Equal(AdapterMatchLevel.Verified, restoreMatch.Level);
             Assert.Contains("版本号已变化", restoreMatch.Reason, StringComparison.Ordinal);
+
+            var missingRequired = new[] { CreateDiscoveredDocument(definition.Fields.Where(field => field.Id != "width")) };
+            Assert.Equal(AdapterMatchLevel.Incompatible,
+                catalog.Match("1.0.0", definition.StructureFingerprint, missingRequired).Level);
+            Assert.Equal(AdapterMatchLevel.Incompatible,
+                catalog.MatchSnapshot("1.0.0", definition.Id, captureMatch.Adapter.DefinitionSha256,
+                    definition.StructureFingerprint, missingRequired).Level);
         }
         finally
         {
@@ -401,6 +410,84 @@ public sealed class AdapterDefinitionTests
         Assert.Equal(AdapterMatchLevel.Verified, match.Level);
         Assert.Equal(definition.Definition.Id, match.Adapter?.Definition.Id);
         Assert.Contains("版本号不阻断", match.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NewVersionRequiresCompleteSignedPortableShape()
+    {
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(FindRepositoryRoot(), "src", "LiveStudio.Agent", "Adapters"));
+        var adapter = catalog.GetAll().Single(item => item.Definition.Id == "webcast-mate-12.9.3.475022132-v4");
+        var documents = CreateStructurallyCompatibleDocuments(adapter.Definition);
+        Assert.True(LiveCompanionAdapterCatalog.MatchesPortableFieldShape(adapter, documents, true));
+        var source = documents.Single(document => document.StoreId == "source-store");
+        var filterPath = source.Values.First(value => value.JsonPointer.Contains("/filterDataList/0/", StringComparison.Ordinal)).JsonPointer;
+        var filterIdPath = filterPath[..(filterPath.IndexOf("/filterDataList/0/", StringComparison.Ordinal) + "/filterDataList/0/".Length)] + "id";
+        documents = documents.Select(document => document == source
+            ? document with
+            {
+                Values = document.Values.Append(new NativeConfigurationValue(filterIdPath,
+                NativeParameterCategories.Filter, JsonSerializer.SerializeToElement("runtime-filter-id"))).ToArray()
+            }
+            : document).ToArray();
+        Assert.False(LiveCompanionAdapterCatalog.MatchesCompatibleShape(adapter.Definition, documents));
+        Assert.True(LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion("13.0.1.482583989", adapter, documents));
+        var effect = documents.Single(document => document.StoreId == "effect-config");
+        var parameter = effect.Values.First(value => value.Value.ValueKind == JsonValueKind.Number);
+        var unknown = documents.Select(document => document == effect
+            ? document with
+            {
+                Values = document.Values.Append(new NativeConfigurationValue(parameter.JsonPointer + "New",
+                NativeParameterCategories.Filter, JsonSerializer.SerializeToElement(1))).ToArray()
+            }
+            : document).ToArray();
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion("13.0.1.482583989", adapter, unknown));
+        var wrongType = documents.Select(document => document == effect
+            ? document with
+            {
+                Values = document.Values.Select(value => value == parameter
+                ? value with { Value = JsonSerializer.SerializeToElement("wrong-type") } : value).ToArray()
+            }
+            : document).ToArray();
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion("13.0.1.482583989", adapter, wrongType));
+        var incomplete = CreatePortableCapabilityDocuments(adapter.Definition);
+        Assert.False(LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion("13.0.1.482583989", adapter, incomplete));
+    }
+
+    [Fact]
+    public void CompatibilityReportIdentifiesDifferencesWithoutExportingValues()
+    {
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(FindRepositoryRoot(), "src", "LiveStudio.Agent", "Adapters"));
+        var adapter = catalog.GetAll().Single(item => item.Definition.Id == "webcast-mate-12.9.3.475022132-v4");
+        var documents = CreateStructurallyCompatibleDocuments(adapter.Definition);
+        var matched = LiveCompanionCompatibilityDiagnostics.Analyze("13.0.1.482583989", documents, catalog);
+        Assert.Equal("Matched", matched.Status);
+        Assert.Empty(matched.Differences);
+        var effect = documents.Single(document => document.StoreId == "effect-config");
+        var numbers = effect.Values.Where(value => value.Value.ValueKind == JsonValueKind.Number).Take(2).ToArray();
+        documents = documents.Select(document => document == effect
+            ? document with
+            {
+                Values = document.Values.Where(value => value != numbers[0])
+                    .Select(value => value == numbers[1] ? value with { Value = JsonSerializer.SerializeToElement("PRIVATE_VALUE_DO_NOT_EXPORT") } : value)
+                    .Append(new NativeConfigurationValue(numbers[0].JsonPointer + "New", NativeParameterCategories.Filter,
+                        JsonSerializer.SerializeToElement("PRIVATE_VALUE_DO_NOT_EXPORT"))).ToArray()
+            }
+            : document).ToArray();
+        var report = LiveCompanionCompatibilityDiagnostics.Analyze("13.0.1.482583989", documents, catalog);
+        Assert.Equal("NeedsAdapter", report.Status);
+        Assert.Contains(report.Differences, difference => difference.Kind == "MissingField");
+        Assert.Contains(report.Differences, difference => difference.Kind == "TypeChanged");
+        Assert.Contains(report.Differences, difference => difference.Kind == "UnknownField");
+        Assert.DoesNotContain("PRIVATE_VALUE_DO_NOT_EXPORT", JsonSerializer.Serialize(report), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompatibilityReportDoesNotMatchEmptyComputer()
+    {
+        var catalog = new LiveCompanionAdapterCatalog(Path.Combine(FindRepositoryRoot(), "src", "LiveStudio.Agent", "Adapters"));
+        var report = LiveCompanionCompatibilityDiagnostics.Analyze("unknown", [], catalog);
+        Assert.Equal("NeedsAdapter", report.Status);
+        Assert.Contains(report.Differences, difference => difference.Kind == "MissingStore");
     }
 
     [Fact]

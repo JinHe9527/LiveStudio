@@ -101,7 +101,21 @@ public sealed record LocalAgentState(
     IReadOnlyList<LocalApplicationState> Applications,
     IReadOnlyList<LocalSnapshotSummary> Snapshots,
     IReadOnlyList<LocalOperationSummary> Operations,
-    string? ObsEndpoint = null);
+    string? ObsEndpoint = null,
+    TargetCompatibilityReport? TargetCompatibility = null);
+
+public sealed record CompatibilityFieldDifference(
+    string Store, string Path, string Kind, string? ExpectedType, string? ActualType);
+
+public sealed record TargetCompatibilityReport(
+    DateTimeOffset CheckedAt,
+    string ApplicationVersion,
+    string StructureFingerprint,
+    string Status,
+    string? AdapterId,
+    string Summary,
+    int FieldCount,
+    IReadOnlyList<CompatibilityFieldDifference> Differences);
 
 public sealed record CaptureLocalSnapshotRequest(
     string Name,
@@ -194,7 +208,7 @@ public sealed record SnapshotTransferResult(
     string Name,
     string Path);
 
-public sealed record LocalSnapshotOperationResult(Guid SnapshotId, string Name, DateTimeOffset CompletedAt);
+public sealed record LocalSnapshotOperationResult(Guid SnapshotId, string Name, DateTimeOffset CompletedAt, string? Warning = null);
 
 public sealed record DeleteSnapshotsResult(int DeletedCount);
 

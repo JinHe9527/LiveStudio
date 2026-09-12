@@ -124,7 +124,7 @@
                                 <TextBlock Classes="archive-meta" VerticalAlignment="Center" Text="{Binding ObsConnectionState}" />
                             </StackPanel>
                             <Border Width="1" Height="12" Background="{DynamicResource ArchiveSeparatorBrush}" />
-                            <StackPanel Orientation="Horizontal" Spacing="6" ToolTip.Tip="直播伴侣实时读取状态；已读取不代表已通过完整恢复验证">
+                            <StackPanel Orientation="Horizontal" Spacing="6" ToolTip.Tip="{Binding TargetCompatibilitySummary}">
                                 <Ellipse Classes="connection-dot" Classes.ready="{Binding IsLiveCompanionReadable}" />
                                 <TextBlock Classes="archive-label" FontSize="12" VerticalAlignment="Center" Text="直播伴侣" />
                                 <TextBlock Classes="archive-meta" VerticalAlignment="Center" Text="{Binding LiveCompanionConnectionState}" />

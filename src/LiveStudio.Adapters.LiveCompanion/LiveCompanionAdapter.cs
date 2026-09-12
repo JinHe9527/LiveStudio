@@ -17,6 +17,29 @@ public sealed class LiveCompanionAdapter(
 
     public ApplicationKind Kind => ApplicationKind.LiveCompanion;
 
+    public async Task<TargetCompatibilityReport> DetectCompatibilityAsync(CancellationToken cancellationToken)
+    {
+        var version = "unknown";
+        try
+        {
+            version = (await InspectAsync(cancellationToken)).Version;
+            var first = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            var second = await configurationStore.CaptureDocumentsAsync(cancellationToken);
+            if (LiveCompanionStructureFingerprint.Compute(first) != LiveCompanionStructureFingerprint.Compute(second))
+            {
+                return new(DateTimeOffset.UtcNow, version, "", "Unstable", null,
+                    "配置结构正在变化，请等待应用保存后重新检测。", 0, []);
+            }
+            return LiveCompanionCompatibilityDiagnostics.Analyze(version, second, adapterCatalog);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidOperationException or JsonException or ArgumentException or AdapterDefinitionException)
+        {
+            return new(DateTimeOffset.UtcNow, version, "", "Unavailable", null,
+                "暂时无法完整读取配置或验证适配签名，请检查应用配置后重新检测。", 0, []);
+        }
+    }
+
     // MediaSDK enums inspected in the signed 12.9.2 application; absent optional fields use native defaults.
     internal static bool IsSupportedColorMode(VideoMode mode) =>
         mode.ColorSpace is "" or "0" or "1" or "2" or "3" or "4" or "5" or "6" or "7" or "8"
@@ -587,8 +610,6 @@ public sealed class LiveCompanionAdapter(
                     $"目标直播伴侣版本或摄像头存储结构不受支持: {targetMatch.Reason}");
             }
 
-            var signedVersion = CompatibilityMatcher.MatchCandidates(
-                portableRuntime.Version, [targetMatch.Adapter], "可移植恢复版本");
             if (targetMatch.Adapter.Definition.RequirePortableFieldShapeMatch
                 && (!LiveCompanionAdapterCatalog.MatchesPortableFieldShape(targetMatch.Adapter, portableTargetDocuments, true)
                     || !LiveCompanionAdapterCatalog.MatchesPortableFieldShape(targetMatch.Adapter, context.Snapshot.NativeDocuments, false)))
@@ -596,8 +617,8 @@ public sealed class LiveCompanionAdapter(
                 return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
                     "存档或目标摄像头包含未匹配签名字段矩阵的路径、类型或缺失字段；尚未写入配置");
             }
-            if (signedVersion.Level != AdapterMatchLevel.Verified
-                && !LiveCompanionAdapterCatalog.MatchesCompatibleShape(targetMatch.Adapter.Definition, portableTargetDocuments))
+            if (!LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion(
+                    portableRuntime.Version, targetMatch.Adapter, portableTargetDocuments))
             {
                 return RestorePreflightResult.Fail(JobStatus.IncompatibleVersion,
                     "目标直播伴侣版本不在签名恢复范围，且未通过完整字段结构匹配；允许保存读取，禁止写入");

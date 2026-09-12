@@ -7,6 +7,72 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class RestoreCoordinatorTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task InvalidApplicationInventoryCannotReturnSuccessfulRestore(int applicationCount)
+    {
+        var adapter = new FakeAdapter(ApplicationKind.Obs);
+        using var coordinator = new RestoreCoordinator([adapter]);
+        var snapshot = CreateSnapshot(Enumerable.Repeat(ApplicationKind.Obs, applicationCount).ToArray());
+        var result = await coordinator.ExecuteAsync(Guid.NewGuid(), snapshot, [], false, "/tmp/assets",
+            _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask, CancellationToken.None);
+        Assert.Equal(JobStatus.IncompatibleVersion, result.Status);
+        Assert.Null(adapter.RuntimeLease);
+        Assert.Equal(0, adapter.BeginRestoreCount);
+    }
+
+    [Fact]
+    public async Task UnexpectedPreparationFailureReleasesEarlierRuntime()
+    {
+        var obs = new FakeAdapter(ApplicationKind.Obs);
+        var companion = new FakeAdapter(ApplicationKind.LiveCompanion) { FailPrepareSnapshot = true };
+        using var coordinator = new RestoreCoordinator([obs, companion]);
+        await Assert.ThrowsAsync<IOException>(() => coordinator.ExecuteAsync(Guid.NewGuid(),
+            CreateSnapshot(ApplicationKind.Obs, ApplicationKind.LiveCompanion), [], false, "/tmp/assets",
+            _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask, CancellationToken.None));
+        Assert.True(obs.RuntimeLease!.WasDisposed);
+        Assert.Equal(0, obs.BeginRestoreCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupFailureDoesNotSkipOtherApplicationsOrHideCommittedState(bool failApply)
+    {
+        var obs = new FakeAdapter(ApplicationKind.Obs);
+        var companion = new FakeAdapter(ApplicationKind.LiveCompanion)
+        {
+            FailRuntimeDispose = true,
+            Fault = failApply ? RestoreFault.Apply : default
+        };
+        companion.Session.FailDispose = true;
+        using var coordinator = new RestoreCoordinator([obs, companion]);
+        var result = await coordinator.ExecuteAsync(Guid.NewGuid(), CreateSnapshot(ApplicationKind.Obs, ApplicationKind.LiveCompanion),
+            [], false, "/tmp/assets", _ => Task.CompletedTask, (_, _, _) => Task.CompletedTask, CancellationToken.None);
+        Assert.True(obs.Session.WasDisposed);
+        Assert.True(companion.Session.WasDisposed);
+        Assert.True(obs.RuntimeLease!.WasDisposed);
+        Assert.True(companion.RuntimeLease!.WasDisposed);
+        Assert.Equal(failApply ? JobStatus.RollbackFailed : JobStatus.Succeeded, result.Status);
+        Assert.Equal(failApply, obs.Session.WasRolledBack);
+        Assert.Contains("清理", result.Message, StringComparison.Ordinal);
+        Assert.Equal(2, result.Differences.Count);
+    }
+
+    [Fact]
+    public async Task DisconnectedProgressChannelDoesNotHideRollbackResult()
+    {
+        var adapter = new FakeAdapter(ApplicationKind.Obs) { Fault = RestoreFault.Apply };
+        using var coordinator = new RestoreCoordinator([adapter]);
+        var result = await coordinator.ExecuteAsync(Guid.NewGuid(), CreateSnapshot(ApplicationKind.Obs), [], false, "/tmp/assets",
+            _ => Task.CompletedTask, (status, _, _) => status == JobStatus.FailedRolledBack
+                ? Task.FromException(new IOException("进度连接中断")) : Task.CompletedTask, CancellationToken.None);
+        Assert.Equal(JobStatus.FailedRolledBack, result.Status);
+        Assert.True(adapter.Session.WasRolledBack);
+        Assert.True(adapter.RuntimeLease!.WasDisposed);
+    }
+
     [Fact]
     public async Task ExecuteAsyncDoesNotConsultLiveStateBeforeRestore()
     {
@@ -535,6 +601,11 @@ public sealed class RestoreCoordinatorTests
         public int InspectCount { get; private set; }
 
         public bool RuntimeWasRunningBefore { get; init; } = true;
+        public bool FailRuntimeDispose { get; init; }
+        public bool FailPrepareSnapshot { get; init; }
+
+        public ApplicationSnapshot PrepareRestoreSnapshot(ApplicationSnapshot snapshot) => FailPrepareSnapshot
+            ? throw new IOException("注入适配准备读取故障") : snapshot;
 
         public bool? BeginContextWasRunningBefore { get; private set; }
 
@@ -567,7 +638,7 @@ public sealed class RestoreCoordinatorTests
 
         public Task<IApplicationRuntimeLease> PrepareRuntimeAsync(CancellationToken cancellationToken)
         {
-            RuntimeLease = new FakeRuntimeLease(RuntimeWasRunningBefore);
+            RuntimeLease = new FakeRuntimeLease(RuntimeWasRunningBefore, FailRuntimeDispose);
             return Task.FromResult<IApplicationRuntimeLease>(RuntimeLease);
         }
 
@@ -593,7 +664,7 @@ public sealed class RestoreCoordinatorTests
         }
     }
 
-    private sealed class FakeRuntimeLease(bool wasRunning) : IApplicationRuntimeLease
+    private sealed class FakeRuntimeLease(bool wasRunning, bool failDispose) : IApplicationRuntimeLease
     {
         public bool WasRunning { get; } = wasRunning;
 
@@ -602,12 +673,15 @@ public sealed class RestoreCoordinatorTests
         public ValueTask DisposeAsync()
         {
             WasDisposed = true;
+            if (failDispose) { return ValueTask.FromException(new IOException("注入运行状态清理故障")); }
             return ValueTask.CompletedTask;
         }
     }
 
     private sealed class FakeSession(ApplicationKind kind) : IApplicationRestoreSession
     {
+        public bool FailDispose { get; set; }
+        public bool WasDisposed { get; private set; }
         public ApplicationKind Kind { get; } = kind;
 
         public RestoreVerificationResult Verification { get; set; } = new(true, []);
@@ -663,7 +737,11 @@ public sealed class RestoreCoordinatorTests
             return Task.CompletedTask;
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            WasDisposed = true;
+            return FailDispose ? ValueTask.FromException(new IOException("注入会话清理故障")) : ValueTask.CompletedTask;
+        }
 
         private Task FailAt(RestoreFault stage) => Fault == stage
             ? Task.FromException(new InvalidOperationException($"注入 {stage} 故障"))

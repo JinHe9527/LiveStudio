@@ -29,7 +29,8 @@ public sealed class LiveCompanionAdapterCatalog
         IReadOnlyList<NativeConfigurationDocument> discoveredDocuments)
     {
         var exact = Match(applicationVersion, structureFingerprint);
-        if (exact.Adapter is not null)
+        if (exact.Level == AdapterMatchLevel.Verified && exact.Adapter is not null
+            && MatchesCompatibleShape(exact.Adapter.Definition, discoveredDocuments))
         {
             return exact;
         }
@@ -73,7 +74,8 @@ public sealed class LiveCompanionAdapterCatalog
             adapterId,
             definitionSha256,
             structureFingerprint);
-        if (versionMatch.Level == AdapterMatchLevel.Verified)
+        if (versionMatch.Level == AdapterMatchLevel.Verified && versionMatch.Adapter is not null
+            && MatchesCompatibleShape(versionMatch.Adapter.Definition, discoveredDocuments))
         {
             return versionMatch;
         }
@@ -105,6 +107,21 @@ public sealed class LiveCompanionAdapterCatalog
         return CompatibilityMatcher.MatchPortableCapabilityCandidates(
             applicationVersion,
             candidates);
+    }
+
+    internal static bool MatchesPortableRestoreVersion(
+        string applicationVersion,
+        VerifiedAdapterDefinition adapter,
+        IReadOnlyList<NativeConfigurationDocument> documents)
+    {
+        var signedVersion = CompatibilityMatcher.MatchCandidates(
+            applicationVersion, [adapter], "目标版本范围");
+        // 跨版本只接受签名定义覆盖的完整参数投影；原生生成的滤镜 ID 不参与迁移。
+        // 调用方仍须独立验证存档、目标选择、设备、素材及事务前提。
+        return signedVersion.Level == AdapterMatchLevel.Verified
+            || (adapter.Definition.RequirePortableFieldShapeMatch
+                && MatchesPortableFieldShape(adapter, documents, true))
+            || MatchesCompatibleShape(adapter.Definition, documents);
     }
 
     internal static bool MatchesRequiredShape(

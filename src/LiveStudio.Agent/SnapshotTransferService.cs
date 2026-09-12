@@ -270,12 +270,22 @@ public sealed class SnapshotTransferService
         var directory = Path.GetDirectoryName(destinationPath)
             ?? throw new DirectoryNotFoundException("无法确定导出目录");
         Directory.CreateDirectory(directory);
-        if (File.Exists(destinationPath))
+        if (File.Exists(destinationPath) || File.Exists(Path.ChangeExtension(destinationPath, ".xlsx")))
         {
-            throw new IOException($"导出文件已经存在: {destinationPath}");
+            throw new IOException($"存档或同名参数说明已经存在，请选择其他文件名: {destinationPath}");
         }
 
         await CopyAtomicallyAsync(snapshot.PackagePath, destinationPath, cancellationToken);
+        try
+        {
+            await SnapshotParameterWorkbook.WriteBesidePackageAsync(destinationPath, cancellationToken);
+        }
+        catch
+        {
+            // 只清理本次已成功新建的导出包，不动原存档或已有 Excel 文件。
+            File.Delete(destinationPath);
+            throw;
+        }
         return new SnapshotTransferResult(snapshot.Id, snapshot.Name, destinationPath);
     }
 
