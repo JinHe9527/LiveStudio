@@ -2579,6 +2579,8 @@ public sealed partial class SnapshotSourceViewModel : ObservableObject
 
     public bool HasMultipleFilterPages => Filters.Count > FilterPageSize;
 
+    public bool HasFilters => Filters.Count > 0;
+
     [RelayCommand(CanExecute = nameof(CanGoToPreviousFilterPage))]
     private void PreviousFilterPage()
     {

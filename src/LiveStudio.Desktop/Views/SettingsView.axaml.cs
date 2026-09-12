@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using LiveStudio.Desktop.ViewModels;
 
 namespace LiveStudio.Desktop.Views;
@@ -16,6 +17,14 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+    }
+
+    private async void ClearLocalSnapshotsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (this.FindAncestorOfType<SnapshotsView>() is { } snapshotsView)
+        {
+            await snapshotsView.DeleteAllSnapshotsFromTitleBarAsync();
+        }
     }
 
     private void BasicSettingsTabClicked(object? sender, RoutedEventArgs eventArgs)

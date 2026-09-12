@@ -1,0 +1,7 @@
+{
+  "name": "livestudio-desktop-dev",
+  "private": true,
+  "scripts": {
+    "dev": "dotnet watch --project src/LiveStudio.Desktop/LiveStudio.Desktop.csproj --no-hot-reload"
+  }
+}

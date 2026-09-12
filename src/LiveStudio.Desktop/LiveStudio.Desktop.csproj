@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Watch Include="**/*.axaml" Exclude="bin/**;obj/**" />
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" Exclude="Assets\Cloud\LiveStudio-Cloud-Root-CA.crt" />
     <EmbeddedResource Include="Assets\Cloud\LiveStudio-Cloud-Root-CA.crt"

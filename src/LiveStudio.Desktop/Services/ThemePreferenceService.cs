@@ -18,16 +18,16 @@ internal static class ThemePreferenceService
     {
         try
         {
-            var value = File.Exists(PreferencePath) ? File.ReadAllText(PreferencePath).Trim() : SystemMode;
-            return value is LightMode or DarkMode ? value : SystemMode;
+            var value = File.Exists(PreferencePath) ? File.ReadAllText(PreferencePath).Trim() : DarkMode;
+            return value is SystemMode or LightMode or DarkMode ? value : DarkMode;
         }
         catch (IOException)
         {
-            return SystemMode;
+            return DarkMode;
         }
         catch (UnauthorizedAccessException)
         {
-            return SystemMode;
+            return DarkMode;
         }
     }
 
@@ -57,7 +57,7 @@ internal static class ThemePreferenceService
         }
         catch (IOException)
         {
-            // 主题切换已即时生效；无法保存时下次启动回到跟随系统。
+            // 主题切换已即时生效；无法保存时下次启动使用已有偏好或默认深色。
         }
         catch (UnauthorizedAccessException)
         {

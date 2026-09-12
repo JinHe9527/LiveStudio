@@ -23,7 +23,6 @@
     </Design.DataContext>
 
     <Grid Background="{DynamicResource AppWindowBrush}">
-        <views:SnapshotsView x:Name="SnapshotsPage" IsVisible="{Binding IsSnapshotsVisible}" />
-        <views:SettingsView IsVisible="{Binding IsSettingsVisible}" />
+        <views:SnapshotsView x:Name="SnapshotsPage" />
     </Grid>
 </Window>

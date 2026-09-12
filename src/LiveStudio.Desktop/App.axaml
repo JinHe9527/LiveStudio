@@ -1,7 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="LiveStudio.Desktop.App"
-             RequestedThemeVariant="Default">
+             RequestedThemeVariant="Dark">
 
     <Application.Resources>
         <ResourceDictionary>
@@ -9,7 +9,10 @@
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="AppWindowBrush" Color="#F5F5F7" />
                     <SolidColorBrush x:Key="AppSidebarBrush" Color="#ECECEF" />
-                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#F2F2F4" />
+                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#DCE3ED" />
+                    <SolidColorBrush x:Key="SidebarDividerBrush" Color="#A7B4C7" />
+                    <SolidColorBrush x:Key="SidebarMutedTextBrush" Color="#526078" />
+                    <SolidColorBrush x:Key="SidebarSelectionBrush" Color="#B8D8FF" />
                     <SolidColorBrush x:Key="ArchiveContentBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#F7F7F9" />
                     <SolidColorBrush x:Key="ArchiveImageCaptionBrush" Color="#B31D1D1F" />
@@ -31,7 +34,10 @@
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="AppWindowBrush" Color="#1C1C1E" />
                     <SolidColorBrush x:Key="AppSidebarBrush" Color="#222326" />
-                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#202022" />
+                    <SolidColorBrush x:Key="ArchiveSidebarBrush" Color="#303B4B" />
+                    <SolidColorBrush x:Key="SidebarDividerBrush" Color="#62738C" />
+                    <SolidColorBrush x:Key="SidebarMutedTextBrush" Color="#C1CDDE" />
+                    <SolidColorBrush x:Key="SidebarSelectionBrush" Color="#205A94" />
                     <SolidColorBrush x:Key="ArchiveContentBrush" Color="#18181A" />
                     <SolidColorBrush x:Key="ArchiveRaisedBrush" Color="#242426" />
                     <SolidColorBrush x:Key="ArchiveImageCaptionBrush" Color="#C8101011" />

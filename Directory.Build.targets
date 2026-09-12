@@ -1,0 +1,10 @@
+<Project>
+  <!-- 保留构建目录中的符号供调试，但不把托管及原生 PDB 放入正式发布载荷。 -->
+  <Target Name="ExcludeReleaseDebugSymbols" AfterTargets="ComputeFilesToPublish"
+          Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+</Project>

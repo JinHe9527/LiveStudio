@@ -30,6 +30,7 @@ public partial class MainViewModel : ViewModelBase
     private DesktopCloudCredentials? cloudCredentials;
     private NativeExportReport? nativeExportBaseline;
     private CancellationTokenSource? snapshotDetailCancellation;
+    private readonly SnapshotInspectorCache snapshotInspectorCache = new();
     private bool isLoadingCloudWorkspace;
     private bool isRefreshingSnapshotNavigation;
     private ApplicationUpdateRelease? availableUpdate;
@@ -83,9 +84,9 @@ public partial class MainViewModel : ViewModelBase
         supportsLocalAgent = OperatingSystem.IsWindows() || isDemoMode;
         ThemeModes =
         [
-            new ThemeModeOptionViewModel(ThemePreferenceService.SystemMode, "跟随系统"),
-            new ThemeModeOptionViewModel(ThemePreferenceService.LightMode, "浅色"),
-            new ThemeModeOptionViewModel(ThemePreferenceService.DarkMode, "深色")
+            new ThemeModeOptionViewModel(ThemePreferenceService.DarkMode, "黑色"),
+            new ThemeModeOptionViewModel(ThemePreferenceService.LightMode, "白色"),
+            new ThemeModeOptionViewModel(ThemePreferenceService.SystemMode, "跟随系统")
         ];
         CameraCreativeLooks =
         [
@@ -198,9 +199,12 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowObsConnectionHelp))]
+    [NotifyPropertyChangedFor(nameof(IsObsConnected))]
     public partial string ObsConnectionState { get; set; } = "未连接";
 
     public bool ShowObsConnectionHelp => ObsConnectionState != "已连接";
+    public bool IsObsConnected => ObsConnectionState == "已连接";
+    public bool IsLiveCompanionReadable => LiveCompanionConnectionState == "已读取";
 
     [ObservableProperty]
     public partial string ObsStreamingState { get; set; } = "推流状态未知";
@@ -215,6 +219,7 @@ public partial class MainViewModel : ViewModelBase
     public partial string LiveCompanionVersionText { get; set; } = "版本未知";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLiveCompanionReadable))]
     public partial string LiveCompanionConnectionState { get; set; } = "未连接";
 
     [ObservableProperty]
@@ -675,7 +680,7 @@ public partial class MainViewModel : ViewModelBase
     public bool CanShowRestoreAction => SupportsLocalAgent
         || SelectedSnapshot?.IsCloud == true && IsCloudConnected;
 
-    public string RestoreActionText => IsRestoringSnapshot ? "正在恢复…" : "恢复所选存档";
+    public string RestoreActionText => IsRestoringSnapshot ? "正在恢复…" : "恢复存档";
 
     public bool HasActivityItems => ActivityItems.Count > 0;
 
@@ -901,8 +906,16 @@ public partial class MainViewModel : ViewModelBase
     {
         try
         {
+            if (snapshotInspectorCache.Get(snapshot) is { } cached)
+            {
+                ShowSnapshotInspector(cached);
+                return;
+            }
+
+            // 连续点击时只读取最后选择的一项；参数投影不占用界面线程。
+            await Task.Delay(60, cancellationToken);
             SnapshotInspectorViewModel inspector;
-            var comparisonSummary = "当前来源没有可用的上一份存档";
+            SnapshotPackage? desktopPackage = null;
             if (snapshot.IsCloud)
             {
                 if (cloudCredentials is null || SelectedOrganization is null)
@@ -910,80 +923,92 @@ public partial class MainViewModel : ViewModelBase
                     SnapshotInspectorMessage = "云端连接或直播管理空间已失效";
                     return;
                 }
-
                 var detail = await cloudClient.GetSnapshotDetailAsync(
-                    cloudCredentials,
-                    SelectedOrganization.Id,
-                    snapshot.Id,
-                    cancellationToken);
-                inspector = new SnapshotInspectorViewModel(
-                    detail.Summary.Name,
-                    detail.Summary.CreatedAt,
-                    detail.Applications,
-                    creativeLooks: CameraCreativeLooks,
-                    cameraStations: detail.CameraStations);
-                await LoadCloudCameraReferenceImagesAsync(snapshot, inspector, cancellationToken);
+                    cloudCredentials, SelectedOrganization.Id, snapshot.Id, cancellationToken);
+                inspector = await Task.Run(() => new SnapshotInspectorViewModel(
+                    detail.Summary.Name, detail.Summary.CreatedAt, detail.Applications,
+                    creativeLooks: CameraCreativeLooks, cameraStations: detail.CameraStations), cancellationToken);
             }
             else if (snapshot.IsDesktopFile)
             {
                 var file = await snapshotFileStore.GetAsync(snapshot.Id, cancellationToken);
-                var detail = file.Inspection.Package.Snapshot;
-                inspector = new SnapshotInspectorViewModel(
-                    detail.Name,
-                    detail.CreatedAt,
-                    detail.Applications,
-                    "签名有效",
+                desktopPackage = file.Inspection.Package;
+                var detail = desktopPackage.Snapshot;
+                inspector = await Task.Run(() => new SnapshotInspectorViewModel(
+                    detail.Name, detail.CreatedAt, detail.Applications, "签名有效",
                     FormatSignerFingerprint(file.Inspection.Signer.FingerprintSha256),
-                    CameraCreativeLooks,
-                    detail.CameraStations);
-                ApplyCameraReferenceImages(inspector, file.Inspection.Package);
+                    CameraCreativeLooks, detail.CameraStations), cancellationToken);
             }
             else
             {
                 var detail = await localAgentClient.GetSnapshotDetailAsync(snapshot.Id, cancellationToken);
-                inspector = new SnapshotInspectorViewModel(
-                    detail.Name,
-                    detail.CreatedAt,
-                    detail.Applications,
-                    creativeLooks: CameraCreativeLooks,
-                    cameraStations: detail.CameraStations);
+                inspector = await Task.Run(() => new SnapshotInspectorViewModel(
+                    detail.Name, detail.CreatedAt, detail.Applications,
+                    creativeLooks: CameraCreativeLooks, cameraStations: detail.CameraStations), cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(SelectedSnapshot, snapshot))
+            {
+                return;
+            }
+            // 只读取实际存在的参考图，保留保存操作所需的图片绑定。
+            // 不再读取首页未展示的上一份比较和两款应用预览。
+            if (desktopPackage is not null)
+            {
+                ApplyCameraReferenceImages(inspector, desktopPackage);
+            }
+            else if (snapshot.IsCloud)
+            {
+                await LoadCloudCameraReferenceImagesAsync(snapshot, inspector, cancellationToken);
+            }
+            else
+            {
                 await LoadLocalCameraReferenceImagesAsync(snapshot.Id, inspector, cancellationToken);
-                comparisonSummary = await CompareWithPreviousLocalSnapshotAsync(
-                    snapshot,
-                    detail,
-                    cancellationToken);
             }
-
-            if (SelectedSnapshot?.Id == snapshot.Id)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ReferenceEquals(SelectedSnapshot, snapshot))
             {
-                SnapshotInspector = inspector;
-                ApplySnapshotReadSummary(inspector);
-                SnapshotComparisonSummary = comparisonSummary;
-                SnapshotInspectorMessage = inspector.Applications.Count == 0
-                    ? "这份存档没有应用参数"
-                    : string.Empty;
-            }
-
-            if (!snapshot.IsCloud && !snapshot.IsDesktopFile)
-            {
-                await LoadLocalSnapshotPreviewsAsync(snapshot.Id, cancellationToken);
+                ShowSnapshotInspector(inspector);
+                // 限制缓存为纯参数存档，避免大幅增加图片解码后的内存占用。
+                if (!inspector.CameraStations.Any(station => station.ReferenceImageMetadata is not null))
+                {
+                    snapshotInspectorCache.Add(snapshot, inspector);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception exception) when (exception is LocalControlException
-            or IOException
-            or HttpRequestException
+        catch (Exception exception) when (exception is LocalControlException or IOException
+            or InvalidOperationException or HttpRequestException or UnauthorizedAccessException
             or SnapshotPackageException)
         {
-            if (SelectedSnapshot?.Id == snapshot.Id)
+            if (!cancellationToken.IsCancellationRequested && ReferenceEquals(SelectedSnapshot, snapshot))
             {
                 SnapshotInspectorMessage = SnapshotOperationError(exception);
             }
         }
     }
 
+    internal void ShowSnapshotInspector(SnapshotInspectorViewModel inspector)
+    {
+        var selectedApplication = inspector.SelectedApplication
+            ?? (inspector.Applications.Count > 0 ? inspector.Applications[0] : null);
+        var cameraSelected = inspector.IsCameraSelected;
+        SnapshotInspector = inspector;
+        // ItemsSource 重新绑定会暂时清空 ListBox 的双向 SelectedItem。
+        // 在 UI 绑定完成这一同步更新后恢复选择，缓存命中也不能呈现空白内容。
+        if (!cameraSelected)
+        {
+            inspector.SelectedApplication = selectedApplication;
+        }
+        ApplySnapshotReadSummary(inspector);
+        SnapshotComparisonSummary = string.Empty;
+        SnapshotInspectorMessage = inspector.Applications.Count == 0
+            ? "这份存档没有应用参数"
+            : string.Empty;
+    }
     partial void OnSelectedMappingSourceChanged(LocalMappingSourceItemViewModel? value)
     {
         MappingTargets = value is null
@@ -3803,6 +3828,7 @@ public partial class MainViewModel : ViewModelBase
 
     internal void ApplyAgentState(LocalAgentState state)
     {
+        snapshotInspectorCache.Clear();
         if (!obsEndpointEdited && !string.IsNullOrWhiteSpace(state.ObsEndpoint))
         {
             ObsEndpoint = state.ObsEndpoint;
@@ -3849,6 +3875,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void ApplyDisconnectedState(string? error = null)
     {
+        snapshotInspectorCache.Clear();
         IsAgentConnected = false;
         var isWindows = OperatingSystem.IsWindows();
         ConnectionSubtitle = isWindows ? "当前用户会话中没有可用的执行端" : "连接 Windows 直播电脑后可远程管理";

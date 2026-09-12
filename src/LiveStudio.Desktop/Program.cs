@@ -8,7 +8,10 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        using var instanceMutex = new Mutex(true, "LiveStudio.Desktop.SingleInstance", out var isFirstInstance);
+        var instanceName = Environment.GetEnvironmentVariable("DOTNET_WATCH") == "1"
+            ? "LiveStudio.Desktop.Development.SingleInstance"
+            : "LiveStudio.Desktop.SingleInstance";
+        using var instanceMutex = new Mutex(true, instanceName, out var isFirstInstance);
         if (!isFirstInstance)
         {
             return;

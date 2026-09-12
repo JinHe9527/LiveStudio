@@ -31,11 +31,11 @@ public partial class SnapshotsView : UserControl
         InitializeComponent();
     }
 
-    internal void OpenTechnicalInformation()
+    private void TimelineSnapshotTapped(object? sender, TappedEventArgs e)
     {
-        if (DataContext is MainViewModel { SnapshotInspector: { } inspector })
+        if (DataContext is MainViewModel viewModel)
         {
-            inspector.IsTechnicalPanelOpen = true;
+            viewModel.SelectSectionCommand.Execute("1");
         }
     }
 
@@ -117,9 +117,6 @@ public partial class SnapshotsView : UserControl
         }
     }
 
-    private async void ImportAndApplySnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
-        await ChooseSnapshotToImportAsync(applyAfterImport: true);
-
     private async void ImportSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
         await ChooseSnapshotToImportAsync(applyAfterImport: false);
 
@@ -136,22 +133,10 @@ public partial class SnapshotsView : UserControl
         }
     }
 
-    private async void RenameCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
-        await RenameSelectedSnapshotFromTitleBarAsync();
-
-    private void TechnicalInfoClicked(object? sender, RoutedEventArgs eventArgs) =>
-        OpenTechnicalInformation();
-
-    private async void DeleteCurrentSnapshotClicked(object? sender, RoutedEventArgs eventArgs) =>
-        await DeleteSelectedSnapshotFromTitleBarAsync();
-
-    private async void DeleteAllSnapshotsClicked(object? sender, RoutedEventArgs eventArgs) =>
-        await DeleteAllSnapshotsFromTitleBarAsync();
-
     private void SnapshotsViewKeyDown(object? sender, KeyEventArgs eventArgs)
     {
         if (!eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control)
-            || DataContext is not MainViewModel { SnapshotInspector: { } inspector })
+            || DataContext is not MainViewModel { IsSnapshotsVisible: true, SnapshotInspector: { } inspector })
         {
             return;
         }
@@ -159,11 +144,6 @@ public partial class SnapshotsView : UserControl
         if (eventArgs.Key == Key.F && inspector.SelectedApplication is { } application)
         {
             application.ShowSearch();
-            eventArgs.Handled = true;
-        }
-        else if (eventArgs.Key == Key.I)
-        {
-            inspector.IsTechnicalPanelOpen = true;
             eventArgs.Handled = true;
         }
     }
@@ -300,6 +280,7 @@ public partial class SnapshotsView : UserControl
         var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (!string.IsNullOrWhiteSpace(path))
         {
+            viewModel.SelectSectionCommand.Execute("1");
             await viewModel.ImportSnapshotFileAsync(path, applyAfterImport);
         }
     }

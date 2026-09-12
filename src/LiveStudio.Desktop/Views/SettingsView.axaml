@@ -25,7 +25,7 @@
                         <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="20">
                             <StackPanel VerticalAlignment="Center" Spacing="4">
                                 <TextBlock Classes="settings-title" Text="外观" />
-                                <TextBlock Classes="settings-copy" Text="跟随 Windows，或固定使用浅色、深色界面" />
+                                <TextBlock Classes="settings-copy" TextWrapping="Wrap" Text="默认使用黑色，也可选择白色或跟随系统" />
                             </StackPanel>
                             <ComboBox Grid.Column="1" Width="150" VerticalAlignment="Center"
                                       Classes="mapping-picker" ItemsSource="{Binding ThemeModes}"
@@ -102,6 +102,18 @@
                     </StackPanel>
                 </Border>
 
+                <TextBlock Classes="settings-section" Text="存档管理" />
+                <Border Classes="settings-card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="settings-title" Text="清空本机存档" />
+                        <TextBlock Classes="settings-copy" TextWrapping="Wrap"
+                                   Text="删除这台电脑上的全部画面存档及文件，无法撤销。清空前会显示具体数量并再次确认。" />
+                        <TextBlock Classes="settings-value" Text="{Binding SnapshotCountText}" />
+                        <Button Classes="archive-danger" HorizontalAlignment="Left"
+                                IsEnabled="{Binding HasLocalSnapshots}" Click="ClearLocalSnapshotsClicked">清空本机存档…</Button>
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Classes="settings-section" Text="软件更新" />
                 <Border Classes="settings-card">
                     <Grid MinHeight="96" ColumnDefinitions="*,Auto" ColumnSpacing="20">
@@ -127,7 +139,7 @@
 
                 <Border Padding="14,12" CornerRadius="10" Background="{DynamicResource ArchiveRaisedBrush}">
                     <TextBlock Classes="settings-copy" TextWrapping="Wrap"
-                               Text="当前为单机直播间版本：画面存档保存在这台电脑，也可以在“画面存档”中导出 .lscfg 文件，交给另一台直播电脑导入并应用。" />
+                               Text="画面存档保存在这台电脑。可以导出 .lscfg 文件，交给另一台电脑导入、查看，再选择恢复所选存档。" />
                 </Border>
             </StackPanel>
         </ScrollViewer>
