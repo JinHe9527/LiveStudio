@@ -12,6 +12,7 @@ namespace LiveStudio.Desktop.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
+    public OnboardingViewModel Guide { get; } = new();
     private readonly LocalAgentClient localAgentClient;
     private readonly DesktopCloudClient cloudClient;
     private readonly ISystemBrowser systemBrowser;

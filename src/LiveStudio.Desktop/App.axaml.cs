@@ -22,6 +22,7 @@ public partial class App : Application
             var isDemoMode = desktop.Args?.Contains("--demo", StringComparer.OrdinalIgnoreCase) == true;
             var isDevelopment = Environment.GetEnvironmentVariable("DOTNET_WATCH") == "1";
             var viewModel = new MainViewModel(isDemoMode);
+            if (!isDemoMode) viewModel.Guide.ShowIfFirstUse();
             viewModel.UpdateRestartRequested += (_, _) => desktop.Shutdown();
             var window = new MainWindow
             {

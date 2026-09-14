@@ -21,6 +21,16 @@
                       IsVisible="{Binding IsChecked, ElementName=BasicSettingsTab}">
             <StackPanel MaxWidth="960" Margin="28,26" HorizontalAlignment="Stretch" Spacing="18">
                 <Border Classes="settings-card">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="5">
+                            <TextBlock Classes="settings-title" Text="使用引导" />
+                            <TextBlock Classes="settings-copy" Text="连接、保存、导出与恢复的操作索引，可随时查看或跳过。" TextWrapping="Wrap" />
+                            <TextBlock Classes="settings-copy" Text="{Binding Guide.Status}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="standard" VerticalAlignment="Center" Command="{Binding Guide.OpenCommand}">查看教程</Button>
+                    </Grid>
+                </Border>
+                <Border Classes="settings-card">
                     <StackPanel>
                         <Grid MinHeight="72" ColumnDefinitions="*,Auto" ColumnSpacing="20">
                             <StackPanel VerticalAlignment="Center" Spacing="4">

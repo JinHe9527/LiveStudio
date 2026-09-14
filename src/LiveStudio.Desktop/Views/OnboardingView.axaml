@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LiveStudio.Desktop.ViewModels" x:Class="LiveStudio.Desktop.Views.OnboardingView"
+             x:DataType="vm:OnboardingViewModel" Focusable="True" IsVisible="{Binding IsOpen}" KeyboardNavigation.TabNavigation="Cycle">
+    <UserControl.KeyBindings><KeyBinding Gesture="Escape" Command="{Binding DismissCommand}" /></UserControl.KeyBindings>
+    <Grid Background="#99000000">
+        <Border MaxWidth="720" Margin="24" Padding="26" CornerRadius="18"
+                Background="{DynamicResource ArchiveContentBrush}" BorderBrush="{DynamicResource ArchiveSeparatorBrush}" BorderThickness="1"
+                VerticalAlignment="Center">
+            <Grid RowDefinitions="Auto,Auto,*,Auto" MaxHeight="660" RowSpacing="20">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="LIVESTUDIO  /  使用引导" FontSize="12" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
+                        <TextBlock Text="从连接到恢复，一步一步来" FontSize="14" Opacity="0.7" />
+                    </StackPanel>
+                    <Button x:Name="SkipGuide" Grid.Column="1" Command="{Binding DismissCommand}" Classes="standard">跳过引导</Button>
+                </Grid>
+                <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                    <Button Margin="0,0,6,6" Classes="standard" Command="{Binding SelectStepCommand}" CommandParameter="0">认识软件</Button>
+                    <Button Margin="0,0,6,6" Classes="standard" Command="{Binding SelectStepCommand}" CommandParameter="1">01 连接</Button>
+                    <Button Margin="0,0,6,6" Classes="standard" Command="{Binding SelectStepCommand}" CommandParameter="2">02 保存</Button>
+                    <Button Margin="0,0,6,6" Classes="standard" Command="{Binding SelectStepCommand}" CommandParameter="3">03 导出</Button>
+                    <Button Margin="0,0,6,6" Classes="standard" Command="{Binding SelectStepCommand}" CommandParameter="4">04 恢复</Button>
+                </WrapPanel>
+                <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" MaxHeight="360">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{Binding Current.Title}" FontSize="25" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Current.Description}" FontSize="14" Opacity="0.75" TextWrapping="Wrap" />
+                        <Border Background="{DynamicResource ArchiveRaisedBrush}" Padding="18" CornerRadius="12">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="{Binding Current.First}" FontSize="14" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Current.Second}" FontSize="14" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Current.Third}" FontSize="14" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="{Binding Current.Note}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock Text="{Binding Progress}" VerticalAlignment="Center" Opacity="0.65" />
+                    <Button Grid.Column="1" Classes="standard" Command="{Binding PreviousCommand}">上一步</Button>
+                    <Button Grid.Column="2" Classes="standard accent" MinWidth="112" Content="{Binding NextLabel}" Command="{Binding NextCommand}" />
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

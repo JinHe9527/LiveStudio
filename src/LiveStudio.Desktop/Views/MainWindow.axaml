@@ -23,6 +23,7 @@
     </Design.DataContext>
 
     <Grid Background="{DynamicResource AppWindowBrush}">
-        <views:SnapshotsView x:Name="SnapshotsPage" />
+        <views:SnapshotsView x:Name="SnapshotsPage" IsEnabled="{Binding !Guide.IsOpen}" />
+        <views:OnboardingView DataContext="{Binding Guide}" />
     </Grid>
 </Window>
