@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -43,22 +44,31 @@ public sealed class ApplicationUpdateService(
     private readonly string trustedPublisher = trustedPublisher ?? GetAssemblyMetadata("LiveStudioUpdatePublisher");
     private readonly string trustedCertificateThumbprint = NormalizeThumbprint(
         trustedCertificateThumbprint ?? GetAssemblyMetadata("LiveStudioUpdateCertificateThumbprint"));
-    private readonly Uri? domesticManifestUri = domesticManifestUri ?? GetAssemblyMetadataUri(
-        "LiveStudioUpdateManifestUrl");
+    private readonly Uri? domesticManifestUri = GetActiveManifestUri(domesticManifestUri ?? GetAssemblyMetadataUri(
+        "LiveStudioUpdateManifestUrl"));
 
     public string CurrentVersionText => applicationVersion.ToString(3);
 
     public async Task<ApplicationUpdateRelease?> CheckAsync(
         CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
         using var client = CreateClient();
-        var domesticResult = await TryCheckDomesticAsync(client, cancellationToken);
-        if (domesticResult.Handled)
+        try
         {
-            return domesticResult.Release;
-        }
+            var domesticResult = await TryCheckDomesticAsync(client, timeout.Token);
+            if (domesticResult.Handled)
+            {
+                return domesticResult.Release;
+            }
 
-        return await CheckGitHubAsync(client, cancellationToken);
+            return await CheckGitHubAsync(client, timeout.Token);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException("检查更新超时（30 秒），请检查更新服务器和 Windows 代理连接后重试", exception);
+        }
     }
 
     private async Task<ApplicationUpdateRelease?> CheckGitHubAsync(
@@ -96,23 +106,22 @@ public sealed class ApplicationUpdateService(
         }
 
         EnsureTrustedDownloadUri(domesticManifestUri);
+        using var sourceTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        sourceTimeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            using var response = await client.GetAsync(
-                domesticManifestUri,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+            using var response = await SendFollowingRedirectsAsync(client, domesticManifestUri, sourceTimeout.Token);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 return (false, null);
             }
 
             response.EnsureSuccessStatusCode();
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using var stream = await response.Content.ReadAsStreamAsync(sourceTimeout.Token);
             var manifest = await JsonSerializer.DeserializeAsync<DomesticApplicationUpdateManifest>(
                 stream,
                 ManifestJsonOptions,
-                cancellationToken) ?? throw new InvalidDataException("国内更新清单为空");
+                sourceTimeout.Token) ?? throw new InvalidDataException("国内更新清单为空");
             var version = ParseVersion(manifest.Version);
             if (!ParseVersion(manifest.TagName).Equals(version))
             {
@@ -138,8 +147,8 @@ public sealed class ApplicationUpdateService(
                 throw new InvalidDataException("国内更新清单引用了不同的下载主机");
             }
 
-            await EnsureAssetPublishedAsync(client, packageUri, WindowsAssetName, cancellationToken);
-            await EnsureAssetPublishedAsync(client, checksumUri, ChecksumAssetName, cancellationToken);
+            await EnsureAssetPublishedAsync(client, packageUri, WindowsAssetName, sourceTimeout.Token);
+            await EnsureAssetPublishedAsync(client, checksumUri, ChecksumAssetName, sourceTimeout.Token);
             return (true, new ApplicationUpdateRelease(
                 version,
                 manifest.TagName,
@@ -152,7 +161,7 @@ public sealed class ApplicationUpdateService(
         {
             return (false, null);
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return (false, null);
         }
@@ -222,10 +231,8 @@ public sealed class ApplicationUpdateService(
             $"https://github.com/{repositoryOwner}/{repositoryName}/releases/latest");
         for (var redirectCount = 0; redirectCount < 6; redirectCount++)
         {
-            using var response = await client.GetAsync(
-                current,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            using var response = await SendAsync(client, request, cancellationToken);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 throw new InvalidOperationException("公开更新服务中还没有已发布版本");
@@ -260,25 +267,19 @@ public sealed class ApplicationUpdateService(
     private Uri CreateReleaseAssetUri(string tagName, string assetName) => new(
         $"https://github.com/{repositoryOwner}/{repositoryName}/releases/download/{Uri.EscapeDataString(tagName)}/{assetName}");
 
-    private static async Task EnsureAssetPublishedAsync(
+    private async Task EnsureAssetPublishedAsync(
         HttpClient client,
         Uri assetUri,
         string assetName,
         CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync(
-            assetUri,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+        using var response = await SendFollowingRedirectsAsync(client, assetUri, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             throw new InvalidOperationException($"最新发布中还没有 {assetName}");
         }
 
-        if (!response.IsSuccessStatusCode && !IsRedirect(response.StatusCode))
-        {
-            response.EnsureSuccessStatusCode();
-        }
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task DownloadAssetAsync(
@@ -312,10 +313,7 @@ public sealed class ApplicationUpdateService(
             EnsureTrustedDownloadUri(current);
             using var request = new HttpRequestMessage(HttpMethod.Get, current);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
-            var response = await client.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
+            var response = await SendAsync(client, request, cancellationToken);
             if (!IsRedirect(response.StatusCode) || response.Headers.Location is not { } location)
             {
                 return response;
@@ -326,6 +324,31 @@ public sealed class ApplicationUpdateService(
         }
 
         throw new InvalidDataException("更新包下载重定向次数过多");
+    }
+
+    private static async Task<HttpResponseMessage> SendAsync(
+        HttpClient client,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (HttpRequestException exception)
+        {
+            var endpoint = request.RequestUri!.GetLeftPart(UriPartial.Authority);
+            var refused = false;
+            for (Exception? cause = exception; cause is not null; cause = cause.InnerException)
+            {
+                refused |= cause is SocketException { SocketErrorCode: SocketError.ConnectionRefused };
+            }
+
+            var hint = refused
+                ? "连接被拒绝。请检查该电脑的 Windows 代理地址和端口是否仍有服务运行；若使用局域网服务器，请确认填写服务器电脑的实际 IP 和监听端口"
+                : "网络请求失败，请检查该电脑到更新服务的网络及 Windows 代理连接";
+            throw new HttpRequestException($"更新服务 {endpoint}：{hint}。{exception.Message}", exception);
+        }
     }
 
     private static bool IsRedirect(System.Net.HttpStatusCode statusCode) => statusCode is
@@ -401,6 +424,12 @@ public sealed class ApplicationUpdateService(
             ? uri
             : throw new InvalidDataException($"程序集中的 {key} 不是有效地址");
     }
+
+    private static Uri? GetActiveManifestUri(Uri? uri) =>
+        uri is not null && (string.Equals(uri.Host, "wuyoupaiban.cn", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(uri.Host, "111.229.162.72", StringComparison.OrdinalIgnoreCase))
+            ? null
+            : uri;
 
     private static string NormalizeThumbprint(string value) => new(
         value.Where(character => !char.IsWhiteSpace(character)).ToArray());

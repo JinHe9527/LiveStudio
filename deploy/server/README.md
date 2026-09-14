@@ -1,5 +1,7 @@
 # 国内 Windows 发布镜像
 
+> 已停用：2026-09-14 使用者确认腾讯云服务器已撤销。以下仅为历史部署记录，地址不可作为有效更新源；不要按下面步骤恢复这台旧服务器。现行正式发布使用 GitHub Release，新客户端也会忽略遗留配置中的旧腾讯云更新地址。
+
 本目录保留把公开 GitHub Latest Release 的 `LiveStudio-Setup.exe` 镜像到现有腾讯云站点的旧部署方案。由于轻量服务器大文件实测速度不稳定，`v0.1.23` 起正式人工下载和软件内更新均直接使用 GitHub；这里的镜像不再是发布依赖或推荐下载入口。
 
 - 固定人工下载地址：`https://wuyoupaiban.cn/livestudio/LiveStudio-Setup.exe`

@@ -7,6 +7,105 @@ namespace LiveStudio.Core.Tests;
 
 public sealed class ApplicationUpdateServiceTests
 {
+    [Theory]
+    [InlineData("https://wuyoupaiban.cn/livestudio/latest.json")]
+    [InlineData("https://111.229.162.72/livestudio/latest.json")]
+    public async Task CheckAsyncNeverContactsRetiredTencentMirror(string retiredUrl)
+    {
+        var requests = new List<Uri>();
+        var service = new ApplicationUpdateService(new RouteHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return Redirect("https://github.com/owner/repository/releases/tag/v0.2.0");
+        }), "owner", "repository", new Version(0, 2, 0), domesticManifestUri: new Uri(retiredUrl));
+
+        Assert.Null(await service.CheckAsync(CancellationToken.None));
+        Assert.Single(requests);
+        Assert.Equal("github.com", requests[0].Host);
+    }
+
+    [Fact]
+    public async Task CheckAsyncIdentifiesARealLocalProxyWithNoListener()
+    {
+        using var socket = new System.Net.Sockets.Socket(
+            System.Net.Sockets.AddressFamily.InterNetwork,
+            System.Net.Sockets.SocketType.Stream,
+            System.Net.Sockets.ProtocolType.Tcp);
+        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)socket.LocalEndPoint!).Port;
+        using var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            Proxy = new WebProxy($"http://127.0.0.1:{port}"),
+            UseProxy = true
+        };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var service = new ApplicationUpdateService(handler);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => service.CheckAsync(timeout.Token));
+
+        Assert.Contains("连接被拒绝", exception.Message, StringComparison.Ordinal);
+        Assert.Contains($"127.0.0.1:{port}", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("https://github.com", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CheckAsyncExplainsRefusedConnectionAndKeepsCause()
+    {
+        var cause = new HttpRequestException("连接失败 (127.0.0.1:7890)",
+            new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
+        var service = new ApplicationUpdateService(new RouteHandler(_ => throw cause));
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => service.CheckAsync(CancellationToken.None));
+
+        Assert.Contains("https://github.com", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Windows 代理", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("127.0.0.1:7890", exception.Message, StringComparison.Ordinal);
+        Assert.Same(cause, exception.InnerException);
+    }
+
+    [Fact]
+    public async Task CheckAsyncReportsTimeoutAsRecoverableFailure()
+    {
+        var service = new ApplicationUpdateService(new RouteHandler(_ => throw new TaskCanceledException()));
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => service.CheckAsync(CancellationToken.None));
+        Assert.Contains("超时", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CheckAsyncPreservesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var service = new ApplicationUpdateService(new RouteHandler(_ =>
+        {
+            cancellation.Cancel();
+            throw new TaskCanceledException();
+        }));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CheckAsync(cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData("https://release-assets.githubusercontent.com/package", false)]
+    [InlineData("https://untrusted.example/package", true)]
+    public async Task CheckAsyncRejectsBrokenOrUntrustedAssetRedirect(string target, bool untrusted)
+    {
+        var handler = new RouteHandler(request => request.RequestUri?.AbsolutePath switch
+        {
+            "/owner/repository/releases/latest" => Redirect("https://github.com/owner/repository/releases/tag/v0.2.0"),
+            "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe" => Redirect(target),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var service = new ApplicationUpdateService(handler, "owner", "repository", new Version(0, 1, 0));
+        if (untrusted)
+        {
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.CheckAsync(CancellationToken.None));
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.CheckAsync(CancellationToken.None));
+        }
+    }
+
     [Fact]
     public async Task CheckAsyncPrefersNewerDomesticRelease()
     {
@@ -54,6 +153,7 @@ public sealed class ApplicationUpdateServiceTests
         var handler = new RouteHandler(request => request.RequestUri?.Host switch
         {
             "download.example.cn" => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            "release-assets.githubusercontent.com" => new HttpResponseMessage(HttpStatusCode.OK),
             _ when request.RequestUri?.AbsolutePath == "/owner/repository/releases/latest" => Redirect(
                 "https://github.com/owner/repository/releases/tag/v0.2.0"),
             _ when request.RequestUri?.AbsolutePath ==
@@ -84,6 +184,7 @@ public sealed class ApplicationUpdateServiceTests
         var handler = new RouteHandler(request => request.RequestUri?.Host switch
         {
             "download.example.cn" => throw new TaskCanceledException("timeout"),
+            "release-assets.githubusercontent.com" => new HttpResponseMessage(HttpStatusCode.OK),
             _ when request.RequestUri?.AbsolutePath == "/owner/repository/releases/latest" => Redirect(
                 "https://github.com/owner/repository/releases/tag/v0.2.0"),
             _ when request.RequestUri?.AbsolutePath ==
@@ -148,6 +249,7 @@ public sealed class ApplicationUpdateServiceTests
                     Redirect("https://release-assets.githubusercontent.com/package"),
                 "/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe.sha256" =>
                     Redirect("https://release-assets.githubusercontent.com/checksum"),
+                "/package" or "/checksum" => new HttpResponseMessage(HttpStatusCode.OK),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)
             };
         });
@@ -160,7 +262,7 @@ public sealed class ApplicationUpdateServiceTests
         Assert.Equal(
             "https://github.com/owner/repository/releases/download/v0.2.0/LiveStudio-Setup.exe",
             release.PackageDownloadUrl.ToString());
-        Assert.Equal(3, capturedRequests.Count);
+        Assert.Equal(5, capturedRequests.Count);
         Assert.All(capturedRequests, request => Assert.Null(request.Headers.Authorization));
     }
 

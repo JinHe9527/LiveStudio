@@ -1245,6 +1245,13 @@ public partial class MainViewModel : ViewModelBase
 
             InstallUpdateCommand.NotifyCanExecuteChanged();
         }
+        catch (OperationCanceledException)
+        {
+            availableUpdate = null;
+            LatestVersionText = "—";
+            UpdateStatus = "检查更新已取消，可以重试";
+            InstallUpdateCommand.NotifyCanExecuteChanged();
+        }
         catch (Exception exception) when (exception is HttpRequestException
             or InvalidDataException
             or InvalidOperationException)
@@ -1280,6 +1287,12 @@ public partial class MainViewModel : ViewModelBase
             UpdateStatus = "更新包校验完成，正在重启安装";
             ApplicationUpdateService.LaunchInstaller(prepared);
             UpdateRestartRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatus = cancellationToken.IsCancellationRequested
+                ? "下载更新已取消，可以重试"
+                : "下载更新超时，请检查网络及 Windows 代理连接后重试";
         }
         catch (Exception exception) when (exception is HttpRequestException
             or IOException
