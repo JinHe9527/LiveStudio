@@ -1087,3 +1087,13 @@ Release `34708390386` 成功，397 项测试、格式、依赖门、固定身份
 从相同发布提交本地构建 0.1.29.0 x64 MSIX，沿用 Publisher `CN=LiveStudio Internal` 与证书指纹 `4D42933F643E1E0B649513BCD10A15B485746E1D`。本地包长度 130980216，Windows Authenticode 为 Valid，签名身份匹配后通过 Add-AppxPackage 升级；明确不是公开 MSIX 的逐字节复本。本机从 0.1.26.0 升级到 0.1.29.0 并启动安装版 Desktop 和 Agent，升级前 80 份存档 SHA-256 全部保持不变。
 
 安装版真实本机协议返回 IsBusy=false、CanCapture=true、CanRestore=true、Snapshots=80、Compatibility=Matched；进程路径均来自 WindowsApps 的 0.1.29.0 包。这里只证明升级、连接与只读兼容报告，未执行生产参数恢复，Verified 仍为 0。本机验收文件在 `artifacts/release-probe/v0.1.29/`，不上传参数原文件。
+
+## 52. 2026-09-14 v0.1.30 新手引导发布
+
+使用者明确要求全部提交发布。功能与版本提交 `b97cf7b`、不可变标签 `v0.1.30` 已推送。新增首次启动教程目录，支持章节跳转、上一步/下一步、随时跳过及 Esc 关闭；完成或跳过后记忆，设置提供重看入口。引导不执行连接、保存或恢复操作。真实 Avalonia 界面的隔离渲染检查覆盖 760×560 最小窗口、黑色首页与白色最后一页，图片仅保留在 artifacts/tutorial-preview。本轮也提交了直播主机只读安全和资源采样记录，见 host-safety-audit-2026-09-14.md。
+
+本地 Release 构建零警告、零错误，399 项测试、格式检查、6 项依赖门测试及 15 个项目的直接/传递依赖漏洞检查通过。Release 工作流 `34849801807` 成功，完成固定身份签名、MSIX 与一键安装器自检，公开发布含 7 个资产。main CI `34849585930` 的 Windows 检查通过；cloud-integration 拉取 MinIO 时仍报 pull access denied，未执行到云端集成测试，不能宣称全部 CI 通过。
+
+公开 Setup 长度 189639064 字节，GitHub Asset Digest 为 `48907279e84360fcb6aa2a0d21597eac7d8fb7eef0c5b4743fe225461cf34509`；MSIX 长度 130913677 字节，摘要为 `e93076bfc980a0652b575bbf8a09620ca37b0f951cf47a867d8c278abdbb16b5`。对版本化 Setup 地址进行跟随重定向的 HTTP HEAD 检查，返回 200，Content-Length 与资产一致。本轮未完整回下载或在直播主机安装公开文件，签名和载荷验证依据 Release Runner。
+
+正式 ApplicationUpdateService 的真实 HTTPS 检查中，将当前版本设为 0.1.23、0.1.26、0.1.27、0.1.28、0.1.29 均发现 v0.1.30 和对应安装器/摘要地址；设为 0.1.30 返回无更新。这是当前实现的历史版本输入检查，不等同于逐一运行历史二进制进行安装。安装身份和更新实现未变。没有扩大恢复兼容范围，未执行生产恢复，Verified 仍为 0。
