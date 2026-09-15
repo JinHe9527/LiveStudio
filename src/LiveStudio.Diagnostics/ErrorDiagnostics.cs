@@ -10,6 +10,10 @@ public static class ErrorDiagnostics
     private static string component = "Unknown";
     private static Uri? endpoint;
     private static DiagnosticApplicationState[] applications = [];
+    public static bool HasSubmissionEndpoint => endpoint is not null;
+
+    public static DiagnosticPackageContent CreatePackage(DiagnosticCompatibilitySummary? compatibility = null) =>
+        DiagnosticPackage.Create(queue ?? new DiagnosticOutbox(DirectoryPath), Volatile.Read(ref applications), compatibility);
     public static string DirectoryPath => Path.Combine(Environment.GetFolderPath(
         Environment.SpecialFolder.LocalApplicationData), "LiveStudio", "Diagnostics");
 
@@ -66,9 +70,9 @@ public static class ErrorDiagnostics
             {
                 var status = queue?.GetStatus();
                 if (status is null) return "当前会话未启用错误诊断。";
+                if (endpoint is null) return "错误自动记录在本机。遇到问题后，导出诊断包通过 QQ 或微信发给开发者。";
                 if (!status.Enabled) return $"自动提交已关闭；本机待提交 {status.Pending} 类错误。";
-                return endpoint is null ? $"错误已记录在本机（{status.Pending} 类）；尚未配置 GitHub 接收服务。"
-                    : $"自动提交到 JinHe9527/LiveStudio Issues；待提交 {status.Pending} 类错误。";
+                return $"自动提交到 JinHe9527/LiveStudio Issues；待提交 {status.Pending} 类错误。";
             }
             catch (Exception) { return "无法读取本机错误日志目录。"; }
         }

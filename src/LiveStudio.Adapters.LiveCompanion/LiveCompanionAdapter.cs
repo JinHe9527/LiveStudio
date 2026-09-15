@@ -34,11 +34,13 @@ public sealed class LiveCompanionAdapter(
         }
         catch (LiveCompanionConfigurationReadException exception)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             return new(DateTimeOffset.UtcNow, version, "", "Unavailable", null, exception.Message, 0, []);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or InvalidOperationException or JsonException or ArgumentException or AdapterDefinitionException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             return new(DateTimeOffset.UtcNow, version, "", "Unavailable", null,
                 "暂时无法完整读取配置或验证适配签名，请检查应用配置后重新检测。", 0, []);
         }

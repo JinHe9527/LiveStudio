@@ -115,13 +115,18 @@
                 <TextBlock Classes="settings-section" Text="错误诊断" />
                 <Border Classes="settings-card">
                     <StackPanel Spacing="10">
+                        <TextBlock Classes="settings-title" Text="遇到问题，导出诊断包发给开发者" />
+                        <TextBlock Classes="settings-copy" TextWrapping="Wrap"
+                                   Text="自动保存脱敏错误记录。无需账号、无需联网；导出的 ZIP 可通过 QQ 或微信发送。请同时说明操作步骤和发生时间。" />
                         <CheckBox x:Name="AutomaticErrorReporting" Content="自动提交错误到开发者的 GitHub"
                                   IsCheckedChanged="AutomaticErrorReportingChanged" />
                         <TextBlock Classes="settings-copy" TextWrapping="Wrap"
-                                   Text="提交软件版本、Windows 版本、错误类型和代码调用位置。不会提交账号、密码、电脑名称、用户名路径或原始画面配置。断网时保存在本机，联网后重试。" />
+                                   Text="诊断包包含软件版本、Windows 版本、错误原因、代码位置和兼容摘要；不包含账号、密码、电脑名称、用户名路径、截图或原始画面配置。" />
                         <TextBlock x:Name="DiagnosticsStatus" Classes="settings-copy" TextWrapping="Wrap" />
                         <WrapPanel>
-                            <Button Classes="standard" Margin="0,0,8,0" Click="CheckDiagnosticsClicked">检查提交状态</Button>
+                            <Button x:Name="ExportDiagnosticPackage" Classes="standard accent" Margin="0,0,8,0"
+                                    Click="ExportDiagnosticPackageClicked">导出诊断包</Button>
+                            <Button x:Name="CheckDiagnostics" Classes="standard" Margin="0,0,8,0" Click="CheckDiagnosticsClicked">检查提交状态</Button>
                             <Button Classes="standard" Click="OpenDiagnosticsClicked">打开本机错误记录</Button>
                         </WrapPanel>
                     </StackPanel>

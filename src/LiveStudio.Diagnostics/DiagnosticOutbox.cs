@@ -7,6 +7,7 @@ namespace LiveStudio.Diagnostics;
 
 public sealed record DiagnosticDelivery(Guid ReportId, string IssueUrl);
 public sealed record DiagnosticQueueStatus(int Pending, string? LastIssueUrl, bool Enabled);
+public sealed record DiagnosticLogSnapshot(DiagnosticReport[] Reports, int SkippedFiles);
 internal sealed record QueuedDiagnostic(DiagnosticReport Report, int DeliveredOccurrences,
     int Attempts, DateTimeOffset RetryAfter, string? IssueUrl);
 
@@ -17,6 +18,15 @@ public sealed class DiagnosticOutbox(string directory)
     private readonly string directory = Path.GetFullPath(directory);
     private int delivering;
     public const int MaximumReports = 100;
+
+    public DiagnosticLogSnapshot ReadSnapshot() => Locked(() =>
+    {
+        var paths = Directory.EnumerateFiles(directory, "*.json").Take(MaximumReports + 1).ToArray();
+        var entries = paths.Take(MaximumReports).Select(Read).ToArray();
+        return new DiagnosticLogSnapshot(entries.OfType<QueuedDiagnostic>().Select(entry => entry.Report)
+            .OrderByDescending(report => report.LastSeen).ToArray(),
+            entries.Count(entry => entry is null) + Math.Max(0, paths.Length - MaximumReports));
+    });
 
     public void Enqueue(DiagnosticReport report)
     {
@@ -137,7 +147,7 @@ public sealed class DiagnosticOutbox(string directory)
                 && entry.DeliveredOccurrences >= 0 && entry.DeliveredOccurrences <= entry.Report.Occurrences
                 ? entry : null;
         }
-        catch (Exception exception) when (exception is IOException or JsonException) { return null; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }
 
     private static void Write(string path, QueuedDiagnostic entry)
