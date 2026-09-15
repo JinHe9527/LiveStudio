@@ -40,35 +40,34 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
 
         foreach (var scene in scenes)
         {
-            if (scene.Value is not JsonObject sceneObject
-                || sceneObject["data"] is not JsonObject sources)
-            {
-                continue;
-            }
-
-            foreach (var source in sources)
-            {
-                if (source.Value is not JsonObject sourceObject
-                    || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal)
-                    || sourceObject["payload"] is not JsonObject payload)
+            foreach (var (containerName, sources) in EnumerateSourceContainers(scene.Value))
+                foreach (var source in sources)
                 {
-                    continue;
-                }
+                    if (source.Value is not JsonObject sourceObject
+                        || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (sourceObject["payload"] is not JsonObject payload)
+                    {
+                        throw new InvalidOperationException($"摄像头 {containerName} 来源缺少完整设备载荷，不能忽略该来源");
+                    }
 
-                var deviceId = payload["deviceId"]?.GetValue<string>();
-                var effectConfigurationId = sourceObject["effectConfigId"]?.GetValue<string>();
-                if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(effectConfigurationId))
-                {
-                    throw new InvalidOperationException("存档摄像头缺少设备名称或效果配置标识");
-                }
+                    var deviceId = payload["deviceId"]?.GetValue<string>();
+                    var effectConfigurationId = sourceObject["effectConfigId"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(effectConfigurationId))
+                    {
+                        throw new InvalidOperationException("存档摄像头缺少设备名称或效果配置标识");
+                    }
 
-                targets.Add(new LiveCompanionCameraTarget(
-                    scene.Key,
-                    source.Key,
-                    deviceId,
-                    effectConfigurationId,
-                    payload));
-            }
+                    targets.Add(new LiveCompanionCameraTarget(
+                        scene.Key,
+                        source.Key,
+                        deviceId,
+                        effectConfigurationId,
+                        payload,
+                        containerName));
+                }
         }
 
         return targets;
@@ -98,32 +97,32 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
 
         foreach (var scene in scenes)
         {
-            if (scene.Value is not JsonObject sceneObject
-                || sceneObject["data"] is not JsonObject sources)
-            {
-                continue;
-            }
-
-            foreach (var source in sources)
-            {
-                if (source.Value is not JsonObject sourceObject
-                    || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal)
-                    || sourceObject["payload"] is not JsonObject payload)
+            foreach (var (containerName, sources) in EnumerateSourceContainers(scene.Value))
+                foreach (var source in sources)
                 {
-                    continue;
-                }
+                    if (source.Value is not JsonObject sourceObject
+                        || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (sourceObject["payload"] is not JsonObject payload)
+                    {
+                        throw new InvalidOperationException($"摄像头 {containerName} 来源缺少完整设备载荷，不能忽略该来源");
+                    }
 
-                var deviceId = payload["deviceId"]?.GetValue<string>();
-                var effectConfigurationId = sourceObject["effectConfigId"]?.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(effectConfigurationId))
-                {
+                    var deviceId = payload["deviceId"]?.GetValue<string>();
+                    var effectConfigurationId = sourceObject["effectConfigId"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(effectConfigurationId))
+                    {
+                        throw new InvalidOperationException($"摄像头 {containerName} 来源缺少设备或效果标识，无法完整回读");
+                    }
                     cameras.Add(new LiveCompanionActiveCamera(
                         scene.Key,
                         source.Key,
                         deviceId,
-                        effectConfigurationId));
+                        effectConfigurationId,
+                        containerName));
                 }
-            }
         }
 
         return cameras;
@@ -193,31 +192,26 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
         {
             foreach (var scene in sceneSources)
             {
-                if (scene.Value is not JsonObject sceneObject
-                    || sceneObject["data"] is not JsonObject sources)
-                {
-                    continue;
-                }
-
-                foreach (var source in sources)
-                {
-                    if (source.Value is not JsonObject sourceObject
-                        || !string.Equals(
-                            sourceObject["type"]?.GetValue<string>(),
-                            "camera",
-                            StringComparison.Ordinal)
-                        || sourceObject["payload"] is not JsonObject currentPayload)
+                foreach (var (containerName, sources) in EnumerateSourceContainers(scene.Value))
+                    foreach (var source in sources)
                     {
-                        continue;
-                    }
+                        if (source.Value is not JsonObject sourceObject
+                            || !string.Equals(
+                                sourceObject["type"]?.GetValue<string>(),
+                                "camera",
+                                StringComparison.Ordinal)
+                            || sourceObject["payload"] is not JsonObject currentPayload)
+                        {
+                            continue;
+                        }
 
-                    var deviceId = currentPayload["deviceId"]?.GetValue<string>();
-                    if (deviceId is not null && payloads.TryGetValue(deviceId, out var expectedPayload))
-                    {
-                        sourceObject["payload"] = expectedPayload.DeepClone();
-                        appliedDevices.Add(deviceId);
+                        var deviceId = currentPayload["deviceId"]?.GetValue<string>();
+                        if (deviceId is not null && payloads.TryGetValue(deviceId, out var expectedPayload))
+                        {
+                            sourceObject["payload"] = expectedPayload.DeepClone();
+                            appliedDevices.Add(deviceId);
+                        }
                     }
-                }
             }
         }
 
@@ -292,28 +286,23 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
         {
             foreach (var scene in sceneSources)
             {
-                if (scene.Value is not JsonObject sceneObject
-                    || sceneObject["data"] is not JsonObject sources)
-                {
-                    continue;
-                }
-
-                foreach (var source in sources)
-                {
-                    if (source.Value is not JsonObject sourceObject
-                        || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal)
-                        || sourceObject["payload"] is not JsonObject currentPayload
-                        || !string.Equals(
-                            currentPayload["deviceId"]?.GetValue<string>(),
-                            portable.Key,
-                            StringComparison.Ordinal))
+                foreach (var (containerName, sources) in EnumerateSourceContainers(scene.Value))
+                    foreach (var source in sources)
                     {
-                        continue;
-                    }
+                        if (source.Value is not JsonObject sourceObject
+                            || !string.Equals(sourceObject["type"]?.GetValue<string>(), "camera", StringComparison.Ordinal)
+                            || sourceObject["payload"] is not JsonObject currentPayload
+                            || !string.Equals(
+                                currentPayload["deviceId"]?.GetValue<string>(),
+                                portable.Key,
+                                StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
 
-                    sourceObject["payload"] = MergePortablePayload(currentPayload, portable.Value);
-                    applied++;
-                }
+                        sourceObject["payload"] = MergePortablePayload(currentPayload, portable.Value);
+                        applied++;
+                    }
             }
         }
 
@@ -408,6 +397,19 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
         return sourceStoreRoot;
     }
 
+    internal static IEnumerable<(string Name, JsonObject Sources)> EnumerateSourceContainers(JsonNode? scene)
+    {
+        if (scene is not JsonObject sceneObject) { yield break; }
+        foreach (var name in new[] { "data", "data2" })
+        {
+            if (sceneObject[name] is JsonObject sources) { yield return (name, sources); }
+            else if (sceneObject[name] is not null)
+            {
+                throw new InvalidOperationException($"摄像头来源容器 {name} 类型异常，无法完整读取");
+            }
+        }
+    }
+
     internal static IReadOnlyDictionary<string, JsonObject> FindCameraPayloads(JsonNode sourceStoreRoot)
     {
         var result = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
@@ -418,46 +420,41 @@ internal sealed class LiveCompanionCameraPayloadStore(string rootPath)
 
         foreach (var scene in sceneSources)
         {
-            if (scene.Value is not JsonObject sceneObject
-                || sceneObject["data"] is not JsonObject sources)
-            {
-                continue;
-            }
-
-            foreach (var source in sources)
-            {
-                if (source.Value is not JsonObject sourceObject
-                    || !string.Equals(
-                        sourceObject["type"]?.GetValue<string>(),
-                        "camera",
-                        StringComparison.Ordinal)
-                    || sourceObject["payload"] is not JsonObject payload)
+            foreach (var (containerName, sources) in EnumerateSourceContainers(scene.Value))
+                foreach (var source in sources)
                 {
-                    continue;
-                }
-
-                foreach (var propertyName in RequiredPayloadProperties)
-                {
-                    if (!payload.ContainsKey(propertyName))
+                    if (source.Value is not JsonObject sourceObject
+                        || !string.Equals(
+                            sourceObject["type"]?.GetValue<string>(),
+                            "camera",
+                            StringComparison.Ordinal)
+                        || sourceObject["payload"] is not JsonObject payload)
                     {
-                        throw new InvalidOperationException(
-                            $"存档摄像头配置缺少必需字段 {propertyName}");
+                        continue;
                     }
-                }
 
-                var deviceId = payload["deviceId"]?.GetValue<string>();
-                if (string.IsNullOrWhiteSpace(deviceId))
-                {
-                    throw new InvalidOperationException("存档摄像头配置缺少设备名称");
-                }
+                    foreach (var propertyName in RequiredPayloadProperties)
+                    {
+                        if (!payload.ContainsKey(propertyName))
+                        {
+                            throw new InvalidOperationException(
+                                $"存档摄像头配置缺少必需字段 {propertyName}");
+                        }
+                    }
 
-                if (result.TryGetValue(deviceId, out var previous)
-                    && !JsonNode.DeepEquals(previous, payload))
-                {
-                    throw new InvalidOperationException($"设备 {deviceId} 存在不同摄像头配置，不能合并覆盖");
+                    var deviceId = payload["deviceId"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(deviceId))
+                    {
+                        throw new InvalidOperationException("存档摄像头配置缺少设备名称");
+                    }
+
+                    if (result.TryGetValue(deviceId, out var previous)
+                        && !JsonNode.DeepEquals(previous, payload))
+                    {
+                        throw new InvalidOperationException($"设备 {deviceId} 存在不同摄像头配置，不能合并覆盖");
+                    }
+                    result[deviceId] = payload;
                 }
-                result[deviceId] = payload;
-            }
         }
 
         return result;
@@ -469,10 +466,12 @@ internal sealed record LiveCompanionCameraTarget(
     string SourceId,
     string DeviceId,
     string EffectConfigurationId,
-    JsonObject Payload);
+    JsonObject Payload,
+    string Container = "data");
 
 internal sealed record LiveCompanionActiveCamera(
     string SceneId,
     string SourceId,
     string DeviceId,
-    string EffectConfigurationId);
+    string EffectConfigurationId,
+    string Container = "data");

@@ -18,7 +18,7 @@ internal static class LiveCompanionRestoreVerifier
         foreach (var camera in cameras)
         {
             var result = await VerifyAsync(rootPath, expectedDocuments, expectedCamera, camera, cancellationToken);
-            differences.AddRange(result.Select(difference => $"{camera.SceneId}/{camera.SourceId}: {difference}"));
+            differences.AddRange(result.Select(difference => $"{camera.SceneId}/{camera.Container}/{camera.SourceId}: {difference}"));
         }
         return differences;
     }
@@ -56,10 +56,10 @@ internal static class LiveCompanionRestoreVerifier
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var actualRoot = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var arrayLengths = GetExpectedArrayLengths(actualRoot.RootElement,
-                document.Values.Select(value => TranslatePointer(value.JsonPointer, replacements)));
+                document.Values.Select(value => TranslateCameraPointer(value.JsonPointer, replacements, expectedCamera, activeCamera)));
             foreach (var expected in document.Values)
             {
-                var translatedPointer = TranslatePointer(expected.JsonPointer, replacements);
+                var translatedPointer = TranslateCameraPointer(expected.JsonPointer, replacements, expectedCamera, activeCamera);
                 if (!LiveCompanionConfigurationStore.TryGetPointer(
                         actualRoot.RootElement,
                         translatedPointer,
@@ -109,6 +109,16 @@ internal static class LiveCompanionRestoreVerifier
             }
         }
         return lengths;
+    }
+
+    private static string TranslateCameraPointer(string pointer, Dictionary<string, string> replacements,
+        LiveCompanionCameraTarget expected, LiveCompanionActiveCamera actual)
+    {
+        var segments = pointer.Split('/');
+        if (segments.Length >= 6 && segments[1] == "sourceStore" && segments[2] == "sceneSource"
+            && segments[3] == EscapePointer(expected.SceneId) && segments[4] == expected.Container
+            && segments[5] == EscapePointer(expected.SourceId)) { segments[4] = actual.Container; }
+        return TranslatePointer(string.Join('/', segments), replacements);
     }
 
     private static string TranslatePointer(

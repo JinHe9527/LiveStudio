@@ -28,7 +28,7 @@ public sealed class LiveCompanionIntegrityTests
         var camera = new LiveCompanionCameraTarget("original-scene", "original-source", "device", "original", new JsonObject());
         LiveCompanionActiveCamera[] active = [new("scene", "first", "device", "a"), new("scene", "second", "device", "b")];
         var differences = await LiveCompanionRestoreVerifier.VerifyAllAsync(fixture.Root, [expected], camera, active, CancellationToken.None);
-        Assert.Contains("scene/second", Assert.Single(differences), StringComparison.Ordinal);
+        Assert.Contains("scene/data/second", Assert.Single(differences), StringComparison.Ordinal);
         Assert.NotEmpty(await LiveCompanionRestoreVerifier.VerifyAllAsync(fixture.Root, [expected], camera, [], CancellationToken.None));
     }
 
@@ -63,7 +63,7 @@ public sealed class LiveCompanionIntegrityTests
             .Concat(CameraValues("data2", "second", "other-device")));
         var effect = Document("effectConfigStore", [Value("/effectConfigStore/configs/effect/value", 1)]);
         Assert.Null(LiveCompanionPortableProfile.TryCreate([source, effect], out var reason));
-        Assert.Contains("data2", reason, StringComparison.Ordinal);
+        Assert.Contains("不同画面配置", reason, StringComparison.Ordinal);
         Assert.False(LiveCompanionPortableProfile.ValidateTargetSelection([source, effect]).CanProceed);
     }
 

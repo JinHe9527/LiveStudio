@@ -72,9 +72,17 @@ internal sealed record LiveCompanionPortableProfile(
             [profile.Camera.EffectConfigurationId] = "{effect}"
         };
         return profile.SourceStoreDocument.Values.Concat(profile.EffectConfigurationDocument.Values)
-            .ToDictionary(value => TranslatePointer(value.JsonPointer, replacements),
+            .ToDictionary(value => NormalizeCameraContainer(TranslatePointer(value.JsonPointer, replacements)),
                 value => value.Value.ValueKind is JsonValueKind.False ? JsonValueKind.True : value.Value.ValueKind,
                 StringComparer.Ordinal);
+    }
+
+    private static string NormalizeCameraContainer(string pointer)
+    {
+        var segments = pointer.Split('/');
+        if (segments.Length >= 6 && segments[1] == "sourceStore" && segments[2] == "sceneSource"
+            && segments[4] is "data" or "data2") { segments[4] = "{container}"; }
+        return string.Join('/', segments);
     }
 
     public static LiveCompanionPortableProfile? TryCreate(
@@ -108,17 +116,6 @@ internal sealed record LiveCompanionPortableProfile(
             }
 
             failureReason = $"没有读取到直播伴侣必需存储：{string.Join("、", missing)}";
-            return null;
-        }
-
-        // 扫描同时保留 data2 的证据；当前事务执行端只能绑定 data。
-        // 必须拒绝整份投影，不能静默丢弃副容器的画面后宣称完整保存。
-        if (sourceStore.Values.Any(value =>
-                PointerSegments(value.JsonPointer) is { Length: >= 6 } segments
-                && segments[0] == "sourceStore" && segments[1] == "sceneSource"
-                && segments[3] == "data2"))
-        {
-            failureReason = "检测到 data2 副来源容器中的摄像头配置，当前执行端尚未支持完整恢复，已取消整份存档";
             return null;
         }
 
@@ -357,7 +354,7 @@ internal sealed record LiveCompanionPortableProfile(
             .FirstOrDefault(segments => segments.Length >= 5
                                         && string.Equals(segments[0], "sourceStore", StringComparison.Ordinal)
                                         && string.Equals(segments[1], "sceneSource", StringComparison.Ordinal)
-                                        && string.Equals(segments[3], "data", StringComparison.Ordinal));
+                                        && segments[3] is "data" or "data2");
         var canonicalEffectId = adapter.Definition.Fields
             .Where(field => string.Equals(field.StoreId, "effect-config", StringComparison.Ordinal))
             .Select(field => PointerSegments(field.NativePath))
@@ -480,12 +477,30 @@ internal sealed record LiveCompanionPortableProfile(
 
     private static string CreateCameraSignature(LiveCompanionCameraTarget camera)
     {
-        var content = $"{camera.DeviceId}\0{camera.EffectConfigurationId}\0{camera.Payload.ToJsonString()}";
+        var content = $"{camera.DeviceId}\0{camera.EffectConfigurationId}\0{CanonicalPayload(camera.Payload).ToJsonString()}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
     }
 
+    private static JsonNode CanonicalPayload(JsonNode node)
+    {
+        if (node is JsonObject obj)
+        {
+            var sorted = new JsonObject();
+            foreach (var pair in obj.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                sorted[pair.Key] = pair.Value is null ? null : CanonicalPayload(pair.Value);
+            }
+            return sorted;
+        }
+        if (node is JsonArray array)
+        {
+            return new JsonArray(array.Select(item => item is null ? null : CanonicalPayload(item)).ToArray());
+        }
+        return node.DeepClone();
+    }
+
     private static string CameraPrefix(LiveCompanionCameraTarget camera) =>
-        $"/sourceStore/sceneSource/{EscapePointer(camera.SceneId)}/data/{EscapePointer(camera.SourceId)}";
+        $"/sourceStore/sceneSource/{EscapePointer(camera.SceneId)}/{camera.Container}/{EscapePointer(camera.SourceId)}";
 
     private static JsonObject CreatePortablePayload(JsonObject payload)
     {
@@ -501,11 +516,21 @@ internal sealed record LiveCompanionPortableProfile(
         return result;
     }
 
+    // These describe placement and source identity, not camera picture settings.
+    // Keep them in the raw audited document, but never replay one canvas's context onto another.
+    internal static bool IsPortableSourceContext(string pointer)
+    {
+        var segments = PointerSegments(pointer);
+        return segments.Length == 6 && segments[0] == "sourceStore" && segments[1] == "sceneSource"
+            && segments[3] is "data" or "data2"
+            && segments[5] is "name" or "viewIndex" or "secondSource" or "liveScene";
+    }
+
     private static bool IsSourceRuntimeIdentifier(string pointer, string sourcePrefix)
     {
         var relative = pointer[sourcePrefix.Length..];
         var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        return segments.Length == 5
+        return IsPortableSourceContext(pointer) || segments.Length == 5
                && string.Equals(segments[0], "payload", StringComparison.Ordinal)
                && string.Equals(segments[1], "filterData", StringComparison.Ordinal)
                && string.Equals(segments[2], "filterDataList", StringComparison.Ordinal)

@@ -9,7 +9,7 @@ internal static class LiveCompanionCompatibilityDiagnostics
         IReadOnlyList<NativeConfigurationDocument> documents, LiveCompanionAdapterCatalog catalog)
     {
         var fingerprint = LiveCompanionStructureFingerprint.Compute(documents);
-        var profile = LiveCompanionPortableProfile.TryCreate(documents, out _);
+        var profile = LiveCompanionPortableProfile.TryCreate(documents, out var profileFailure);
         var candidates = catalog.GetAll().Select(adapter =>
         {
             var projected = profile is null ? documents : profile.CreateExpectedDocuments(
@@ -17,12 +17,14 @@ internal static class LiveCompanionCompatibilityDiagnostics
             var binding = LiveCompanionRuntimeBinding.TryCreate(adapter.Definition,
                 profile is null ? documents : [profile.SourceStoreDocument, profile.EffectConfigurationDocument]);
             var stores = adapter.Definition.Stores.ToDictionary(store => store.Id, StringComparer.Ordinal);
-            var expected = adapter.Definition.Fields.Select(field => new
-            {
-                Store = Normalize(stores[field.StoreId].Location),
-                Path = binding?.ToRuntimePointer(field.NativePath) ?? field.NativePath,
-                Field = field
-            }).ToDictionary(item => (item.Store, item.Path));
+            var expected = adapter.Definition.Fields
+                .Where(field => profile is null || !LiveCompanionPortableProfile.IsPortableSourceContext(field.NativePath))
+                .Select(field => new
+                {
+                    Store = Normalize(stores[field.StoreId].Location),
+                    Path = binding?.ToRuntimePointer(field.NativePath) ?? field.NativePath,
+                    Field = field
+                }).ToDictionary(item => (item.Store, item.Path));
             var actual = projected.SelectMany(document => document.Values.Select(value => new
             {
                 Store = Normalize(document.RelativePath),
@@ -69,11 +71,16 @@ internal static class LiveCompanionCompatibilityDiagnostics
             .ThenBy(candidate => candidate.Differences.Count)
             .ThenByDescending(candidate => candidate.VersionMatched)
             .ThenByDescending(candidate => candidate.Adapter.Definition.Id, StringComparer.Ordinal).FirstOrDefault();
-        var matched = documents.Count > 0 && candidates?.Matched == true;
+        if (candidates is null)
+        {
+            return new(DateTimeOffset.UtcNow, version, fingerprint, "NeedsAdapter", null,
+                "没有加载到有效签名适配定义，请检查安装文件；未启用恢复写入。", 0, []);
+        }
+        var matched = documents.Count > 0 && candidates.Matched;
         return new(DateTimeOffset.UtcNow, version, fingerprint,
             matched ? "Matched" : "NeedsAdapter", candidates?.Adapter.Definition.Id,
             matched ? "已自动匹配签名参数结构；恢复时仍需检查设备、素材并逐项回读。"
-                : $"参数结构未匹配：缺少 {candidates?.Differences.Count(item => item.Kind is "MissingField" or "MissingStore") ?? 0} 项，"
+                : (profile is null ? profileFailure + "。" : "") + $"参数结构未匹配：缺少 {candidates?.Differences.Count(item => item.Kind is "MissingField" or "MissingStore") ?? 0} 项，"
                   + $"新增 {candidates?.Differences.Count(item => item.Kind == "UnknownField") ?? 0} 项，"
                   + $"类型变化 {candidates?.Differences.Count(item => item.Kind == "TypeChanged") ?? 0} 项。请导出报告检查适配或来源结构。",
             candidates?.Count ?? 0, candidates?.Differences ?? []);

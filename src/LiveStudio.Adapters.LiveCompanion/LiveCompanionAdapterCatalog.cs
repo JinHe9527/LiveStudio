@@ -101,6 +101,7 @@ public sealed class LiveCompanionAdapterCatalog
     {
         var candidates = adapters.Value.Where(adapter =>
             LiveCompanionPortableProfile.CanRestoreTo(adapter.Definition, discoveredDocuments)
+            && MatchesPortableRestoreVersion(applicationVersion, adapter, discoveredDocuments)
             && (!adapter.Definition.RequirePortableFieldShapeMatch
                 || MatchesPortableFieldShape(adapter, discoveredDocuments, true)))
             .ToArray();
@@ -172,7 +173,8 @@ public sealed class LiveCompanionAdapterCatalog
             [profile.SourceStoreDocument, profile.EffectConfigurationDocument]);
         if (binding is null) { return false; }
         var stores = adapter.Definition.Stores.ToDictionary(store => store.Id, StringComparer.Ordinal);
-        var declared = adapter.Definition.Fields.ToDictionary(
+        var declared = adapter.Definition.Fields
+            .Where(field => !LiveCompanionPortableProfile.IsPortableSourceContext(field.NativePath)).ToDictionary(
             field => $"{NormalizeLocation(stores[field.StoreId].Location)}:{binding.ToRuntimePointer(field.NativePath)}",
             StringComparer.Ordinal);
         var actual = profile.CreateExpectedDocuments(adapter, new Dictionary<Guid, DeviceMapping>(), [], Path.GetTempPath())

@@ -28,77 +28,86 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
     ];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public string RootPath { get; } = Path.GetFullPath(rootPath ?? Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "webcast_mate"));
+    private string? resolvedRoot;
+    public string RootPath => resolvedRoot ??= rootPath is not null
+        ? Path.GetFullPath(rootPath)
+        : LiveCompanionConfigurationLocation.Resolve(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "webcast_mate"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "webcast_mate"));
 
     public async Task<IReadOnlyList<NativeConfigurationDocument>> CaptureDocumentsAsync(
         CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(RootPath))
-        {
-            return [];
-        }
-
         var documents = new List<NativeConfigurationDocument>();
+        var issues = new List<string>();
+        var unreadable = false;
         foreach (var relativePath in DiscoveryDocumentPaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var path = Path.GetFullPath(Path.Combine(RootPath, relativePath));
-            if (!File.Exists(path))
-            {
-                continue;
-            }
-
-            var info = new FileInfo(path);
-            if (info.Length is <= 0 or > MaximumConfigurationFileLength)
-            {
-                continue;
-            }
-
             try
             {
-                await using var stream = new FileStream(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    131_072,
+                // Open directly: File.Exists also returns false on access errors and hides the cause.
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete, 131_072,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
+                if (stream.Length is <= 0 or > MaximumConfigurationFileLength)
+                {
+                    issues.Add($"{relativePath}：文件为空或超过 64 MiB");
+                    unreadable = true;
+                    continue;
+                }
                 using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                if (json.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    issues.Add($"{relativePath}：JSON 根节点不是对象");
+                    unreadable = true;
+                    continue;
+                }
                 var values = new List<NativeConfigurationValue>();
                 CollectDiscoveryValues(relativePath, json.RootElement, values);
                 if (values.Count == 0)
                 {
+                    issues.Add($"{relativePath}：没有可读取的目标字段（配置结构不受支持、无摄像头或字段被排除）");
                     continue;
                 }
-
-                var ordered = values
-                    .OrderBy(value => value.JsonPointer, StringComparer.Ordinal)
-                    .ToArray();
+                var ordered = values.OrderBy(value => value.JsonPointer, StringComparer.Ordinal).ToArray();
                 var content = JsonSerializer.SerializeToUtf8Bytes(ordered, JsonOptions);
-                var sourceId = CreateLogicalId($"live-companion|{relativePath}");
-                documents.Add(new NativeConfigurationDocument(
-                    "webcast_mate",
-                    "JsonFile",
-                    "json-v1",
-                    relativePath,
-                    relativePath,
-                    Convert.ToHexStringLower(SHA256.HashData(content)),
-                    sourceId,
-                    ordered));
+                documents.Add(new NativeConfigurationDocument("webcast_mate", "JsonFile", "json-v1",
+                    relativePath, relativePath, Convert.ToHexStringLower(SHA256.HashData(content)),
+                    CreateLogicalId($"live-companion|{relativePath}"), ordered));
             }
-            catch (JsonException)
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
             {
-            }
-            catch (IOException)
-            {
+                issues.Add($"{relativePath}：文件或目录不存在");
             }
             catch (UnauthorizedAccessException)
             {
+                issues.Add($"{relativePath}：当前 Windows 用户无读取权限");
+                unreadable = true;
+            }
+            catch (JsonException)
+            {
+                // Never expose parser exception text: it may contain original configuration values.
+                issues.Add($"{relativePath}：JSON 无效或正在写入");
+                unreadable = true;
+            }
+            catch (LiveCompanionConfigurationReadException exception)
+            {
+                issues.Add(exception.Message);
+                unreadable = true;
+            }
+            catch (IOException)
+            {
+                issues.Add($"{relativePath}：文件被独占或发生读取错误");
+                unreadable = true;
             }
         }
-
+        if (unreadable || documents.Count == 0)
+        {
+            throw new LiveCompanionConfigurationReadException(
+                $"直播伴侣配置读取失败（{RootPath}）：{string.Join("；", issues)}。请在运行直播伴侣的同一 Windows 用户下重试，并在设置中导出兼容报告。未生成存档，未修改配置。");
+        }
         return documents;
     }
 
@@ -1076,6 +1085,7 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
         }
 
         if (!root.TryGetProperty("sourceStore", out var sourceStore)
+            || sourceStore.ValueKind != JsonValueKind.Object
             || !sourceStore.TryGetProperty("sceneSource", out var sceneSource)
             || sceneSource.ValueKind != JsonValueKind.Object)
         {
@@ -1091,10 +1101,13 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
 
             foreach (var containerName in new[] { "data", "data2" })
             {
-                if (!scene.Value.TryGetProperty(containerName, out var container)
-                    || container.ValueKind != JsonValueKind.Object)
+                if (!scene.Value.TryGetProperty(containerName, out var container) || container.ValueKind == JsonValueKind.Null)
                 {
                     continue;
+                }
+                if (container.ValueKind != JsonValueKind.Object)
+                {
+                    throw new LiveCompanionConfigurationReadException($"sourceStore.json：{containerName} 来源容器类型异常，无法完整读取摄像头配置。");
                 }
 
                 // Preserve a genuinely empty native container as structural evidence. Without
@@ -1452,7 +1465,23 @@ internal sealed class LiveCompanionConfigurationStore(string? rootPath = null)
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temporaryPath, path, true);
+            for (var attempt = 0; ; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    File.Move(temporaryPath, path, true);
+                    break;
+                }
+                catch (Exception exception) when (attempt < 4
+                    && exception is IOException or UnauthorizedAccessException
+                    && (exception.HResult & 0xffff) is 5 or 32 or 33)
+                {
+                    // Windows readers/antivirus can briefly deny rename after the source was closed.
+                    // Retry the same durable temp file; never delete the destination or change its ACL.
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
         }
         finally
         {

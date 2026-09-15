@@ -32,6 +32,10 @@ public sealed class LiveCompanionAdapter(
             }
             return LiveCompanionCompatibilityDiagnostics.Analyze(version, second, adapterCatalog);
         }
+        catch (LiveCompanionConfigurationReadException exception)
+        {
+            return new(DateTimeOffset.UtcNow, version, "", "Unavailable", null, exception.Message, 0, []);
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or InvalidOperationException or JsonException or ArgumentException or AdapterDefinitionException)
         {
@@ -914,6 +918,10 @@ public sealed class LiveCompanionAdapter(
                 var activeTargets = (await cameraPayloadStore.GetActiveCamerasAsync(cancellationToken))
                     .Where(camera => string.Equals(camera.DeviceId, targetDeviceId, StringComparison.Ordinal))
                     .ToArray();
+                if (activeTargets.Length > 0)
+                {
+                    await cameraPayloadStore.ApplyPortableToActiveSourcesAsync(sourceStore, cancellationToken);
+                }
                 await configurationStore.ApplyPortableBoundDocumentsAsync(
                     writableDocuments,
                     portableProfile.Camera,
@@ -1013,7 +1021,7 @@ public sealed class LiveCompanionAdapter(
                 {
                     return new RestoreVerificationResult(true, []);
                 }
-                if (active.Length > 1)
+                if (active.Length > 1 || active[0].Container != "data")
                 {
                     // 原生菜单目前只能确定唯一摄像头行，不可在多实例中点击猜测位置。
                     return new RestoreVerificationResult(false, existingDifferences);

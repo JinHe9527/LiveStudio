@@ -13,9 +13,15 @@ internal sealed class LiveCompanionRuntimeBinding
     private readonly IReadOnlyDictionary<string, string> canonicalToRuntime;
     private readonly IReadOnlyDictionary<string, string> runtimeToCanonical;
 
-    private LiveCompanionRuntimeBinding(Dictionary<string, string> canonicalToRuntime)
+    private readonly CameraPath? canonicalCamera;
+    private readonly CameraPath? runtimeCamera;
+
+    private LiveCompanionRuntimeBinding(Dictionary<string, string> canonicalToRuntime,
+        CameraPath? canonicalCamera = null, CameraPath? runtimeCamera = null)
     {
         this.canonicalToRuntime = canonicalToRuntime;
+        this.canonicalCamera = canonicalCamera;
+        this.runtimeCamera = runtimeCamera;
         runtimeToCanonical = canonicalToRuntime.ToDictionary(
             item => item.Value,
             item => item.Key,
@@ -70,7 +76,7 @@ internal sealed class LiveCompanionRuntimeBinding
             var runtimeEffectIds = runtimeCameras
                 .Select(camera =>
                 {
-                    var pointer = $"/sourceStore/sceneSource/{EscapePointer(camera.SceneId)}/data/{EscapePointer(camera.SourceId)}/effectConfigId";
+                    var pointer = $"/sourceStore/sceneSource/{EscapePointer(camera.SceneId)}/{camera.Container}/{EscapePointer(camera.SourceId)}/effectConfigId";
                     return values.TryGetValue(pointer, out var effectValue)
                            && effectValue.Value.ValueKind == JsonValueKind.String
                         ? effectValue.Value.GetString()
@@ -97,7 +103,7 @@ internal sealed class LiveCompanionRuntimeBinding
             [canonical.SourceId] = runtime.SourceId
         };
 
-        var runtimeEffectPointer = $"/sourceStore/sceneSource/{EscapePointer(runtime.SceneId)}/data/{EscapePointer(runtime.SourceId)}/effectConfigId";
+        var runtimeEffectPointer = $"/sourceStore/sceneSource/{EscapePointer(runtime.SceneId)}/{runtime.Container}/{EscapePointer(runtime.SourceId)}/effectConfigId";
         var runtimeEffectId = values.TryGetValue(runtimeEffectPointer, out var effectValue)
             && effectValue.Value.ValueKind == JsonValueKind.String
                 ? effectValue.Value.GetString()
@@ -117,12 +123,22 @@ internal sealed class LiveCompanionRuntimeBinding
             return null;
         }
 
-        return new LiveCompanionRuntimeBinding(mapping);
+        return new LiveCompanionRuntimeBinding(mapping, canonical, runtime);
     }
 
-    public string ToRuntimePointer(string canonicalPointer) => TranslatePointer(
-        canonicalPointer,
-        canonicalToRuntime);
+    public string ToRuntimePointer(string canonicalPointer)
+    {
+        var segments = PointerSegments(canonicalPointer);
+        if (canonicalCamera is not null && runtimeCamera is not null && segments.Length >= 5
+            && segments[0] == "sourceStore" && segments[1] == "sceneSource"
+            && segments[2] == canonicalCamera.SceneId && segments[3] == canonicalCamera.Container
+            && segments[4] == canonicalCamera.SourceId)
+        {
+            segments[3] = runtimeCamera.Container;
+            canonicalPointer = "/" + string.Join('/', segments.Select(EscapePointer));
+        }
+        return TranslatePointer(canonicalPointer, canonicalToRuntime);
+    }
 
     public JsonElement ToCanonicalValue(JsonElement runtimeValue)
     {
@@ -136,8 +152,8 @@ internal sealed class LiveCompanionRuntimeBinding
         return segments.Length >= 5
                && string.Equals(segments[0], "sourceStore", StringComparison.Ordinal)
                && string.Equals(segments[1], "sceneSource", StringComparison.Ordinal)
-               && string.Equals(segments[3], "data", StringComparison.Ordinal)
-            ? new CameraPath(segments[2], segments[4])
+               && segments[3] is "data" or "data2"
+            ? new CameraPath(segments[2], segments[4], segments[3])
             : null;
     }
 
@@ -147,9 +163,9 @@ internal sealed class LiveCompanionRuntimeBinding
         return segments.Length == 6
                && string.Equals(segments[0], "sourceStore", StringComparison.Ordinal)
                && string.Equals(segments[1], "sceneSource", StringComparison.Ordinal)
-               && string.Equals(segments[3], "data", StringComparison.Ordinal)
+               && segments[3] is "data" or "data2"
                && string.Equals(segments[5], "type", StringComparison.Ordinal)
-            ? new CameraPath(segments[2], segments[4])
+            ? new CameraPath(segments[2], segments[4], segments[3])
             : null;
     }
 
@@ -224,5 +240,5 @@ internal sealed class LiveCompanionRuntimeBinding
         .Replace("~1", "/", StringComparison.Ordinal)
         .Replace("~0", "~", StringComparison.Ordinal);
 
-    private sealed record CameraPath(string SceneId, string SourceId);
+    private sealed record CameraPath(string SceneId, string SourceId, string Container);
 }

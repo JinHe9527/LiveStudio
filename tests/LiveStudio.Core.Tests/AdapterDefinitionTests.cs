@@ -391,7 +391,7 @@ public sealed class AdapterDefinitionTests
     }
 
     [Fact]
-    public void PortableTargetUsesStorageCapabilityBeyondRecordedVersionRange()
+    public void PortableCaptureCannotSelectDefinitionThatRestoreWouldReject()
     {
         var repositoryRoot = FindRepositoryRoot();
         var catalog = new LiveCompanionAdapterCatalog(Path.Combine(
@@ -407,9 +407,8 @@ public sealed class AdapterDefinitionTests
 
         var match = catalog.MatchPortableTarget("1.0.0.0", documents);
 
-        Assert.Equal(AdapterMatchLevel.Verified, match.Level);
-        Assert.Equal(definition.Definition.Id, match.Adapter?.Definition.Id);
-        Assert.Contains("版本号不阻断", match.Reason, StringComparison.Ordinal);
+        Assert.NotEqual(AdapterMatchLevel.Verified, match.Level);
+        Assert.Null(match.Adapter);
     }
 
     [Fact]
@@ -441,6 +440,7 @@ public sealed class AdapterDefinitionTests
             }
             : document).ToArray();
         Assert.False(LiveCompanionAdapterCatalog.MatchesPortableRestoreVersion("13.0.1.482583989", adapter, unknown));
+        Assert.NotEqual(AdapterMatchLevel.Verified, catalog.MatchPortableTarget("13.0.1.482583989", unknown).Level);
         var wrongType = documents.Select(document => document == effect
             ? document with
             {
