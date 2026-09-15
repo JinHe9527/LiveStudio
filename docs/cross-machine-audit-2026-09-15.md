@@ -41,3 +41,17 @@
 ## 发布检查与结果
 
 本地 dotnet restore、Release 整仓构建通过（0 警告、0 错误）；Core 362、Agent 57、Setup 8，共 427 项测试通过。格式检查、git diff --check、6 项依赖门测试与 15 个项目的直接/传递依赖漏洞检查通过。版本提升为 0.1.32；签名发布与公开更新发现结果将在流水线完成后补记。
+
+
+### v0.1.32 已提交并发布
+
+功能提交 0826823b9c7ef4fc5920b679c4a193bc1eecd10b 与不可变标签 v0.1.32 已推送。Release 工作流 [34965186158](https://github.com/JinHe9527/LiveStudio/actions/runs/34965186158) 成功；还原测试、固定身份签名 MSIX、签名 Setup 与安装器自检均通过，7 个资产齐全。正式 Release 已设为稳定版本。
+
+- Setup 长度 189644184 字节，SHA-256 a5f4bb298b4ce4330f58c35da5785fc4ccbe9a455ec70fe0b2e00d5821ca702a。
+- MSIX 长度 130918979 字节，SHA-256 3bb9a4b8f0d59c4cef832aedf4958ac739c1faaa9377a77041662186022bbcce。
+- GitHub Asset Digest 与本机回下载的侧车摘要一致；公开签名报告确认固定指纹 4D42933F643E1E0B649513BCD10A15B485746E1D，Runner 仅接受既有内部自签根例外。
+- 正式 ApplicationUpdateService 的真实匿名 HTTPS 检查：0.1.31 返回 v0.1.32 及版本化安装器地址；0.1.32 返回无更新。报告为 artifacts/cross-machine-audit/update-discovery.json。
+- 通过同一服务尝试完整回下载 Setup，因连接速度慢在 3 分钟期限取消，未到达本机签名准备成功；部分文件已清理。签名/载荷自检证据来自 Release Runner，不能冒充本机完整回下载验证。没有安装新版本或替换直播主机进程。
+- main CI 34965182302 和标签 CI 34965186174 的 Windows 检查均成功，cloud-integration 均在“启动 MinIO”失败，后续 PostgreSQL/MinIO 产品测试跳过。日志全文下载遭网络错误，当前仅确认失败阶段，不把历史 pull access denied 直接当成本次错误全文。
+
+两台原故障电脑仍需现场报告与循环验收；本轮公开发布不改变 Verified=0。
