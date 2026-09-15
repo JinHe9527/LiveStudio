@@ -21,6 +21,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         var verifyOnly = args.Contains(VerifyOnlyArgument, StringComparer.OrdinalIgnoreCase);
+        if (!verifyOnly) LiveStudio.Diagnostics.ErrorDiagnostics.Start("Setup");
         try
         {
             if (!OperatingSystem.IsWindows())
@@ -66,6 +67,12 @@ internal static class Program
         catch (Exception exception)
         {
             WriteFailureLog(exception);
+            if (!verifyOnly)
+            {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, "InstallOrUpgrade");
+                using var deliveryTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                LiveStudio.Diagnostics.ErrorDiagnostics.FlushAsync(deliveryTimeout.Token).GetAwaiter().GetResult();
+            }
             if (!verifyOnly)
             {
                 MessageBox.Show(

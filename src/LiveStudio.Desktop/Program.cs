@@ -8,6 +8,9 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        if (!args.Contains("--demo") && Environment.GetEnvironmentVariable("DOTNET_WATCH") != "1"
+            && Environment.GetEnvironmentVariable("LIVESTUDIO_LOCAL_ONLY") != "1")
+            LiveStudio.Diagnostics.ErrorDiagnostics.Start("Desktop");
         var instanceName = Environment.GetEnvironmentVariable("DOTNET_WATCH") == "1"
             ? "LiveStudio.Desktop.Development.SingleInstance"
             : "LiveStudio.Desktop.SingleInstance";

@@ -35,6 +35,7 @@ public partial class SettingsView : UserControl
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             viewModel.SettingsMessage = $"兼容报告导出失败：{exception.Message}";
         }
     }
@@ -48,6 +49,37 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        AutomaticErrorReporting.IsChecked = LiveStudio.Diagnostics.ErrorDiagnostics.Enabled;
+        DiagnosticsStatus.Text = LiveStudio.Diagnostics.ErrorDiagnostics.Status;
+    }
+
+    private void AutomaticErrorReportingChanged(object? sender, RoutedEventArgs args)
+    {
+        LiveStudio.Diagnostics.ErrorDiagnostics.Enabled = AutomaticErrorReporting.IsChecked == true;
+        if (DiagnosticsStatus is not null) DiagnosticsStatus.Text = LiveStudio.Diagnostics.ErrorDiagnostics.Status;
+    }
+
+    private async void CheckDiagnosticsClicked(object? sender, RoutedEventArgs args)
+    {
+        await LiveStudio.Diagnostics.ErrorDiagnostics.FlushAsync();
+        DiagnosticsStatus.Text = LiveStudio.Diagnostics.ErrorDiagnostics.Status;
+    }
+
+    private void OpenDiagnosticsClicked(object? sender, RoutedEventArgs args)
+    {
+        try
+        {
+            Directory.CreateDirectory(LiveStudio.Diagnostics.ErrorDiagnostics.DirectoryPath);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                LiveStudio.Diagnostics.ErrorDiagnostics.DirectoryPath)
+            { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or System.ComponentModel.Win32Exception)
+        {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
+            DiagnosticsStatus.Text = "无法打开错误记录目录。";
+        }
     }
 
     private async void ClearLocalSnapshotsClicked(object? sender, RoutedEventArgs eventArgs)

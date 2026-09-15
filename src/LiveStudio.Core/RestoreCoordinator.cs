@@ -282,6 +282,7 @@ public sealed class RestoreCoordinator(
             // 此时绝不能直接释放会话；必须使用不可取消令牌完成全量回滚。
             catch (Exception exception)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, "RestoreTransaction");
                 if (durablyCommitted)
                 {
                     // Application state was fully verified and durably committed. A later status
@@ -299,6 +300,7 @@ public sealed class RestoreCoordinator(
                     }
                     catch (Exception rollbackException)
                     {
+                        LiveStudio.Diagnostics.ErrorDiagnostics.Record(rollbackException, "RestoreRollback");
                         rollbackFailures.Add($"{sessions[index].Kind}: {rollbackException.Message}");
                     }
                 }
@@ -352,6 +354,7 @@ public sealed class RestoreCoordinator(
             }
             catch (Exception exception)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, "RestoreTransaction");
                 cleanupFailures.Add($"恢复应用原运行状态失败：{exception.Message}");
             }
         }
@@ -388,6 +391,7 @@ public sealed class RestoreCoordinator(
             }
             catch (Exception exception)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, "RestoreTransaction");
                 failures.Add(exception);
             }
         }

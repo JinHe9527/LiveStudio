@@ -28,4 +28,7 @@
     <EmbeddedResource Include="$(LiveStudioCertificatePath)"
                       LogicalName="LiveStudio.Setup.Payload.LiveStudio-Signing.cer" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LiveStudio.Diagnostics\LiveStudio.Diagnostics.csproj" />
+  </ItemGroup>
 </Project>

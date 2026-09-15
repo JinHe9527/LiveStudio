@@ -141,6 +141,7 @@ public sealed class LocalControlServer(
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, request.Method.ToString());
             LogRequestFailure(logger, request.Method, exception);
             response = LocalControlProtocol.CreateFailure(
                 request.RequestId,
@@ -148,6 +149,8 @@ public sealed class LocalControlServer(
                 exception.Message);
         }
 
+        if (!response.Success)
+            LiveStudio.Diagnostics.ErrorDiagnostics.RecordOperationFailure(request.Method.ToString(), response.ErrorCode);
         await LocalControlProtocol.WriteAsync(stream, response, cancellationToken);
     }
 
@@ -185,6 +188,7 @@ public sealed class LocalControlServer(
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception, "Inspect" + kind);
                 applicationStates.Add(new LocalApplicationState(
                     kind,
                     true,
@@ -197,6 +201,9 @@ public sealed class LocalControlServer(
             }
         }
 
+        LiveStudio.Diagnostics.ErrorDiagnostics.UpdateApplications(applicationStates.Select(application =>
+            new LiveStudio.Diagnostics.DiagnosticApplicationState(application.Application.ToString(),
+                application.Version, application.IsRunning, application.AdapterAvailable)));
         var snapshots = await snapshotIndex.GetAllAsync(cancellationToken);
         var operations = await snapshotIndex.GetOperationsAsync(cancellationToken);
         var isBusy = operationLock.CurrentCount == 0;

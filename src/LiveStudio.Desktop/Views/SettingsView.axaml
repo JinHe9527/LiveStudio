@@ -85,7 +85,7 @@
                             <StackPanel Margin="0,10" VerticalAlignment="Center" Spacing="4">
                                 <TextBlock Classes="settings-title" Text="本机检查与修复" />
                                 <TextBlock MaxWidth="560" HorizontalAlignment="Left" Classes="settings-copy"
-                                           Text="检查并修复执行端、自启动以及 OBS、直播伴侣连接；不会恢复画面，也不会上传数据。"
+                                           Text="检查并修复执行端、自启动以及 OBS、直播伴侣连接。若检查失败，按下方错误诊断设置记录或提交报错。"
                                            TextWrapping="Wrap" />
                                 <TextBlock MaxWidth="560" HorizontalAlignment="Left" Classes="settings-copy"
                                            Text="{Binding LocalCheckStatus}" TextWrapping="Wrap" />
@@ -109,6 +109,21 @@
                                         Command="{Binding EnableAgentAutoStartCommand}">开启</Button>
                             </StackPanel>
                         </Grid>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Classes="settings-section" Text="错误诊断" />
+                <Border Classes="settings-card">
+                    <StackPanel Spacing="10">
+                        <CheckBox x:Name="AutomaticErrorReporting" Content="自动提交错误到开发者的 GitHub"
+                                  IsCheckedChanged="AutomaticErrorReportingChanged" />
+                        <TextBlock Classes="settings-copy" TextWrapping="Wrap"
+                                   Text="提交软件版本、Windows 版本、错误类型和代码调用位置。不会提交账号、密码、电脑名称、用户名路径或原始画面配置。断网时保存在本机，联网后重试。" />
+                        <TextBlock x:Name="DiagnosticsStatus" Classes="settings-copy" TextWrapping="Wrap" />
+                        <WrapPanel>
+                            <Button Classes="standard" Margin="0,0,8,0" Click="CheckDiagnosticsClicked">检查提交状态</Button>
+                            <Button Classes="standard" Click="OpenDiagnosticsClicked">打开本机错误记录</Button>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 

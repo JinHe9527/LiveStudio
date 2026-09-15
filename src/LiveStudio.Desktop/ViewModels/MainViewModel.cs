@@ -749,6 +749,7 @@ public partial class MainViewModel : ViewModelBase
             }
             catch (Exception exception) when (exception is LocalControlException or IOException)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
                 ApplyDisconnectedState(exception.Message);
             }
         }
@@ -995,6 +996,7 @@ public partial class MainViewModel : ViewModelBase
             or InvalidOperationException or HttpRequestException or UnauthorizedAccessException
             or SnapshotPackageException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             if (!cancellationToken.IsCancellationRequested && ReferenceEquals(SelectedSnapshot, snapshot))
             {
                 SnapshotInspectorMessage = SnapshotOperationError(exception);
@@ -1095,6 +1097,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             ApplyDisconnectedState(exception.Message);
         }
     }
@@ -1166,6 +1169,7 @@ public partial class MainViewModel : ViewModelBase
                                           or UnauthorizedAccessException
                                           or PlatformNotSupportedException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             CloudConnectionMessage = exception.Message;
         }
         finally
@@ -1195,6 +1199,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             disconnectMessage = "云端撤销失败，本机授权已清除";
         }
 
@@ -1256,6 +1261,7 @@ public partial class MainViewModel : ViewModelBase
             or InvalidDataException
             or InvalidOperationException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             availableUpdate = null;
             LatestVersionText = "—";
             UpdateStatus = exception.Message.Contains("Release 缺少", StringComparison.Ordinal)
@@ -1301,6 +1307,7 @@ public partial class MainViewModel : ViewModelBase
             or System.ComponentModel.Win32Exception
             or PlatformNotSupportedException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             UpdateStatus = $"安装更新失败：{exception.Message}";
         }
         finally
@@ -1367,6 +1374,7 @@ public partial class MainViewModel : ViewModelBase
             or InvalidDataException
             or UnauthorizedAccessException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             LocalCheckStatus = $"检查或修复失败：{exception.Message}";
         }
         finally
@@ -1401,6 +1409,7 @@ public partial class MainViewModel : ViewModelBase
             }
             catch (Exception exception) when (exception is LocalControlException or IOException)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
                 lastError = exception;
                 if (attempt + 1 < maxAttempts)
                 {
@@ -1470,6 +1479,7 @@ public partial class MainViewModel : ViewModelBase
                                           or UnauthorizedAccessException
                                           or PlatformNotSupportedException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             CloudCertificateStatus = $"证书安装失败：{exception.Message}";
         }
     }
@@ -1496,6 +1506,7 @@ public partial class MainViewModel : ViewModelBase
                                           or InvalidOperationException
                                           or UnauthorizedAccessException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             IsCloudCertificateInstalled = false;
             CloudCertificateStatus = $"证书检查失败：{exception.Message}";
             InstallCloudCertificateCommand.NotifyCanExecuteChanged();
@@ -1571,6 +1582,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             SettingsMessage = exception.Message;
         }
     }
@@ -1608,6 +1620,7 @@ public partial class MainViewModel : ViewModelBase
             or LocalControlException
             or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             SettingsMessage = $"设备注册失败：{exception.Message}";
         }
         finally
@@ -1676,6 +1689,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             ApplyDisconnectedState(exception.Message);
         }
     }
@@ -1730,6 +1744,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             ControlStatusTitle = "保存失败";
             ControlStatusDescription = exception.Message;
             PendingImportMessage = SnapshotOperationError(exception);
@@ -1805,6 +1820,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             ControlStatusTitle = "恢复失败";
             ControlStatusDescription = exception.Message;
             PendingImportMessage = $"恢复失败：{SnapshotOperationError(exception)}";
@@ -1885,6 +1901,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or InvalidOperationException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             SnapshotInspector.CameraSaveMessage = SnapshotOperationError(exception);
         }
         finally
@@ -2022,6 +2039,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = $"新建直播间失败：{exception.Message}";
             return false;
         }
@@ -2078,6 +2096,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = $"云存档同步失败：{exception.Message}";
         }
         finally
@@ -2129,6 +2148,7 @@ public partial class MainViewModel : ViewModelBase
             }
             catch (Exception exception) when (exception is LocalControlException or HttpRequestException or IOException or InvalidOperationException)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
                 MappingMessage = $"自动匹配没有全部保存：{exception.Message}";
             }
             finally
@@ -2365,6 +2385,7 @@ public partial class MainViewModel : ViewModelBase
             }
             catch (Exception exception) when (exception is LocalControlException or IOException)
             {
+                LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
                 // The main restore pipe is authoritative. A transient progress-poll failure must
                 // not cancel or duplicate the transaction.
                 _ = exception;
@@ -2492,6 +2513,7 @@ public partial class MainViewModel : ViewModelBase
         catch (Exception exception) when (exception is LocalControlException or IOException or ArgumentException
             or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             SettingsMessage = exception.Message;
         }
         finally
@@ -2533,6 +2555,7 @@ public partial class MainViewModel : ViewModelBase
         catch (Exception exception) when (exception is LocalControlException or IOException
             or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             SettingsMessage = $"连接失败：{exception.Message}";
             ControlStatusDescription = SettingsMessage;
         }
@@ -2583,6 +2606,7 @@ public partial class MainViewModel : ViewModelBase
             or UnauthorizedAccessException
             or SnapshotPackageException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
@@ -2614,6 +2638,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             nativeExportBaseline = null;
             HasNativeExportBaseline = false;
             NativeExportHasSensitivePaths = false;
@@ -2655,6 +2680,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             NativeExportAuditStatus = "无法对比原生导出包";
             NativeExportAuditDetail = exception.Message;
             NativeExportChangedFields = [];
@@ -2687,6 +2713,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             LanSettingsMessage = exception.Message;
         }
         finally
@@ -2736,6 +2763,7 @@ public partial class MainViewModel : ViewModelBase
                 }
                 catch (Exception exception) when (exception is IOException or OperationCanceledException or SnapshotPackageException)
                 {
+                    LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
                     PendingImportMessage = $"存档已导出到 {path}，但同名参数说明未生成：{exception.Message}";
                 }
             }
@@ -2750,6 +2778,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
@@ -2776,6 +2805,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
@@ -2824,6 +2854,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             LanSettingsMessage = exception.Message;
         }
         finally
@@ -2924,6 +2955,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
@@ -3000,6 +3032,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             station.StatusText = $"保存失败：{exception.Message}";
         }
         finally
@@ -3039,6 +3072,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             station.StatusText = $"删除失败：{exception.Message}";
         }
         finally
@@ -3118,6 +3152,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             CameraProfileMessage = $"相机档案保存失败：{exception.Message}";
         }
         finally
@@ -3178,6 +3213,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             CameraProfileMessage = $"相机档案删除失败：{exception.Message}";
         }
         finally
@@ -3202,6 +3238,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or JsonException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             DetectedSonyCameras = [];
             SelectedSonyCamera = null;
             SonyCameraConnectionState = $"相机检测失败：{exception.Message}";
@@ -3222,6 +3259,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             CameraProfiles = [];
             SelectedCameraProfile = null;
             ApplyCameraStations([]);
@@ -3318,6 +3356,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             IsMappingContextReady = false;
             MappingMessage = exception.Message;
         }
@@ -3369,6 +3408,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             MappingMessage = exception.Message;
         }
         finally
@@ -3756,6 +3796,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is HttpRequestException or ArgumentException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             return null;
         }
     }
@@ -3866,6 +3907,9 @@ public partial class MainViewModel : ViewModelBase
 
     internal void ApplyAgentState(LocalAgentState state)
     {
+        LiveStudio.Diagnostics.ErrorDiagnostics.UpdateApplications(state.Applications.Select(application =>
+            new LiveStudio.Diagnostics.DiagnosticApplicationState(application.Application.ToString(),
+                application.Version, application.IsRunning, application.AdapterAvailable)));
         TargetCompatibility = state.TargetCompatibility;
         snapshotInspectorCache.Clear();
         if (!obsEndpointEdited && !string.IsNullOrWhiteSpace(state.ObsEndpoint))
@@ -3982,6 +4026,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = $"无法读取本地存档库：{exception.Message}";
         }
     }
@@ -4263,6 +4308,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException or HttpRequestException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally
@@ -4290,6 +4336,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception exception) when (exception is LocalControlException or IOException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             PendingImportMessage = SnapshotOperationError(exception);
         }
         finally

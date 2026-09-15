@@ -4,6 +4,7 @@ using LiveStudio.Adapters.LiveCompanion;
 using LiveStudio.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 if (!OperatingSystem.IsWindows())
 {
@@ -29,6 +30,9 @@ if (args is ["probe-video-device", var encodedProbe])
     }
 }
 
+if (Environment.GetEnvironmentVariable("LIVESTUDIO_LOCAL_ONLY") != "1")
+    LiveStudio.Diagnostics.ErrorDiagnostics.Start("Agent");
+
 var credentialStore = new WindowsCredentialStore();
 if (args.Length > 0 && string.Equals(args[0], "enroll", StringComparison.OrdinalIgnoreCase))
 {
@@ -48,6 +52,7 @@ if (args.Length > 0 && string.Equals(args[0], "enroll", StringComparison.Ordinal
 credentialStore.EnsureLocalIdentity();
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Logging.AddProvider(new DiagnosticLoggerProvider());
 using var instanceMutex = new Mutex(true, @"Local\LiveStudio.Agent", out var isFirstInstance);
 if (!isFirstInstance)
 {

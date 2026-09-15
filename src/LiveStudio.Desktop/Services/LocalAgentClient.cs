@@ -210,6 +210,7 @@ public sealed class LocalAgentClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.RecordOperationFailure(method.ToString(), "AgentUnavailable");
             throw new LocalControlException("AgentUnavailable", "没有找到当前用户会话中的 LiveStudio Agent");
         }
 
@@ -229,6 +230,7 @@ public sealed class LocalAgentClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.RecordOperationFailure(method.ToString(), "AgentResponseTimeout");
             throw new LocalControlException("AgentResponseTimeout",
                 "本机执行端响应超时，已停止等待。请重新检测；若后台仍在执行任务，请等待任务结束后重试。");
         }

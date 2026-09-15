@@ -69,6 +69,7 @@ jobs:
         shell: pwsh
         env:
           PACKAGE_PUBLISHER: ${{ secrets.LIVESTUDIO_SIGNING_PUBLISHER }}
+          LiveStudioDiagnosticsEndpoint: ${{ vars.LIVESTUDIO_DIAGNOSTICS_ENDPOINT }}
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v') + '.0'
           $output = Join-Path $PWD 'artifacts\msix'
@@ -90,6 +91,8 @@ jobs:
 
       - name: 构建并验证一键安装器
         shell: pwsh
+        env:
+          LiveStudioDiagnosticsEndpoint: ${{ vars.LIVESTUDIO_DIAGNOSTICS_ENDPOINT }}
         run: |
           $setup = .\deploy\windows\Build-Setup.ps1 `
             -PackagePath (Join-Path $PWD 'artifacts\LiveStudio-Windows-x64.msix') `

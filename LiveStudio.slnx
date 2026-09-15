@@ -5,6 +5,8 @@
     <Project Path="src/LiveStudio.Agent/LiveStudio.Agent.csproj" />
     <Project Path="src/LiveStudio.Contracts/LiveStudio.Contracts.csproj" />
     <Project Path="src/LiveStudio.Core/LiveStudio.Core.csproj" />
+    <Project Path="src/LiveStudio.Diagnostics.Relay/LiveStudio.Diagnostics.Relay.csproj" />
+    <Project Path="src/LiveStudio.Diagnostics/LiveStudio.Diagnostics.csproj" />
     <Project Path="src/LiveStudio.Desktop/LiveStudio.Desktop.csproj" />
     <Project Path="src/LiveStudio.Packaging/LiveStudio.Packaging.csproj" />
     <Project Path="src/LiveStudio.Setup/LiveStudio.Setup.csproj" />

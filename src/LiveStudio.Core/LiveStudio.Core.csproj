@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\LiveStudio.Contracts\LiveStudio.Contracts.csproj" />
@@ -10,4 +10,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\LiveStudio.Diagnostics\LiveStudio.Diagnostics.csproj" />
+  </ItemGroup>
 </Project>

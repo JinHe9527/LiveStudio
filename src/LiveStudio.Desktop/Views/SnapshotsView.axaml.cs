@@ -226,6 +226,7 @@ public partial class SnapshotsView : UserControl
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException)
         {
+            LiveStudio.Diagnostics.ErrorDiagnostics.Record(exception);
             if (viewModel.SnapshotInspector is { } inspector)
             {
                 inspector.CameraSaveMessage = exception.Message;
